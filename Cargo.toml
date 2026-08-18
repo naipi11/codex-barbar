@@ -1,0 +1,7 @@
+[workspace]
+members = [
+    "rust",
+    "apps/desktop-tauri/src-tauri",
+]
+default-members = ["apps/desktop-tauri/src-tauri"]
+resolver = "3"

@@ -1,0 +1,29 @@
+[package]
+name = "codex-barbar-desktop"
+version = "1.0.14"
+edition = "2024"
+publish = false
+description = "Windows tray app for Codex usage and account management"
+repository = "https://github.com/naipi11/codex-barbar"
+
+[[bin]]
+name = "codex-barbar"
+path = "src/main.rs"
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+codexbar = { path = "../../../rust" }
+chrono = { version = "0.4", features = ["serde"] }
+raw-window-handle = "0.6"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tauri = { version = "2", features = ["image-png", "tray-icon", "custom-protocol"] }
+tauri-plugin-single-instance = "2"
+tokio = { version = "1", features = ["rt", "time", "sync", "net", "io-util"] }
+tracing = "0.1"
+uuid = { version = "1", features = ["v4"] }
+
+[target.'cfg(windows)'.dependencies]
+winreg = "0.55"

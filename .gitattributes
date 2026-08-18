@@ -1,0 +1,5 @@
+# Mark Swift code as vendored so GitHub shows Rust as primary language
+*.swift linguist-vendored
+Sources/** linguist-vendored
+Tests/** linguist-vendored
+Package.swift linguist-vendored

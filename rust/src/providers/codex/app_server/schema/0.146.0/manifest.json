@@ -1,0 +1,1106 @@
+﻿{
+    "capturedAtUtc":  "2026-08-06T11:54:11.1360601Z",
+    "files":  [
+                  {
+                      "sha256":  "9DE5A28A543214033B546DB66AD8D34748A949C9878A7E51EC57A99FEB2B8E67",
+                      "path":  "ApplyPatchApprovalParams.json"
+                  },
+                  {
+                      "sha256":  "2B9FE9EEC357D940BEF643BB656707EFEA0889787F31C4E69C12E58606468A0E",
+                      "path":  "ApplyPatchApprovalResponse.json"
+                  },
+                  {
+                      "sha256":  "B85DF8F169CFBCA98724DF3A5F7550FC4649FA69B23F5160AAFDB52E027133A8",
+                      "path":  "AttestationGenerateParams.json"
+                  },
+                  {
+                      "sha256":  "F7C8935C414AC74060CBC0FD4B298C022757E2DEA50B3D21A7D507CB24D3318D",
+                      "path":  "AttestationGenerateResponse.json"
+                  },
+                  {
+                      "sha256":  "8CA65B2CF4A991E5149535D987D7DCF3A1CDA0F887D6C4BC102EE56F83417456",
+                      "path":  "ChatgptAuthTokensRefreshParams.json"
+                  },
+                  {
+                      "sha256":  "0407A673D393E20836652E1C8449E851DAC0B510819712AA05BE3A80E92C9115",
+                      "path":  "ChatgptAuthTokensRefreshResponse.json"
+                  },
+                  {
+                      "sha256":  "A30B3041578845B11ADD3D07D5A63CD3A12D5D126E87B8C591862B4AEB68D97C",
+                      "path":  "ClientNotification.json"
+                  },
+                  {
+                      "sha256":  "08AA31F99D1FF7DAC7FCEB1C6CDD2C1298E24B2ED6BE4C9F8D9399887075550A",
+                      "path":  "ClientRequest.json"
+                  },
+                  {
+                      "sha256":  "776AB888B2E673311A4C53ED086D66B061DCFDC8CA595B4CF43220C2B3D04368",
+                      "path":  "codex_app_server_protocol.schemas.json"
+                  },
+                  {
+                      "sha256":  "ED729D040A64BFC7F955E1BD26D1A3163CBAA43619D000D0BBE9CB08C27AAB43",
+                      "path":  "codex_app_server_protocol.v2.schemas.json"
+                  },
+                  {
+                      "sha256":  "8C3A350288B0B66D4CAE74C67F7103BFA3BBDD9C8BB26D55448B67AD3218356F",
+                      "path":  "CommandExecutionRequestApprovalParams.json"
+                  },
+                  {
+                      "sha256":  "42010A48DD9AD989171728C30338E1FF8144C31BD33921CBFB5608FD6C85A3B5",
+                      "path":  "CommandExecutionRequestApprovalResponse.json"
+                  },
+                  {
+                      "sha256":  "E36242B331CA665C74993E55ABBEA381B1C8A961B29A42579029CFF1AD26B20D",
+                      "path":  "DynamicToolCallParams.json"
+                  },
+                  {
+                      "sha256":  "B5FD10C265BE9023F038FE3E4C937A8E215906C8AB31E35D61D28BBC0B755AF9",
+                      "path":  "DynamicToolCallResponse.json"
+                  },
+                  {
+                      "sha256":  "6B34B7C6C999280F51146C8F44B08A368987C0C3624B02A89904330B0178CD9E",
+                      "path":  "ExecCommandApprovalParams.json"
+                  },
+                  {
+                      "sha256":  "D044005B62CB8DE446CBAF7F598916974B5C6546B04F3FE552D7B8F880F069C7",
+                      "path":  "ExecCommandApprovalResponse.json"
+                  },
+                  {
+                      "sha256":  "7B465F7C5671ADFFDC5C339F50799860950307456E2A2B52C5CE1D3018F4BABD",
+                      "path":  "FileChangeRequestApprovalParams.json"
+                  },
+                  {
+                      "sha256":  "7CCBD29E5F8840C7C8AA96C5C3B6D52BC71EC5C5D7E1AD05AB958AFD44C0C94C",
+                      "path":  "FileChangeRequestApprovalResponse.json"
+                  },
+                  {
+                      "sha256":  "44CDBBE54965661BEF1452223B6096307741FB41E5A5CF5C161C5FEB8474F492",
+                      "path":  "FuzzyFileSearchParams.json"
+                  },
+                  {
+                      "sha256":  "45D5C686E50887D8FB590ECC090E05FB5B0023305682E932B4DC4DB4C0F55045",
+                      "path":  "FuzzyFileSearchResponse.json"
+                  },
+                  {
+                      "sha256":  "74F204B562A0C336678BFB1EBB0938636DC16B00E2AD9FDD646663EB0E4301CD",
+                      "path":  "FuzzyFileSearchSessionCompletedNotification.json"
+                  },
+                  {
+                      "sha256":  "7D5028B648196CE8AAC7690F6FFE94BDA49339F490F3581D50172A412F99F43C",
+                      "path":  "FuzzyFileSearchSessionUpdatedNotification.json"
+                  },
+                  {
+                      "sha256":  "05277AF4E68CAEABAE353D1E643D60501C7F2BF2DCC97348E4CDE4D0EBA83EB4",
+                      "path":  "JSONRPCError.json"
+                  },
+                  {
+                      "sha256":  "39DA0E7D4FCCD44C7E0ACD83AD1433C48A9BF64A3BA8F4CEE7EBED18EBBBF533",
+                      "path":  "JSONRPCErrorError.json"
+                  },
+                  {
+                      "sha256":  "7B819754EE909272F46D45DBD51BC9EB7BAB9861905AC1195F1FB5AFD7FF5E83",
+                      "path":  "JSONRPCMessage.json"
+                  },
+                  {
+                      "sha256":  "A8F8BFCA7128B6FFBBA13905CBA6AF966F8598C12237B5CB189B81861CB24E92",
+                      "path":  "JSONRPCNotification.json"
+                  },
+                  {
+                      "sha256":  "A174DBC58BE007346F5A10FE2F8C8F8C14CCB36191DC1AD0FDD8CE1828F8DB1C",
+                      "path":  "JSONRPCRequest.json"
+                  },
+                  {
+                      "sha256":  "94ECF5E81BDBC2AF858AFAD0044B95C7FB4DECF77D7FD7D6321324DAD79EEF57",
+                      "path":  "JSONRPCResponse.json"
+                  },
+                  {
+                      "sha256":  "12E180A344101863B73A3BA101D12AE14FFF1B6EFF679B7CCD0769CC22827261",
+                      "path":  "McpServerElicitationRequestParams.json"
+                  },
+                  {
+                      "sha256":  "B9658BA208BFC7ECB3139C4D9742608F260E1583BD6CD11666DCE289C975D670",
+                      "path":  "McpServerElicitationRequestResponse.json"
+                  },
+                  {
+                      "sha256":  "F40BC002F08D8A5CA6DA7849778C6F262A0FC6FCCAFA00B30F9FAC231312B29E",
+                      "path":  "PermissionsRequestApprovalParams.json"
+                  },
+                  {
+                      "sha256":  "E8669E089A78581A2F6C702DFF906038032A6055C103C07870AA42C06B7FE3FB",
+                      "path":  "PermissionsRequestApprovalResponse.json"
+                  },
+                  {
+                      "sha256":  "A33325D0ECA49631BF935E9A30D02BA542B42D563F8C58955D3E8F14AD6D3AB1",
+                      "path":  "RequestId.json"
+                  },
+                  {
+                      "sha256":  "B0168C86F69029A51BB30ADF78307D563CCA96237CC76D2244AEA6A1F5A7C7D0",
+                      "path":  "ServerNotification.json"
+                  },
+                  {
+                      "sha256":  "17E03BCC0A290AB8FAB43A8537191290889838C9132D9234AD7EDE16AE80A042",
+                      "path":  "ServerRequest.json"
+                  },
+                  {
+                      "sha256":  "21E569E32C05D51C1EE5E587730C182B911EDE97A4DF267F6E4EF24E1717F34E",
+                      "path":  "ToolRequestUserInputParams.json"
+                  },
+                  {
+                      "sha256":  "14EDE53C2E51B289FB3C80903292D4B0F0B387EAE217DBB257C201B2B7C65BF1",
+                      "path":  "ToolRequestUserInputResponse.json"
+                  },
+                  {
+                      "sha256":  "4F576F99E285BEB28F71F48A72B887C1F517DADA86FEE348FE2AF0A35511DE23",
+                      "path":  "v1\\InitializeParams.json"
+                  },
+                  {
+                      "sha256":  "86DCD236D0576A82C85B933586DC45731260EAB1B6EDB3447B03F790277322B1",
+                      "path":  "v1\\InitializeResponse.json"
+                  },
+                  {
+                      "sha256":  "C8DE16AE68AB990CC93BEA4A75B08079FFF3B49978F5BF3DDAFE84D578D1C635",
+                      "path":  "v2\\AccountLoginCompletedNotification.json"
+                  },
+                  {
+                      "sha256":  "0A0C7119B314862AD76A90E151C8FD9CFACC25B6A0DF3FF8849D878187476B83",
+                      "path":  "v2\\AccountRateLimitsUpdatedNotification.json"
+                  },
+                  {
+                      "sha256":  "1EDE9095191D53DA628E38B93E7FB572692E603DB9B7EE7CF8A72D29855D8BA0",
+                      "path":  "v2\\AccountUpdatedNotification.json"
+                  },
+                  {
+                      "sha256":  "6446E05718F69C5BBBDB7DA92997FFDDBC307C13C1222581708F7E5CE1C9E924",
+                      "path":  "v2\\AgentMessageDeltaNotification.json"
+                  },
+                  {
+                      "sha256":  "E4ED4ABF26AEAF5825579CE92091B867E7343BA5AB76F1250AF8210640550E8C",
+                      "path":  "v2\\AppListUpdatedNotification.json"
+                  },
+                  {
+                      "sha256":  "544A45FBD2F64F4F87FF0F9D923815737266DC99E7B73D528899E140BCF68A09",
+                      "path":  "v2\\AppsInstalledParams.json"
+                  },
+                  {
+                      "sha256":  "466AC83EA6E5A4D6176A1F2A4AA7B3CE9AB194CD147FB2F23CD057C91564716F",
+                      "path":  "v2\\AppsInstalledResponse.json"
+                  },
+                  {
+                      "sha256":  "8ACF7E21E1E7BD61FBCAB715C2AB53DF45ABB36C9F6B1F664B5C2910611B4CE8",
+                      "path":  "v2\\AppsListParams.json"
+                  },
+                  {
+                      "sha256":  "F48E2B0EBC573D551C9A30D0983B324ECD25DFEF62A2847C03AEF368590D3238",
+                      "path":  "v2\\AppsListResponse.json"
+                  },
+                  {
+                      "sha256":  "D264F6C7C038C4AF99EF660FE34FFADD2EC9CBF2F65A4652047216F5A332AEA4",
+                      "path":  "v2\\AppsReadParams.json"
+                  },
+                  {
+                      "sha256":  "7975C40B36EDC9A8502776F688ECA178081403B82F58D17E2D1A07FCED1BAE90",
+                      "path":  "v2\\AppsReadResponse.json"
+                  },
+                  {
+                      "sha256":  "1E4C2930D9CDAF4A8B02FACC54CA919629217CE6AA45BAE65BEAB674861C60F4",
+                      "path":  "v2\\CancelLoginAccountParams.json"
+                  },
+                  {
+                      "sha256":  "8691AC0CB3C82EC8DF9F523AC8571CB99B00EFA2D5531BCC13C6EF34BD7892D2",
+                      "path":  "v2\\CancelLoginAccountResponse.json"
+                  },
+                  {
+                      "sha256":  "AD1457966BA7E18F9A9CD6D0ABCC0E2884685C6F369F13C35D90687E1E13CB37",
+                      "path":  "v2\\CommandExecOutputDeltaNotification.json"
+                  },
+                  {
+                      "sha256":  "9F6C382E9F494C133952B828BD08E02CF091FF3490719A0C2C5EEA35705DCBC8",
+                      "path":  "v2\\CommandExecParams.json"
+                  },
+                  {
+                      "sha256":  "08C3B6490CAA9A76A39F3FBAAB8255E13ADFC228033B0A1AB01DBD60F3C7A54F",
+                      "path":  "v2\\CommandExecResizeParams.json"
+                  },
+                  {
+                      "sha256":  "BC16449A418538843E3F8EC485CE19481EA066952C38764E34DD981EDA0C776C",
+                      "path":  "v2\\CommandExecResizeResponse.json"
+                  },
+                  {
+                      "sha256":  "0DBCACAA27D794D801E701513A8CFB9D247CF20624C9A05BB6231866EBEEECB8",
+                      "path":  "v2\\CommandExecResponse.json"
+                  },
+                  {
+                      "sha256":  "524A323FA2AECE3C64325770D52FD18720ADFA226BCA93BEDD59D827BDB7F74D",
+                      "path":  "v2\\CommandExecTerminateParams.json"
+                  },
+                  {
+                      "sha256":  "7D59565735C556579512B9480AA8813DE45D8BDFEAF9310A99ED59C13E04DAB4",
+                      "path":  "v2\\CommandExecTerminateResponse.json"
+                  },
+                  {
+                      "sha256":  "E9D233BC133D3FEA6022FE7032CFEEDAD53D20D49DA771A3FD3424603D6F0DB1",
+                      "path":  "v2\\CommandExecutionOutputDeltaNotification.json"
+                  },
+                  {
+                      "sha256":  "0E60400AC3332C1BD2AEF10D49E2487B5A50C40D40AD9EBC2B2F59CCB18CA7B9",
+                      "path":  "v2\\CommandExecWriteParams.json"
+                  },
+                  {
+                      "sha256":  "0000C7901037E77C508002F290F693A09113CFCB4370AE6159A25A4C0BE61815",
+                      "path":  "v2\\CommandExecWriteResponse.json"
+                  },
+                  {
+                      "sha256":  "2BD22C49E64B1DD0451E756C093F16BDC61CD533880BACE5A33C62238FAB38CD",
+                      "path":  "v2\\ConfigBatchWriteParams.json"
+                  },
+                  {
+                      "sha256":  "9A51989DC089AC297037C6F1FDC65A73F9C8105837E93A998F173A80C7880172",
+                      "path":  "v2\\ConfigReadParams.json"
+                  },
+                  {
+                      "sha256":  "6891153C46366E5E0DBB08C618689F56D804482140C54079C1998BCA3C97CCBC",
+                      "path":  "v2\\ConfigReadResponse.json"
+                  },
+                  {
+                      "sha256":  "F9B9936C8C1AE58E587B341F12463A1A3597C4FD50327AE6BBF997C224B69B57",
+                      "path":  "v2\\ConfigRequirementsReadResponse.json"
+                  },
+                  {
+                      "sha256":  "7E89F7018FF6C7CFB58B3BF16C133FC110BC0E0D9135B8E806FF64BB7CCEFB1E",
+                      "path":  "v2\\ConfigValueWriteParams.json"
+                  },
+                  {
+                      "sha256":  "19308411367D17251E97F213458216882BB44C3AA342662B6A545C0E1C836965",
+                      "path":  "v2\\ConfigWarningNotification.json"
+                  },
+                  {
+                      "sha256":  "B21D63578D3EF4A0C11042C4387B139F281C0796299EC4639D78F27D46C8FC0D",
+                      "path":  "v2\\ConfigWriteResponse.json"
+                  },
+                  {
+                      "sha256":  "873AABF31C21EB310E6A1447EFF342D3D6D120388C5C51091768F6A8F7CDFF70",
+                      "path":  "v2\\ConsumeAccountRateLimitResetCreditParams.json"
+                  },
+                  {
+                      "sha256":  "1B4A2DBA3EE75970A66195CE8355CCCB99F3FE3489C726721463AE75C085FFE6",
+                      "path":  "v2\\ConsumeAccountRateLimitResetCreditResponse.json"
+                  },
+                  {
+                      "sha256":  "E0B92779009971631D385970CC0389D4F19E351466F84806DF36C29F4B9D5FFD",
+                      "path":  "v2\\ContextCompactedNotification.json"
+                  },
+                  {
+                      "sha256":  "F7A487FDBFDAFB3B3A882A74AA41A99FF4F1D3A69389807B6F3318540F223684",
+                      "path":  "v2\\DeprecationNoticeNotification.json"
+                  },
+                  {
+                      "sha256":  "D403E6DF7ABFF695E6308572C43F5ADD02448516D6CC12B33C406644B294D932",
+                      "path":  "v2\\EnvironmentConnectionNotification.json"
+                  },
+                  {
+                      "sha256":  "1EC871B02771300A26A34E41A7CFAF7484330A8C37C197D1AC133E753B083A09",
+                      "path":  "v2\\ErrorNotification.json"
+                  },
+                  {
+                      "sha256":  "84D7424CDD02F857C6C8C699A9B2CE6B107163235EA076805E5E68C12E7D8283",
+                      "path":  "v2\\ExperimentalFeatureEnablementSetParams.json"
+                  },
+                  {
+                      "sha256":  "806B13A0E11BB7840CC04B1B806EEE98E9F7F1B3463CEC320D075FADE7E07B90",
+                      "path":  "v2\\ExperimentalFeatureEnablementSetResponse.json"
+                  },
+                  {
+                      "sha256":  "001F41456E219E483DE64F8620AB05F2822CF44CF7D3E1AC39ADB2F0EC039490",
+                      "path":  "v2\\ExperimentalFeatureListParams.json"
+                  },
+                  {
+                      "sha256":  "6B894C2A092DAC26F4108F14152569277E1401E44B946C94F43CB55901F01CEC",
+                      "path":  "v2\\ExperimentalFeatureListResponse.json"
+                  },
+                  {
+                      "sha256":  "B9F54243A979413AB2A5675FC1B02C2A4F35CB3C9FD8A18021CDACAB668E20F1",
+                      "path":  "v2\\ExternalAgentConfigDetectParams.json"
+                  },
+                  {
+                      "sha256":  "694736917B707C167C9F156BC20AD1C906AF23048A794F6A2424000C94BBFFB9",
+                      "path":  "v2\\ExternalAgentConfigDetectResponse.json"
+                  },
+                  {
+                      "sha256":  "36257E083B265B0A84BD12D0BEEC077C30FCFA32B5C41505CB641C6F8D2AECA6",
+                      "path":  "v2\\ExternalAgentConfigImportCompletedNotification.json"
+                  },
+                  {
+                      "sha256":  "545F54DA02EA992D2063D9518DDEA977B90937EA9AB985680D76B07F232F9468",
+                      "path":  "v2\\ExternalAgentConfigImportHistoriesReadResponse.json"
+                  },
+                  {
+                      "sha256":  "DFA3AFEB9A68F6BEE834DC9B8288792F4FE4BAA5E1396EDBB4ADAB570696CEA9",
+                      "path":  "v2\\ExternalAgentConfigImportHistoryRecordParams.json"
+                  },
+                  {
+                      "sha256":  "D1C3956B1F5384B71CF605134DDB6BF9E2EAF68AB4F685FC8EDD5516E3E8C2E9",
+                      "path":  "v2\\ExternalAgentConfigImportHistoryRecordResponse.json"
+                  },
+                  {
+                      "sha256":  "AB36C7FC61B6B74FC524018ED67917DE149DE8376BE1F39A9D23E82394431881",
+                      "path":  "v2\\ExternalAgentConfigImportParams.json"
+                  },
+                  {
+                      "sha256":  "74E2967B77B3E9CA16737028B08DDB0E3A5D953955CC913C6668C7F3751D7179",
+                      "path":  "v2\\ExternalAgentConfigImportProgressNotification.json"
+                  },
+                  {
+                      "sha256":  "668D9CABD7ADA5E0135E15DF5D029D5BA642CCC6AAE974C86DBFCE11D3CFEE04",
+                      "path":  "v2\\ExternalAgentConfigImportResponse.json"
+                  },
+                  {
+                      "sha256":  "E46898ACF3BB3326C74CE2C6442B6EBCF052447DB96C8F3D740EDF901B7C265E",
+                      "path":  "v2\\FeedbackUploadParams.json"
+                  },
+                  {
+                      "sha256":  "B643E47A774302F708BA6629F7571E9B9ACE68ABEB7516AB0123DA9A497B7C4A",
+                      "path":  "v2\\FeedbackUploadResponse.json"
+                  },
+                  {
+                      "sha256":  "C99F43238E156716F4982FC4393FAEB7A9B5342CA63374FE215B9D99F2219E49",
+                      "path":  "v2\\FileChangeOutputDeltaNotification.json"
+                  },
+                  {
+                      "sha256":  "CDFEF70E910F028B9AFE11538E93C7F744142C819DDED0028A4DA4695A7F39C7",
+                      "path":  "v2\\FileChangePatchUpdatedNotification.json"
+                  },
+                  {
+                      "sha256":  "6B3BD3D000F41513D4D252FB792E5450B8F1EE60DB14BB1385DD696D81273492",
+                      "path":  "v2\\FsChangedNotification.json"
+                  },
+                  {
+                      "sha256":  "3D5AD669C4A149A20033626432A915B885F5BC0C2DFDBB962BE0960DA073E9FF",
+                      "path":  "v2\\FsCopyParams.json"
+                  },
+                  {
+                      "sha256":  "DF42CB70D864CCAE345CEC48E7454234D7E904FDAEE35C5DBBA523D3251B159B",
+                      "path":  "v2\\FsCopyResponse.json"
+                  },
+                  {
+                      "sha256":  "A4D5F69F2536B74C9204FE3CAF6B17731F380ED4B26C83CD245B74C453A0A6B4",
+                      "path":  "v2\\FsCreateDirectoryParams.json"
+                  },
+                  {
+                      "sha256":  "8CA90DC2B3F1E3923BBEE1A1A582F3D6126A86562A5BF4506C403D11BFDEA5DC",
+                      "path":  "v2\\FsCreateDirectoryResponse.json"
+                  },
+                  {
+                      "sha256":  "27E0E3AD13A718A928DE453C0DBB97928DD667C11BE7858ADCFFAFAA95AE7F45",
+                      "path":  "v2\\FsGetMetadataParams.json"
+                  },
+                  {
+                      "sha256":  "0B6C65E501E1572D4D6193A658D27C55F0F25475193286D5E673149DBD57EE73",
+                      "path":  "v2\\FsGetMetadataResponse.json"
+                  },
+                  {
+                      "sha256":  "1C80CE39CA0BC2B300ED3DCCCF2A51493AA1D8D27F2D30DBB0B6EF99A4A0F904",
+                      "path":  "v2\\FsReadDirectoryParams.json"
+                  },
+                  {
+                      "sha256":  "9B7009479142B1EAD2031B2DF4C3EFFA50469EFC30708DB0AA3BDABA4D574137",
+                      "path":  "v2\\FsReadDirectoryResponse.json"
+                  },
+                  {
+                      "sha256":  "7378F2BB4AD8FE2E12FE63A4972299EB70CA258DD2C8F553AA0BAF540F96F21B",
+                      "path":  "v2\\FsReadFileParams.json"
+                  },
+                  {
+                      "sha256":  "4E89CCDCA494A9ACCE354225C21FAAB4E78A8E8685E198B4A9779CA0AB9AEBB5",
+                      "path":  "v2\\FsReadFileResponse.json"
+                  },
+                  {
+                      "sha256":  "0714E695DBAF7D5CB89622C49119023F702B52E87D0E4F8D81C089FF051B3714",
+                      "path":  "v2\\FsRemoveParams.json"
+                  },
+                  {
+                      "sha256":  "DF87770E3AE6D4816CFD6E291A892D87F64F599A9BA43167B162A4FA83E42A94",
+                      "path":  "v2\\FsRemoveResponse.json"
+                  },
+                  {
+                      "sha256":  "77C0D06E92DEB217E94DB5BC3FB49649C42A50E27D22C81CBF7BB7A80EA8C8EC",
+                      "path":  "v2\\FsUnwatchParams.json"
+                  },
+                  {
+                      "sha256":  "D2243DFFB042D67CCD8F96792D5740BC1339003F57E943445EF22B1E22F3692B",
+                      "path":  "v2\\FsUnwatchResponse.json"
+                  },
+                  {
+                      "sha256":  "49A9690C22E1EAA996F7BBBEEFA6A1778196EBC625AFBFD7E451331F1975E79C",
+                      "path":  "v2\\FsWatchParams.json"
+                  },
+                  {
+                      "sha256":  "19B4F715108D7E5953200AA0C887138C20498E113A64C9B38863CEE2E31C5E04",
+                      "path":  "v2\\FsWatchResponse.json"
+                  },
+                  {
+                      "sha256":  "E85AB203C25B29E14EE210108326851433EA35817FC438475AEED40CF81E77F4",
+                      "path":  "v2\\FsWriteFileParams.json"
+                  },
+                  {
+                      "sha256":  "3A946EF3AC33632489F9DF1826C9CCA670B2DC70184225684372911D2A34A9BD",
+                      "path":  "v2\\FsWriteFileResponse.json"
+                  },
+                  {
+                      "sha256":  "D0DC3C0D428D37B1EC7887FA6B044244E6474578E1FF397C0872B2A6292073DB",
+                      "path":  "v2\\GetAccountParams.json"
+                  },
+                  {
+                      "sha256":  "BF15356700A8533B6CA0E4688C7B70D0C8C35A37BE8731D17ED6F1659FE6AD27",
+                      "path":  "v2\\GetAccountRateLimitsResponse.json"
+                  },
+                  {
+                      "sha256":  "A8B27A203541460D6593723F646900E1DF4417E0DE43DFC36C485643810E1F1A",
+                      "path":  "v2\\GetAccountResponse.json"
+                  },
+                  {
+                      "sha256":  "B4CB098E35C43A7E3B8C9211C3C1B12A79E5D89AFDCF40304E6B777E25A8C74B",
+                      "path":  "v2\\GetAccountTokenUsageResponse.json"
+                  },
+                  {
+                      "sha256":  "158650C7C3E8909CFB5A02A0BCC0EE765455FD33C212817B3AE64225C7873991",
+                      "path":  "v2\\GetWorkspaceMessagesResponse.json"
+                  },
+                  {
+                      "sha256":  "6EF51562302DBE0878D3C31CE773675B061952518072B93B17A4637E7930579B",
+                      "path":  "v2\\GuardianWarningNotification.json"
+                  },
+                  {
+                      "sha256":  "0808905096256AA064421DC699900F5C86539CBAF1A3133FDCE799FA72B672BD",
+                      "path":  "v2\\HookCompletedNotification.json"
+                  },
+                  {
+                      "sha256":  "653408F1430A8B7844835D676C7BE8E15E601FCB859818268AF87306C6B822CB",
+                      "path":  "v2\\HooksListParams.json"
+                  },
+                  {
+                      "sha256":  "3D644DE8179C9B7B26D0B70A57476F4CF2FC255E140DB5E8173D7E41548434AF",
+                      "path":  "v2\\HooksListResponse.json"
+                  },
+                  {
+                      "sha256":  "0E720D90C5550EF1FF328523F1CAE47F79CDD728D861B1AA6DADF13A51B3F29A",
+                      "path":  "v2\\HookStartedNotification.json"
+                  },
+                  {
+                      "sha256":  "49EF255AFE401AAEFF455F99175532CBC5FF948F2055E5BDE68792953A010252",
+                      "path":  "v2\\ItemCompletedNotification.json"
+                  },
+                  {
+                      "sha256":  "6D3B6E3A86E77ECF11FA7E15BF3B446D22026DEF0C590FFC59D5791E16839131",
+                      "path":  "v2\\ItemGuardianApprovalReviewCompletedNotification.json"
+                  },
+                  {
+                      "sha256":  "87445178C11927C8ECB98E6A38A5A4ACD1EE5E0B6B4B3FF247636BD2FE34FABB",
+                      "path":  "v2\\ItemGuardianApprovalReviewStartedNotification.json"
+                  },
+                  {
+                      "sha256":  "22CDD41E4120C507F7EF938636E66D1DED82F2488A7EC5A097A16FDE896D18AB",
+                      "path":  "v2\\ItemStartedNotification.json"
+                  },
+                  {
+                      "sha256":  "701916A7D444AFBBC68AEF9E72AB4E5C3111A8FD97560072E9B84713ADF9DDC0",
+                      "path":  "v2\\ListMcpServerStatusParams.json"
+                  },
+                  {
+                      "sha256":  "9F57363D187EE9581E88CC2FE8ED85E4B692353AE96B616689E934702442AF4A",
+                      "path":  "v2\\ListMcpServerStatusResponse.json"
+                  },
+                  {
+                      "sha256":  "2FA026DC2C9109B5E6B75C51D80809573BE7DE3986F3486389429DD6694350D9",
+                      "path":  "v2\\LoginAccountParams.json"
+                  },
+                  {
+                      "sha256":  "CC5CEE5BE0BADB73E655E3E91E5353501546D17B7E7BFE0FBFF9AEFE73466AD9",
+                      "path":  "v2\\LoginAccountResponse.json"
+                  },
+                  {
+                      "sha256":  "AC14DDFCA2EC6092B0039BE8720262D5A9930484D23E62544D2EF0B7E1DB7926",
+                      "path":  "v2\\LogoutAccountResponse.json"
+                  },
+                  {
+                      "sha256":  "0010E544BCAF05835264D30D9C51F8753FF6D0600078923BC7895D375B56DE09",
+                      "path":  "v2\\MarketplaceAddParams.json"
+                  },
+                  {
+                      "sha256":  "016E57C26A6F4CB6EEB853C877DD613921F8AFFE05CC49FF6AC80563F3D37665",
+                      "path":  "v2\\MarketplaceAddResponse.json"
+                  },
+                  {
+                      "sha256":  "62683DD94B7F04CB0FF9139F0FD65A4054C550E1365276FC4CBA689FCA53D0A2",
+                      "path":  "v2\\MarketplaceRemoveParams.json"
+                  },
+                  {
+                      "sha256":  "DD80FBF34262773465CF667A1B29EE147DAFCF717AD0B4056C4F65F45BAAE223",
+                      "path":  "v2\\MarketplaceRemoveResponse.json"
+                  },
+                  {
+                      "sha256":  "8B422D89AFA78A06648A3F6E755B6D1205AA389ADEBE074C7A1CE9F7DAC772A9",
+                      "path":  "v2\\MarketplaceUpgradeParams.json"
+                  },
+                  {
+                      "sha256":  "F1CADEFEC92A2538C7FA8FE15D3FB60B5D76D1BDD39DA1119D899F3933D1654F",
+                      "path":  "v2\\MarketplaceUpgradeResponse.json"
+                  },
+                  {
+                      "sha256":  "1B08DE843EA1D95B58C5823D7F74D17D6434C7CBC29CBA32B605EA3CD67D60DD",
+                      "path":  "v2\\McpResourceReadParams.json"
+                  },
+                  {
+                      "sha256":  "AFC28BEC6078E86F4C3ABD08BB4B07FAEDA47A6B95D0271F32AF8D293C28F648",
+                      "path":  "v2\\McpResourceReadResponse.json"
+                  },
+                  {
+                      "sha256":  "917F416509D0A48D67CCC014CD30A6C7D21A5656DED1011AF11206266171CBA6",
+                      "path":  "v2\\McpServerOauthLoginCompletedNotification.json"
+                  },
+                  {
+                      "sha256":  "D811D68D681D0310D71697D58CA8C65B0F2E36E856AACD510CE7F88BD2781998",
+                      "path":  "v2\\McpServerOauthLoginParams.json"
+                  },
+                  {
+                      "sha256":  "7A8369F66CA874851A82752B4D6579763CC1FFB44BDF1A37268EE15AB4EADC6B",
+                      "path":  "v2\\McpServerOauthLoginResponse.json"
+                  },
+                  {
+                      "sha256":  "54A77812DB02175DC69053870E582D3B314AF6F161F0C76846F3563B0F9487C4",
+                      "path":  "v2\\McpServerRefreshResponse.json"
+                  },
+                  {
+                      "sha256":  "BFD84AF7BE62E5F4093A904E2E290F924EB8639119557C01A34B98A1C4680BE2",
+                      "path":  "v2\\McpServerStatusUpdatedNotification.json"
+                  },
+                  {
+                      "sha256":  "35FA0FDDCDEE23CEB24A39B1E6DE62D1594B804B453DDA66CC522005393F6477",
+                      "path":  "v2\\McpServerToolCallParams.json"
+                  },
+                  {
+                      "sha256":  "83D100CCF933B4A1CE657BC7532A79C783DCDE8B4D059A2F2CC985D51538AD88",
+                      "path":  "v2\\McpServerToolCallResponse.json"
+                  },
+                  {
+                      "sha256":  "53DB836CFA93FECEF8968D3B750B936A679D5BEFED987C72AD6F0BC6E327F60F",
+                      "path":  "v2\\McpToolCallProgressNotification.json"
+                  },
+                  {
+                      "sha256":  "10AC5C0CB8DDBE840527C8EB8053DC4CED32EA3EFDFB200283CADC43447F9073",
+                      "path":  "v2\\ModelListParams.json"
+                  },
+                  {
+                      "sha256":  "6E5E52922A2CD66123B074AC0EF197557A151120DB815B3A6CA8402DA5AEC7A0",
+                      "path":  "v2\\ModelListResponse.json"
+                  },
+                  {
+                      "sha256":  "9DB732188A15476CABB42CF05E495AE0803A1ADA993FCA7348C21C30A998388D",
+                      "path":  "v2\\ModelProviderCapabilitiesReadParams.json"
+                  },
+                  {
+                      "sha256":  "E5E93E7D50E0F7C2C640FFE4D53107B97E36943680504184932FCFAB4C132E71",
+                      "path":  "v2\\ModelProviderCapabilitiesReadResponse.json"
+                  },
+                  {
+                      "sha256":  "56FAFBA427DA6C01AC5B27BE97386EDCEDE595AE2EE83273ADE01EF9931C6FF4",
+                      "path":  "v2\\ModelReroutedNotification.json"
+                  },
+                  {
+                      "sha256":  "B4E77ABCEE6DE1C88B3E2408240F0376BA34DA81D1EE2183499B8BD13E785C65",
+                      "path":  "v2\\ModelSafetyBufferingUpdatedNotification.json"
+                  },
+                  {
+                      "sha256":  "6F099D71955D14B8B48083C7DEA35F55DA3F09A6A5290ACBE9374D74A3FA80FD",
+                      "path":  "v2\\ModelVerificationNotification.json"
+                  },
+                  {
+                      "sha256":  "10D5550CEB091060105E0615AD10462917044BCEDA09F4C0816FE0EEC12C5AA1",
+                      "path":  "v2\\PermissionProfileListParams.json"
+                  },
+                  {
+                      "sha256":  "C4CCF5F00F326E13A0886CCDE89BAD06DC961E118E26229289A6CED166018808",
+                      "path":  "v2\\PermissionProfileListResponse.json"
+                  },
+                  {
+                      "sha256":  "200327ED4D6F14C0F39DEE5B57B7275559BEA7A5DB3815C4151C0E35DFAC8A4C",
+                      "path":  "v2\\PlanDeltaNotification.json"
+                  },
+                  {
+                      "sha256":  "9CEF9342214956F0DF8A5087E2BB2AEC0FDEA72F841B56AD96DC2BFA51160C51",
+                      "path":  "v2\\PluginInstalledParams.json"
+                  },
+                  {
+                      "sha256":  "C925D06682CD472E766E0BB569DB31ED17CEBEAD45402D14A8115422969FDA21",
+                      "path":  "v2\\PluginInstalledResponse.json"
+                  },
+                  {
+                      "sha256":  "25CB92881CA3CB8AC26C4604357C11365CBDEB00767DD3227B15A109BF904A30",
+                      "path":  "v2\\PluginInstallParams.json"
+                  },
+                  {
+                      "sha256":  "92AED7FA5993040D7D2430C7C3B38795DDDE5DE0626E468D7A0801BB7D7426ED",
+                      "path":  "v2\\PluginInstallResponse.json"
+                  },
+                  {
+                      "sha256":  "4DC2F486C40D2E65183B49D58B3FBE6E83E096D37ACF2EC65B5ACE70CA74E75F",
+                      "path":  "v2\\PluginListParams.json"
+                  },
+                  {
+                      "sha256":  "4C8053E27C331722D460A91335ADDC4ACEC5DE5A9B3E1A2AAF800D58595CCC97",
+                      "path":  "v2\\PluginListResponse.json"
+                  },
+                  {
+                      "sha256":  "DF191E956FB0905D4133EC1436962D786B6D3A02AC98D7F856827D4ED6018AF6",
+                      "path":  "v2\\PluginReadParams.json"
+                  },
+                  {
+                      "sha256":  "DAAF5615ED6F53A1F2CF565DAFF5FAEEA843B3F3F4053963377315408EFAAF45",
+                      "path":  "v2\\PluginReadResponse.json"
+                  },
+                  {
+                      "sha256":  "6DCF85FEFECEE8CCFA9349115C3CB63F27B110C30F76E2AFE5B6C59819F16C94",
+                      "path":  "v2\\PluginShareCheckoutParams.json"
+                  },
+                  {
+                      "sha256":  "4AE360CA0BF382CFE88E8BACA70A7B5E700A3D9414CB3925C44812DE1430997C",
+                      "path":  "v2\\PluginShareCheckoutResponse.json"
+                  },
+                  {
+                      "sha256":  "A106BA3C2731C9733E83D2AFA16BFEFF29BDE9C9B6C7589A9126AA61D34F291C",
+                      "path":  "v2\\PluginShareDeleteParams.json"
+                  },
+                  {
+                      "sha256":  "AE881A7F898F5287354DE5ADF6F42094CEF9029A9B9376BFD12AA1B0FE0B3106",
+                      "path":  "v2\\PluginShareDeleteResponse.json"
+                  },
+                  {
+                      "sha256":  "0D71280D2A655FFC26375044EC1693203848614F99FDB4563E0CB5A4EE40122B",
+                      "path":  "v2\\PluginShareListParams.json"
+                  },
+                  {
+                      "sha256":  "F09DF27DA985766097DD9B9D307124E6185B56B3EE026E9F21DFA2E757AAA998",
+                      "path":  "v2\\PluginShareListResponse.json"
+                  },
+                  {
+                      "sha256":  "E7F71B6333A5067A143305FB0ACD0BA6BABC3ED5578BDE5A6BED896AEFB801F9",
+                      "path":  "v2\\PluginShareSaveParams.json"
+                  },
+                  {
+                      "sha256":  "B38B6EBD7A4C954AB1EE251AD3154DB27D1E56D3D78C861E21471184C9CCE80E",
+                      "path":  "v2\\PluginShareSaveResponse.json"
+                  },
+                  {
+                      "sha256":  "8C837CDF68D77D5A1131B6319D76C3BF1D637E3C3D28FCBB708EA3DB272D853D",
+                      "path":  "v2\\PluginShareUpdateTargetsParams.json"
+                  },
+                  {
+                      "sha256":  "233B8D8F34EEF31D0EE5DC86110028651E9E74E899332204C0871C8F8820CBE5",
+                      "path":  "v2\\PluginShareUpdateTargetsResponse.json"
+                  },
+                  {
+                      "sha256":  "7496330DFDF494D658F5DC6998FEF1FC30D312616F036B08CF11D61FCE23A20B",
+                      "path":  "v2\\PluginSkillReadParams.json"
+                  },
+                  {
+                      "sha256":  "EC7EDBBCC67EE6D4D5FCC707D152B9EBB3B1E8FE3E27BEE035094A2B806BC600",
+                      "path":  "v2\\PluginSkillReadResponse.json"
+                  },
+                  {
+                      "sha256":  "15DE77DD5AB132305FA57299C41EA911A0CA22C4CA960BE5BB5506378AE5D291",
+                      "path":  "v2\\PluginUninstallParams.json"
+                  },
+                  {
+                      "sha256":  "F6A0C9C8DFD9E3FC4A535ECFA606F12922C09E469A37D6B1C6E189F45CACB89E",
+                      "path":  "v2\\PluginUninstallResponse.json"
+                  },
+                  {
+                      "sha256":  "32BC785470CF22ED93F50D508B96061B557FEAF824CA3FD9F27DDD40B13581EF",
+                      "path":  "v2\\ProcessExitedNotification.json"
+                  },
+                  {
+                      "sha256":  "71D9279DA816715D741E1B315CDE8737CA7016D0827B552E796A481D2EB70CB8",
+                      "path":  "v2\\ProcessOutputDeltaNotification.json"
+                  },
+                  {
+                      "sha256":  "D330286F1D9ABC273837091A9A4E7B4B2454721F4F3BC3A01386C2145105B4E7",
+                      "path":  "v2\\RawResponseCompletedNotification.json"
+                  },
+                  {
+                      "sha256":  "7516D207801FA58619274E2FD16D0C575B10C260FDF1F105A00B4FF82FA0E33F",
+                      "path":  "v2\\RawResponseItemCompletedNotification.json"
+                  },
+                  {
+                      "sha256":  "5CC137E90E8D51D703A671578245D2D983F6FE063D113E8F6C6AF0279011253C",
+                      "path":  "v2\\ReasoningSummaryPartAddedNotification.json"
+                  },
+                  {
+                      "sha256":  "7BD24D5D1CAD5B09F6D3FE7A40DE6A2D0C3218678BAD6199E704C4696597325B",
+                      "path":  "v2\\ReasoningSummaryTextDeltaNotification.json"
+                  },
+                  {
+                      "sha256":  "E2E7AEA35C4D95B4AD8EEAFE15629113F69EBFC2BE085CD4316AE02871B5B110",
+                      "path":  "v2\\ReasoningTextDeltaNotification.json"
+                  },
+                  {
+                      "sha256":  "A091C7B37ECA746E09E9DC714883807F58C6CE48A13E5C7BADD67C103A880CA2",
+                      "path":  "v2\\RemoteControlStatusChangedNotification.json"
+                  },
+                  {
+                      "sha256":  "2B0E0EC6D41E91E155339A646A1F1124146E879D40ADA6A02E374736129C1497",
+                      "path":  "v2\\ReviewStartParams.json"
+                  },
+                  {
+                      "sha256":  "20A87AC408E75F6D57F4EF96A0D2B73B972CFDD125CEA06D00B02F12799D96B4",
+                      "path":  "v2\\ReviewStartResponse.json"
+                  },
+                  {
+                      "sha256":  "E69A23583E5DECC5E9688413C1DB8EFAC775D067E6714FC9211CFFDEA7C6BE8B",
+                      "path":  "v2\\SendAddCreditsNudgeEmailParams.json"
+                  },
+                  {
+                      "sha256":  "7C5FCDD7A08408B41F1D2D04761BC3E60EC1D8010E63A612CC42EFAFF968C26D",
+                      "path":  "v2\\SendAddCreditsNudgeEmailResponse.json"
+                  },
+                  {
+                      "sha256":  "7CC32A834BE009C7A45DDA01B80AE01BB522C642EB0E886C6D4BD7EE89FDE643",
+                      "path":  "v2\\ServerRequestResolvedNotification.json"
+                  },
+                  {
+                      "sha256":  "D9D3BDA6C7FA1ED2BAFC2A6145676760972C0220DEE6B1D7229F82A25297A1F3",
+                      "path":  "v2\\SkillsChangedNotification.json"
+                  },
+                  {
+                      "sha256":  "24C9645B4F09B3D4D6ED8A18DDA989717959E200EB3A70CD455A97E0C3754CA1",
+                      "path":  "v2\\SkillsConfigWriteParams.json"
+                  },
+                  {
+                      "sha256":  "FE29C58A71CB9AB1048602970BCBE8059FACAB90879FDF7607D3C3158F21EE34",
+                      "path":  "v2\\SkillsConfigWriteResponse.json"
+                  },
+                  {
+                      "sha256":  "4E5F1864E142DF3DB1C607B60279B3214E41A4C5BD13C81211CB8A580107CA65",
+                      "path":  "v2\\SkillsExtraRootsSetParams.json"
+                  },
+                  {
+                      "sha256":  "B659EC17A196EAA3A23273A3E2D5596460EA329BC3ADE249971576BC723D9E96",
+                      "path":  "v2\\SkillsExtraRootsSetResponse.json"
+                  },
+                  {
+                      "sha256":  "A942AA92E6DA4CF8A76D6B99CBDAF6672864E6FF955F44A6D469F0363AFD3BF2",
+                      "path":  "v2\\SkillsListParams.json"
+                  },
+                  {
+                      "sha256":  "ADD42DF02AC991FC8F0FA4BD61915FF6F6783ECAEC55DB130E480E844F60C9F1",
+                      "path":  "v2\\SkillsListResponse.json"
+                  },
+                  {
+                      "sha256":  "FC4D4D076E3FE220108CE2F606A29148AB2E87CA7300DE00A469656E424C234B",
+                      "path":  "v2\\TerminalInteractionNotification.json"
+                  },
+                  {
+                      "sha256":  "D544A1253790A2B29D6DE8CBCE3065D6A238518E3AF8D964CFD8A2B18EECD99E",
+                      "path":  "v2\\ThreadApproveGuardianDeniedActionParams.json"
+                  },
+                  {
+                      "sha256":  "628336C7CDABD508D5202695502BB0F9CE42FDDE380F5EFDD4B033CF215D93E5",
+                      "path":  "v2\\ThreadApproveGuardianDeniedActionResponse.json"
+                  },
+                  {
+                      "sha256":  "3A166DD21245BF260F16D2FD55DA81BA57D9143C629881FBA32638B53351C18D",
+                      "path":  "v2\\ThreadArchivedNotification.json"
+                  },
+                  {
+                      "sha256":  "C02DD30EE0F272EC74C36F1E5CD44A5D9A4F0CEB5BA089B26A758E1375A320CA",
+                      "path":  "v2\\ThreadArchiveParams.json"
+                  },
+                  {
+                      "sha256":  "2E021DABD0930AE3E2BEB68CD0DDBAFC40FC20CFBF8DBCB5E2F9C0493D06A08C",
+                      "path":  "v2\\ThreadArchiveResponse.json"
+                  },
+                  {
+                      "sha256":  "D9978B8A5450DC6BA01CAC5AE6641493AA60C558340A718722A78EDA990048C8",
+                      "path":  "v2\\ThreadClosedNotification.json"
+                  },
+                  {
+                      "sha256":  "A7C4395F60BDDD38C953CB9508A05D2082790DA7B3EB4EF7E4FB66CF15B92227",
+                      "path":  "v2\\ThreadCompactStartParams.json"
+                  },
+                  {
+                      "sha256":  "74674E47F33E37D7D97D144EAC1789EF0580A1FC12D45A5675BB97CAA08D803A",
+                      "path":  "v2\\ThreadCompactStartResponse.json"
+                  },
+                  {
+                      "sha256":  "F9706A810EA40567DBCF59B1D926059FA9B13B7F2D85A97E1DCB388EE0A2EDC5",
+                      "path":  "v2\\ThreadDeletedNotification.json"
+                  },
+                  {
+                      "sha256":  "B0C68AFA98BF529010FE643DA11DB29A8A0A2F2963C8E7A25831F8612F98297D",
+                      "path":  "v2\\ThreadDeleteParams.json"
+                  },
+                  {
+                      "sha256":  "333C0C5DF96D78D1BCBDB19B57DDFA941DE9A02BDAE1C29D13C5311C2CDF6527",
+                      "path":  "v2\\ThreadDeleteResponse.json"
+                  },
+                  {
+                      "sha256":  "06E3DE57C66C249A70494FDBA4E227C085FA6CA567CF18C118C4741F9B615F69",
+                      "path":  "v2\\ThreadForkParams.json"
+                  },
+                  {
+                      "sha256":  "54C4937FE2592E3DD08E16936D6CC23926D313620D8F99F4749933F062235497",
+                      "path":  "v2\\ThreadForkResponse.json"
+                  },
+                  {
+                      "sha256":  "58B6A04CAE193932EB9E02858DFED26469D8D7B0A648CF3EE1A8AD0ADC1FF515",
+                      "path":  "v2\\ThreadGoalClearedNotification.json"
+                  },
+                  {
+                      "sha256":  "3283DABC2860C3ABDB59A73061AAF290B486BFF3AFDF9C46CDECCCEEB0F0FA3C",
+                      "path":  "v2\\ThreadGoalClearParams.json"
+                  },
+                  {
+                      "sha256":  "2F8CA66FEAAAEC3D3D0144CE23C65702C764BA92C4820DD3A6B84F7635C1655F",
+                      "path":  "v2\\ThreadGoalClearResponse.json"
+                  },
+                  {
+                      "sha256":  "619172AE68DA00476E628C515F44C212AF2D913AF77066266E5347809EB19023",
+                      "path":  "v2\\ThreadGoalGetParams.json"
+                  },
+                  {
+                      "sha256":  "8BF8015D45A3DBF02FFD02A90C524AABE2916334BEA435E59FAD0498D64C4845",
+                      "path":  "v2\\ThreadGoalGetResponse.json"
+                  },
+                  {
+                      "sha256":  "6216508B6A7BA9640BE7861B2FB14E8719100468EA906FC65DD882701CB86423",
+                      "path":  "v2\\ThreadGoalSetParams.json"
+                  },
+                  {
+                      "sha256":  "BE5A571F10AFDAE3AD5A61DB0891FA8A66001C1D5AB618163A131EFA461061AC",
+                      "path":  "v2\\ThreadGoalSetResponse.json"
+                  },
+                  {
+                      "sha256":  "BBECEA6DA1BE75429C5C1DFFD1A8307223AE97D861A96CB66AF6AE34D901140D",
+                      "path":  "v2\\ThreadGoalUpdatedNotification.json"
+                  },
+                  {
+                      "sha256":  "C2A14A9D3D66E54E1672B440824676A8292200A39EA765615CBFA98B07862FB0",
+                      "path":  "v2\\ThreadInjectItemsParams.json"
+                  },
+                  {
+                      "sha256":  "93D909E5B49B44DA02072D340F8AD0ECD417D448CCF27FE50BE7E369C7864159",
+                      "path":  "v2\\ThreadInjectItemsResponse.json"
+                  },
+                  {
+                      "sha256":  "3B37CF361C29B959CF29828DB3017C0A5E38D9C24DE5FBD089BD44D42F05D5F0",
+                      "path":  "v2\\ThreadListParams.json"
+                  },
+                  {
+                      "sha256":  "5B01B0C03141C2A15559879294EF065DAAC9715615D7DF65371BAF5F119D9958",
+                      "path":  "v2\\ThreadListResponse.json"
+                  },
+                  {
+                      "sha256":  "F1C2E4944F64EA6361DC4681F948D0C6FE2E79304AE2EB36DDAC06A3258D3885",
+                      "path":  "v2\\ThreadLoadedListParams.json"
+                  },
+                  {
+                      "sha256":  "681BACF8A22E64427F2DE8B67A2D3DBA925E68F35CA5556A96A4C9FBC8ECA85C",
+                      "path":  "v2\\ThreadLoadedListResponse.json"
+                  },
+                  {
+                      "sha256":  "2D59584E7A08A7E66635A1D72913AFFFA67346E4CFA2715B8A649466E8AEFA92",
+                      "path":  "v2\\ThreadMetadataUpdateParams.json"
+                  },
+                  {
+                      "sha256":  "3FB315C4DDA27B077341422BA081E60F5190C26DAEC101A384DF855F211F607B",
+                      "path":  "v2\\ThreadMetadataUpdateResponse.json"
+                  },
+                  {
+                      "sha256":  "7CD55307C0343508B226B9FE87CB7AF09711FB438CDEB5EB440CF37A5D2F5000",
+                      "path":  "v2\\ThreadNameUpdatedNotification.json"
+                  },
+                  {
+                      "sha256":  "DB97080F82FACC3259DBB9404E9F0DF81E360619F4CD73983A9D99D25F5089EE",
+                      "path":  "v2\\ThreadReadParams.json"
+                  },
+                  {
+                      "sha256":  "DD1F9DF782FC0E0A9D752DBF6F725634355B4889F9393074C9A71F768DCB2990",
+                      "path":  "v2\\ThreadReadResponse.json"
+                  },
+                  {
+                      "sha256":  "D02CDE1CF11584913474E80576175D448BE81553B445769540728879C147BE43",
+                      "path":  "v2\\ThreadRealtimeClosedNotification.json"
+                  },
+                  {
+                      "sha256":  "56A748C0A4B092A4CA065FFB48FF94E5D7BF07A73EF5B0494E61750F718A68EC",
+                      "path":  "v2\\ThreadRealtimeErrorNotification.json"
+                  },
+                  {
+                      "sha256":  "58B1962DAA93465E0CEB6A901B94FECABD4345E59329EBD830367B9293D150F6",
+                      "path":  "v2\\ThreadRealtimeItemAddedNotification.json"
+                  },
+                  {
+                      "sha256":  "688B323B533E78BEFA8B61A24E5CE9363C722048EA8E2903D0115E289F27417D",
+                      "path":  "v2\\ThreadRealtimeOutputAudioDeltaNotification.json"
+                  },
+                  {
+                      "sha256":  "C6650C43B28006844897466905EA24E58FA4021A76CDB0DCD46B88547507B049",
+                      "path":  "v2\\ThreadRealtimeSdpNotification.json"
+                  },
+                  {
+                      "sha256":  "B06208B7EC821B3DAF1D26EBCCEC14AD1F91558C94325D74DE836BF45D6FF852",
+                      "path":  "v2\\ThreadRealtimeStartedNotification.json"
+                  },
+                  {
+                      "sha256":  "C117B16578C2712397A37F2604E2EA393DE2E31AF135F4C4AB639FF275217ED5",
+                      "path":  "v2\\ThreadRealtimeTranscriptDeltaNotification.json"
+                  },
+                  {
+                      "sha256":  "A242B3528F8FAE45830C9B1FF65037BD240A327C5F7B2212FD42B3819C02D4CA",
+                      "path":  "v2\\ThreadRealtimeTranscriptDoneNotification.json"
+                  },
+                  {
+                      "sha256":  "8DA8C0718AD50F49A3999288B647E593B73F65AD9846530D18709C8349B8A191",
+                      "path":  "v2\\ThreadResumeParams.json"
+                  },
+                  {
+                      "sha256":  "1C63F02860C06FFC16CF27B3F538AA2885DF533BD4F8527678A85AFB6431442C",
+                      "path":  "v2\\ThreadResumeResponse.json"
+                  },
+                  {
+                      "sha256":  "27A2E5C31D48FA682A40B17A5ABFEF82428ED3A08CB265DAFF4B214956F63BA6",
+                      "path":  "v2\\ThreadRollbackParams.json"
+                  },
+                  {
+                      "sha256":  "B9DD718EBD8D2C3AB10CF77B94F1611B1F04D1603767AF1EE0693EE641FF6334",
+                      "path":  "v2\\ThreadRollbackResponse.json"
+                  },
+                  {
+                      "sha256":  "FF608965DE4FCFB7241DD0AFEAD85AF3B71A5D116CB7900A0839239C1FA7ED9F",
+                      "path":  "v2\\ThreadSetNameParams.json"
+                  },
+                  {
+                      "sha256":  "F8763716433FEEA94F7C1EBD59B6CEA4C261432E83240C13A8D49BA8185AA567",
+                      "path":  "v2\\ThreadSetNameResponse.json"
+                  },
+                  {
+                      "sha256":  "6E74137DB80611A24D7EA4A90D533D5E7BDBA60E2B75F79041A335EA8D597F84",
+                      "path":  "v2\\ThreadSettingsUpdatedNotification.json"
+                  },
+                  {
+                      "sha256":  "F6EAB1894A695D5415727CA68477D0BF3E428FC96A8CB6E80482FE5BA0FD2124",
+                      "path":  "v2\\ThreadShellCommandParams.json"
+                  },
+                  {
+                      "sha256":  "FD4911613F6A6DA2CA13B75342501D4D61F64E00A1083C6D60038369B8CAEEFE",
+                      "path":  "v2\\ThreadShellCommandResponse.json"
+                  },
+                  {
+                      "sha256":  "332A1EF820F11D4DF45BBBC1368F2154D32AD7CE6AAC642E9653D40579C04982",
+                      "path":  "v2\\ThreadStartedNotification.json"
+                  },
+                  {
+                      "sha256":  "F64DD3BAAEF9D956C8BC8EBB8D2FC3384C9237EE087CFBB7E1E764C8696A420C",
+                      "path":  "v2\\ThreadStartParams.json"
+                  },
+                  {
+                      "sha256":  "DC78F57EB18355C508254C5DDA20F83CF161C353EE6564C6395AB417DD864544",
+                      "path":  "v2\\ThreadStartResponse.json"
+                  },
+                  {
+                      "sha256":  "146AF6D3702C4F3C844BD10B6B6B3E2B872E958A8D7D822157C19AAA6DC085F6",
+                      "path":  "v2\\ThreadStatusChangedNotification.json"
+                  },
+                  {
+                      "sha256":  "A30830510723D95793880F2A629472F0142C3DF936799E24C8C92AFDE8E24402",
+                      "path":  "v2\\ThreadTokenUsageUpdatedNotification.json"
+                  },
+                  {
+                      "sha256":  "EF4344864FF316D1749AE947368C1E617CF8825E5C8AF8A828167EF991299B88",
+                      "path":  "v2\\ThreadUnarchivedNotification.json"
+                  },
+                  {
+                      "sha256":  "43505599FBC58D4B410DA2DA0F1BAE08AD1EF0D4D7D310CB0D82C07517DD5A89",
+                      "path":  "v2\\ThreadUnarchiveParams.json"
+                  },
+                  {
+                      "sha256":  "1F38A23814C3F087D1E14DD0433EDA221911C37DAB850BA08A37B6DA24E6255C",
+                      "path":  "v2\\ThreadUnarchiveResponse.json"
+                  },
+                  {
+                      "sha256":  "A03DC3D6C5A2F77F164B6BF4250D29F0C81C10C6B5F484FAC0B05392DC9C936A",
+                      "path":  "v2\\ThreadUnsubscribeParams.json"
+                  },
+                  {
+                      "sha256":  "14CD8BAAC4521C8101698DE3DF2D7A8E509ECE6BF9B8B5D11162D9391064B4AE",
+                      "path":  "v2\\ThreadUnsubscribeResponse.json"
+                  },
+                  {
+                      "sha256":  "5B5F2CA515658EA6FCCE7E961D1C3FEDDB3F48C0DCC813260C7CCF77A2D016AF",
+                      "path":  "v2\\TurnCompletedNotification.json"
+                  },
+                  {
+                      "sha256":  "100DE58CEE497CBF2382497D0C0215761E6C5BAA872009A0A55FF7D23364635C",
+                      "path":  "v2\\TurnDiffUpdatedNotification.json"
+                  },
+                  {
+                      "sha256":  "49132B57B09F09DC545ED1CD373C12EEDE6E880E9AFB54AE50ADD78BB42490CD",
+                      "path":  "v2\\TurnInterruptParams.json"
+                  },
+                  {
+                      "sha256":  "531DE6BE06FE979B5963F249BAB82498A175E614BF65AC12FB2E849DFE60BCF1",
+                      "path":  "v2\\TurnInterruptResponse.json"
+                  },
+                  {
+                      "sha256":  "3E2AA78CCD487D22D2C6A12B275D9C6FBC8BE707E24D59D44AAD05A75107DBD3",
+                      "path":  "v2\\TurnModerationMetadataNotification.json"
+                  },
+                  {
+                      "sha256":  "1198BBC36EEBF79716B97AB7A36C09E77BEC76EFCCEFA1F188FE2E22DB26D196",
+                      "path":  "v2\\TurnPlanUpdatedNotification.json"
+                  },
+                  {
+                      "sha256":  "E268134E79CAE246E39F110E67BD2EFBB49CE9A572520A85A96A7325EAF31E03",
+                      "path":  "v2\\TurnStartedNotification.json"
+                  },
+                  {
+                      "sha256":  "57807218A89B8D1E6932B86746A60382EA1C731F4C4A3A84A86A438EB07E89A4",
+                      "path":  "v2\\TurnStartParams.json"
+                  },
+                  {
+                      "sha256":  "099184DC9D6195CD965B8A90EE5D1CB05C87D9B329ACECDFBD63F358E660D568",
+                      "path":  "v2\\TurnStartResponse.json"
+                  },
+                  {
+                      "sha256":  "045B76F2B01B72A7BE57054EB9325B497914A5A6CFA3789A4228343691BEAD58",
+                      "path":  "v2\\TurnSteerParams.json"
+                  },
+                  {
+                      "sha256":  "A669B85E3B75B86468E39E6A2F760966BFFE83F378B514C6898FB04B838CD78D",
+                      "path":  "v2\\TurnSteerResponse.json"
+                  },
+                  {
+                      "sha256":  "8F8F87048F846A24CE06937CBCC11098E188FF262B71A986C0BCDE1A24E57A81",
+                      "path":  "v2\\WarningNotification.json"
+                  },
+                  {
+                      "sha256":  "002D645F1C0967AC8A4B1A0954E2C7561F8E299BD62DFE494026AE377D64C79E",
+                      "path":  "v2\\WindowsSandboxReadinessResponse.json"
+                  },
+                  {
+                      "sha256":  "158145A7DDA28E654796A06E1B627E6315283C3C0F2389B9502CF1C658CE8188",
+                      "path":  "v2\\WindowsSandboxSetupCompletedNotification.json"
+                  },
+                  {
+                      "sha256":  "35B4AA0A40A160CE84B44E821D78096E37712C2F8824EC374AD5BE564F35FBE2",
+                      "path":  "v2\\WindowsSandboxSetupStartParams.json"
+                  },
+                  {
+                      "sha256":  "29A24D86A75D5C76D5AE82FC8A3136FE2F0BC5785F5BFD033A0ABC05834090D3",
+                      "path":  "v2\\WindowsSandboxSetupStartResponse.json"
+                  },
+                  {
+                      "sha256":  "17181244DFD86ECE4375AD483EC6BCC6795443D85A2BF23B6F7E42FBCF1FA7E1",
+                      "path":  "v2\\WindowsWorldWritableWarningNotification.json"
+                  }
+              ],
+    "codexVersion":  "0.146.0"
+}

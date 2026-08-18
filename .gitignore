@@ -1,0 +1,124 @@
+# Xcode user/session
+xcuserdata/
+
+# Build products
+.build/
+DerivedData
+
+# Bundles / artifacts
+# Main app bundle (any variation)
+CodexBar.app/
+CodexBar *.app/
+CodexBar_*.app/
+Codexbar.app/
+# Release artifacts
+*.ipa
+*.dSYM*
+*.zip
+*.delta
+*.dmg
+*.pkg
+*.tar.gz
+*.tgz
+Icon.iconset
+debug_*.swift
+
+# Misc
+.DS_Store
+
+# Debug/analysis docs
+docs/*-analysis.md
+# Spec/plan scratch under docs (not product docs)
+docs/superpowers/
+
+# Local visual-brainstorming session artifacts
+.superpowers/
+
+# Swift Package Manager metadata (leave sources tracked)
+# Packages/
+# Package.resolved
+
+# Rust build artifacts
+rust/target/
+target/
+
+# Generated Tauri schemas from local desktop checks
+apps/desktop-tauri/src-tauri/gen/schemas/*.json
+rust/gen/schemas/*.json
+
+# Claude temp files
+tmpclaude-*
+.claude/
+.factory/
+.clawpatch/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+node_modules/
+apps/desktop-tauri/node_modules.broken/
+apps/desktop-tauri/node_modules.pnpm-failed-*/
+apps/desktop-tauri/node_modules.rebuild-*/
+dist/
+nul
+
+# Local scripts and env files
+.env
+.env.*
+/.local/
+/docs/
+# Product design specs and implementation plans are reviewed, committed artifacts.
+!/docs/
+!/docs/superpowers/
+!/docs/superpowers/specs/
+!/docs/superpowers/specs/*.md
+!/docs/superpowers/plans/
+!/docs/superpowers/plans/*.md
+/scripts/*
+/docs/ui-parity-workflow.md
+/scripts/crop_vm_preferences_proof.sh
+/scripts/fetch_vm_preferences_proof.sh
+/scripts/run_vm_provider_proof.sh
+/scripts/vm/*
+*.ps1
+!dev.ps1
+!scripts/*.ps1
+!scripts/**/*.ps1
+!/scripts/license-policy.json
+!/scripts/macos-windows-cross-build.sh
+!/scripts/run_vm_provider_proof.sh
+!/scripts/vm/provider_osclick_proof_unc.ps1
+!/scripts/vm/run_provider_proof_remote.sh
+!/scripts/vm/setup_syncthing_windows.ps1
+!/scripts/vm/windows_debug_relaunch.ps1
+version.env
+.stfolder-win-codexbar/
+
+# VM proof artifacts (screenshots/captures from Windows VM sessions)
+win11-*.png
+win11-*.ppm
+win11-*.json
+session1-*.png
+session1-*.txt
+*.ppm
+
+# Throwaway launch scripts
+launch-cb-nossh.cmd
+launch-cb.cmd
+launch-cb*.ps1
+run-cb.ps1
+check_windows.ps1
+
+# Stray Windows binaries (artifacts of cargo build, not source)
+codexbar.exe
+codexbar-desktop-tauri.exe
+/*.exe
+
+# Local git worktrees
+.worktrees/
+.atl/
+
+# Generated release artifacts
+/artifacts/

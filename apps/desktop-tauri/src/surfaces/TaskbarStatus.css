@@ -1,0 +1,160 @@
+html,
+body,
+#root {
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background: transparent !important;
+}
+
+.taskbar-status {
+  --quota-high: #56d98a;
+  --quota-medium: #f0b84f;
+  --quota-low: #f36b72;
+  --quota-unknown: #9299aa;
+  --surface-bg-alpha: 0.2;
+  display: inline-grid;
+  grid-auto-flow: column;
+  grid-template-columns: minmax(0, max-content) max-content;
+  height: 40px;
+  gap: 7px;
+  box-sizing: border-box;
+  padding: 0 7px 0 8px;
+  align-items: center;
+  border: 1px solid rgb(255 255 255 / calc(0.08 + var(--surface-bg-alpha) * 0.18));
+  border-radius: 12px;
+  background: rgb(24 26 34 / var(--surface-bg-alpha));
+  box-shadow: 0 6px 18px rgb(0 0 0 / calc(var(--surface-bg-alpha) * 0.32));
+  color: #f5f6fb;
+  font: 600 12px "Segoe UI", system-ui, sans-serif;
+  text-shadow: 0 1px 2px rgb(0 0 0 / 0.8);
+  user-select: none;
+}
+
+.taskbar-status-host {
+  display: contents;
+}
+
+.taskbar-status--visible {
+  width: 100%;
+  max-width: 100%;
+}
+
+.taskbar-status--measurement {
+  position: fixed;
+  left: -10000px;
+  top: -10000px;
+  width: max-content;
+  max-width: 318px;
+  visibility: hidden;
+  pointer-events: none;
+  contain: layout style;
+}
+
+.taskbar-status__main,
+.taskbar-status__close {
+  border: 0;
+  color: inherit;
+  cursor: pointer;
+  font: inherit;
+}
+
+.taskbar-status__main {
+  display: inline-grid;
+  grid-template-columns: max-content max-content minmax(0, auto) max-content;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+  padding: 0;
+  background: transparent;
+  text-align: left;
+}
+
+.taskbar-status__main:hover { color: #fff; }
+
+.taskbar-status__main:focus-visible,
+.taskbar-status__close:focus-visible {
+  outline: 2px solid #aeb9ff;
+  outline-offset: 2px;
+}
+
+.taskbar-status__avatar {
+  position: relative;
+  display: grid;
+  width: 24px;
+  height: 24px;
+  place-items: center;
+  border: 1px solid rgb(123 140 255 / 0.65);
+  border-radius: 8px;
+  background: rgb(123 140 255 / calc(0.12 + var(--surface-bg-alpha) * 0.2));
+  color: #e2e6ff;
+  font-size: 10px;
+}
+
+.taskbar-status__state-dot {
+  position: absolute;
+  right: -2px;
+  bottom: -2px;
+  width: 6px;
+  height: 6px;
+  border: 1px solid #20232d;
+  border-radius: 50%;
+  background: var(--quota-high);
+}
+
+.taskbar-status__identity { color: #f7f8ff; font-weight: 700; }
+.taskbar-status__quota-track {
+  display: inline-grid;
+  grid-auto-flow: column;
+  grid-auto-columns: max-content;
+  min-width: 0;
+  max-width: 166px;
+  gap: 7px;
+  overflow: hidden;
+  mask-image: linear-gradient(to right, #000 calc(100% - 12px), transparent);
+}
+.taskbar-status__metric { font-variant-numeric: tabular-nums; }
+.taskbar-status__metric[data-band="high"] { color: var(--quota-high); }
+.taskbar-status__metric[data-band="medium"] { color: var(--quota-medium); }
+.taskbar-status__metric[data-band="low"] { color: var(--quota-low); }
+.taskbar-status__metric[data-band="unknown"],
+.taskbar-status__reset { color: var(--quota-unknown); }
+
+.taskbar-status__close {
+  display: grid;
+  width: 24px;
+  height: 24px;
+  place-items: center;
+  padding: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: #c6cbd8;
+  font-size: 18px;
+  line-height: 1;
+}
+
+.taskbar-status__close[data-error="true"] {
+  color: var(--quota-low);
+  animation: taskbar-close-error 180ms ease-in-out 2;
+}
+
+.taskbar-status__live {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+.taskbar-status__close:hover { background: rgb(243 107 114 / 0.25); color: #fff; }
+.taskbar-status[data-trust="refreshing"] .taskbar-status__state-dot { animation: taskbar-status-pulse 1.2s ease-in-out infinite; }
+@keyframes taskbar-status-pulse { 50% { opacity: 0.45; transform: scale(0.78); } }
+@keyframes taskbar-close-error {
+  25% { transform: translateX(-1px); }
+  75% { transform: translateX(1px); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .taskbar-status__state-dot { animation: none !important; }
+  .taskbar-status__close[data-error="true"] { animation: none; }
+}

@@ -1,0 +1,58 @@
+{
+  "allowedSpdxIds": [
+    "MIT",
+    "Apache-2.0",
+    "Apache-2.0 WITH LLVM-exception",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "ISC",
+    "Zlib",
+    "Unicode-3.0",
+    "MPL-2.0",
+    "CC0-1.0",
+    "Unlicense",
+    "BSL-1.0"
+  ],
+  "exceptions": [
+    {
+      "package": "adler2@2.0.1",
+      "license": "0BSD OR MIT OR Apache-2.0",
+      "reason": "Triple licensed; MIT and Apache-2.0 branches are in the allowlist"
+    },
+    {
+      "package": "dunce@1.0.5",
+      "license": "CC0-1.0 OR MIT-0 OR Apache-2.0",
+      "reason": "Triple licensed; CC0-1.0 and Apache-2.0 branches are in the allowlist"
+    },
+    {
+      "package": "r-efi@5.3.0",
+      "license": "MIT OR Apache-2.0 OR LGPL-2.1-or-later",
+      "reason": "Dual/triple licensed; MIT and Apache-2.0 branches are in the allowlist"
+    },
+    {
+      "package": "r-efi@6.0.0",
+      "license": "MIT OR Apache-2.0 OR LGPL-2.1-or-later",
+      "reason": "Dual/triple licensed; MIT and Apache-2.0 branches are in the allowlist"
+    },
+    {
+      "package": "self_cell@1.2.2",
+      "license": "Apache-2.0 OR GPL-2.0-only",
+      "reason": "Dual licensed; Apache-2.0 branch is in the allowlist"
+    },
+    {
+      "package": "webpki-roots@1.0.7",
+      "license": "CDLA-Permissive-2.0",
+      "reason": "Single permissive data license used by the rustls/webpki-roots crate"
+    },
+    {
+      "package": "caniuse-lite@1.0.30001787",
+      "license": "CC-BY-4.0",
+      "reason": "CC-BY-4.0 data license used by caniuse-lite (frontend build dependency)"
+    },
+    {
+      "package": "@csstools/color-helpers@5.1.0",
+      "license": "MIT-0",
+      "reason": "MIT-0 is an OSI-approved permissive license used by a frontend build dependency"
+    }
+  ]
+}

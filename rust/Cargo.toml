@@ -1,0 +1,97 @@
+[package]
+name = "codexbar"
+version = "1.0.14"
+edition = "2024"
+authors = ["CodexBar Contributors"]
+description = "Shared Codex usage services for codex-barbar"
+license = "MIT"
+repository = "https://github.com/naipi11/codex-barbar"
+keywords = ["ai", "usage", "monitoring", "claude", "codex"]
+categories = ["command-line-utilities"]
+autobins = false
+
+[lib]
+path = "src/lib.rs"
+
+[features]
+default = []
+
+[dependencies]
+# Async runtime
+tokio = { version = "1", features = ["full"] }
+
+# HTTP client
+reqwest = { version = "0.12", features = ["json", "cookies", "rustls-tls", "stream"], default-features = false }
+
+# Serialization
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+# Logging
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
+
+# Error handling
+thiserror = "2"
+anyhow = "1"
+
+# Date/time
+chrono = { version = "0.4", features = ["serde"] }
+
+# Async utilities
+async-trait = "0.1"
+futures = "0.3"
+
+# SQLite for reading browser cookies
+rusqlite = { version = "0.32", features = ["bundled"] }
+
+base64 = "0.22"
+
+# Hashing for update verification
+sha2 = "0.10"
+
+# UUID generation
+uuid = { version = "1", features = ["v4", "serde"] }
+
+# Regex (lite version for simple matching)
+regex-lite = "0.1"
+
+# Dirs - standard directories
+dirs = "6"
+
+# Open URLs in browser
+open = "5"
+fluent-templates = "0.13"
+unic-langid = "0.9"
+
+# Windows-only
+[target.'cfg(windows)'.dependencies]
+windows = { version = "0.58", features = [
+    "Win32_Foundation",
+    "Win32_Globalization",
+    "Win32_Security_Authorization",
+    "Win32_Security_Credentials",
+    "Win32_Security_Cryptography",
+    "Win32_Security_Cryptography_Catalog",
+    "Win32_Security_Cryptography_Sip",
+    "Win32_Security_WinTrust",
+    "Win32_Storage_FileSystem",
+    "Win32_System_JobObjects",
+    "Win32_System_Memory",
+    "Win32_System_Threading",
+    "Win32_UI_WindowsAndMessaging",
+] }
+
+winreg = "0.55"
+
+[dev-dependencies]
+tokio-test = "0.4"
+tempfile = "3"
+mockito = "1.4"
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+strip = true
+panic = "abort"

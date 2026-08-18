@@ -1,0 +1,28 @@
+name: Interaction guard
+
+on:
+  issues:
+    types: [opened, reopened]
+  pull_request_target:
+    types: [opened, reopened]
+
+permissions:
+  contents: read
+  issues: write
+  pull-requests: write
+
+jobs:
+  guard:
+    # Skip maintainer-authored events entirely: no runner spin-up, no
+    # billed minutes. The guard only exists for untrusted authors.
+    # The association list must match trustedAssociations in
+    # .github/scripts/interaction-guard.mjs.
+    if: >-
+      !contains(fromJSON('["OWNER", "MEMBER", "COLLABORATOR"]'),
+        github.event.pull_request.author_association || github.event.issue.author_association)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - run: node .github/scripts/interaction-guard.mjs
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

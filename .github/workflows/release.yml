@@ -1,0 +1,155 @@
+name: Release build
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Version to build; must equal every product manifest version
+        required: true
+        type: string
+      publish_draft:
+        description: Create a draft GitHub Release after artifacts pass verification
+        required: false
+        default: false
+        type: boolean
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Windows V1 release
+    runs-on: windows-2025
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Resolve version
+        id: version
+        shell: pwsh
+        run: |
+          if ($env:GITHUB_EVENT_NAME -eq 'push') {
+            $tag = $env:GITHUB_REF_NAME
+            if (-not $tag.StartsWith('v')) {
+              throw "release tag must start with 'v': $tag"
+            }
+            $resolved = $tag.Substring(1)
+          } else {
+            $resolved = "${{ inputs.version }}"
+          }
+          "version=$resolved" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-msvc
+          components: rustfmt, clippy
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10.18.1
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+          cache-dependency-path: apps/desktop-tauri/pnpm-lock.yaml
+
+      - name: Install frontend deps
+        run: pnpm --dir apps/desktop-tauri install --frozen-lockfile
+
+      - name: Rust format check
+        run: cargo fmt --all --check
+
+      - name: Shared Rust clippy
+        run: cargo clippy --manifest-path rust/Cargo.toml --all-targets -- -D warnings
+
+      - name: Tauri Rust clippy
+        run: cargo clippy --manifest-path apps/desktop-tauri/src-tauri/Cargo.toml --all-targets -- -D warnings
+
+      - name: Shared Rust tests
+        run: cargo test --manifest-path rust/Cargo.toml
+
+      - name: Tauri Rust tests
+        run: cargo test --manifest-path apps/desktop-tauri/src-tauri/Cargo.toml
+
+      - name: Frontend tests
+        run: pnpm --dir apps/desktop-tauri test
+
+      - name: Frontend type check / build
+        run: pnpm --dir apps/desktop-tauri run build
+
+      - name: V1 boundary scan
+        shell: pwsh
+        run: .\scripts\assert-v1-boundaries.ps1
+
+      - name: Production dependency audit
+        run: pnpm --dir apps/desktop-tauri audit --prod --audit-level high
+
+      - name: License audit
+        shell: pwsh
+        run: .\scripts\audit-licenses.ps1
+
+      - name: Dependabot alert gate
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          $alerts = gh api "/repos/$env:GITHUB_REPOSITORY/dependabot/alerts" --paginate 2>$null
+          if ($LASTEXITCODE -ne 0) {
+            throw "Dependabot alerts API is not readable. Enable Dependabot alerts / security-events read access before publishing."
+          }
+          $critical = @($alerts | ConvertFrom-Json | Where-Object {
+            $_.state -eq 'open' -and $_.security_advisory.severity -in @('high', 'critical')
+          })
+          if ($critical.Count -gt 0) {
+            $names = $critical | ForEach-Object { $_.dependency.package.ecosystem + ':' + $_.dependency.package.name } | Sort-Object -Unique
+            throw "Open high/critical Dependabot alerts block release: $($names -join ', ')"
+          }
+
+      - name: Build release artifacts
+        shell: pwsh
+        run: |
+          .\scripts\windows-release-build.ps1 `
+            -Ref $env:GITHUB_SHA `
+            -Version "${{ steps.version.outputs.version }}" `
+            -OutputDirectory .\artifacts\release
+
+      - name: Verify release artifacts
+        shell: pwsh
+        run: |
+          .\scripts\verify-release-artifacts.ps1 `
+            -Version "${{ steps.version.outputs.version }}" `
+            -AssetsDirectory .\artifacts\release
+
+      - name: Upload release artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: codex-barbar-${{ steps.version.outputs.version }}
+          path: artifacts/release
+
+      - name: Create draft release
+        if: (github.event_name == 'workflow_dispatch' && inputs.publish_draft) || github.event_name == 'push'
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          $version = "${{ steps.version.outputs.version }}"
+          $notes = Join-Path $env:RUNNER_TEMP "release-notes.md"
+          "codex-barbar $version (unsigned build)" | Set-Content -Encoding utf8 $notes
+          $assets = @(
+            "artifacts/release/codex-barbar_${version}_x64-setup.exe",
+            "artifacts/release/codex-barbar_${version}_x64-portable.zip",
+            "artifacts/release/SHA256SUMS.txt",
+            "artifacts/release/codex-barbar_${version}_sbom.spdx.json",
+            "artifacts/release/artifact-manifest.json"
+          )
+          gh release create "v$version" --draft --title "codex-barbar $version" --notes-file $notes @assets

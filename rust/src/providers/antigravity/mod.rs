@@ -1,0 +1,849 @@
+//! Antigravity provider implementation
+//!
+//! Fetches usage data from Antigravity's local language server probe
+//! Uses Windows process detection to find CSRF token
+
+use async_trait::async_trait;
+use regex_lite::Regex;
+use serde::Deserialize;
+#[cfg(windows)]
+use std::os::windows::process::CommandExt;
+use std::process::Command;
+use std::sync::OnceLock;
+
+use crate::core::{
+    FetchContext, Provider, ProviderError, ProviderFetchResult, ProviderId, ProviderMetadata,
+    RateWindow, SourceMode, UsageSnapshot,
+};
+
+const NOT_RUNNING_MESSAGE: &str =
+    "Antigravity language server not running. Start Google Antigravity and sign in, then retry.";
+
+/// Antigravity provider
+pub struct AntigravityProvider {
+    metadata: ProviderMetadata,
+}
+
+/// Return a regex that matches `--<flag> <value>` or `--<flag>=<value>`.
+fn flag_re(flag: &str) -> Regex {
+    Regex::new(&format!(r"--{f}(?:\s+|\s*=\s*)(\S+)", f = flag)).expect("valid flag pattern")
+}
+
+impl AntigravityProvider {
+    pub fn new() -> Self {
+        Self {
+            metadata: ProviderMetadata {
+                id: ProviderId::Antigravity,
+                display_name: "Antigravity",
+                session_label: "Claude",
+                weekly_label: "Gemini Pro",
+                supports_opus: true,
+                supports_credits: false,
+                default_enabled: false,
+                is_primary: false,
+                dashboard_url: None,
+                status_page_url: None,
+            },
+        }
+    }
+
+    /// Detect running Antigravity language server and extract connection info
+    fn detect_process_info() -> Result<ProcessInfo, ProviderError> {
+        // Use PowerShell to get process command lines
+        #[cfg(windows)]
+        const CREATE_NO_WINDOW: u32 = 0x08000000;
+
+        let mut cmd = Command::new("powershell.exe");
+        cmd.args([
+                "-ExecutionPolicy", "Bypass",
+                "-Command",
+                "Get-CimInstance Win32_Process | Where-Object { $_.Name -like '*language_server_windows*' -or $_.Name -like 'language_server.exe' } | ForEach-Object { \"$($_.ProcessId)`t$($_.CommandLine)\" }"
+            ]);
+        #[cfg(windows)]
+        cmd.creation_flags(CREATE_NO_WINDOW);
+
+        let output = cmd
+            .output()
+            .map_err(|e| ProviderError::Other(format!("Failed to run PowerShell: {}", e)))?;
+
+        if !output.status.success() {
+            return Err(ProviderError::NotInstalled(
+                "Failed to detect Antigravity process".to_string(),
+            ));
+        }
+
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        Self::parse_process_info(&stdout)
+            .ok_or_else(|| ProviderError::NotInstalled(NOT_RUNNING_MESSAGE.to_string()))
+    }
+
+    fn parse_process_info(stdout: &str) -> Option<ProcessInfo> {
+        // Shared argument parser: handles `--flag value` and `--flag=value` forms
+        let csrf_re = flag_re("csrf_token");
+        let ext_csrf_re = flag_re("extension_server_csrf_token");
+        let port_re = flag_re("extension_server_port");
+        let https_port_re = flag_re("https_server_port");
+
+        for line in stdout.lines() {
+            if line.contains("--csrf_token") {
+                // Line is "<pid>\t<command line>"; split off the PID prefix we added so the
+                // PID can be used to enumerate the process's real listening ports below.
+                let (pid, line) = match line.split_once('\t') {
+                    Some((p, rest)) => (p.trim().parse::<u32>().ok(), rest),
+                    None => (None, line),
+                };
+
+                let csrf_token = csrf_re
+                    .captures(line)
+                    .and_then(|c| c.get(1))
+                    .map(|m| m.as_str().to_string());
+
+                let ext_csrf_token = ext_csrf_re
+                    .captures(line)
+                    .and_then(|c| c.get(1))
+                    .map(|m| m.as_str().to_string());
+
+                let port = port_re
+                    .captures(line)
+                    .and_then(|c| c.get(1))
+                    .and_then(|m| m.as_str().parse::<u16>().ok())
+                    .or_else(|| {
+                        https_port_re
+                            .captures(line)
+                            .and_then(|c| c.get(1))
+                            .and_then(|m| m.as_str().parse::<u16>().ok())
+                    });
+
+                if let Some(token) = csrf_token {
+                    return Some(ProcessInfo {
+                        csrf_token: token,
+                        extension_server_csrf_token: ext_csrf_token,
+                        extension_port: port,
+                        pid,
+                    });
+                }
+            }
+        }
+
+        None
+    }
+
+    /// Find the actual API port by probing the language server's candidate ports.
+    async fn find_api_port(
+        extension_port: Option<u16>,
+        pid: Option<u32>,
+    ) -> Result<u16, ProviderError> {
+        // The language server binds a RANDOM localhost port at startup; --extension_server_port
+        // is only a reference point (and belongs to a separate HTTP extension server), so the
+        // real gRPC/Connect API port is not guaranteed to be within a small window above it.
+        // Mirror the macOS/Linux probe (which uses `lsof`) by enumerating the language-server
+        // process's own listening ports first, then fall back to a heuristic window above the
+        // extension port and a few historically-seen ports.
+        //
+        // SECURITY: TLS verification is disabled because the local language server uses a
+        // self-signed certificate. This is scoped to 127.0.0.1 only; we confirm a port by
+        // checking that it answers the expected gRPC endpoint.
+        let client = crate::core::credentialed_http_client_builder()
+            .timeout(std::time::Duration::from_secs(2))
+            .danger_accept_invalid_certs(true)
+            .redirect(reqwest::redirect::Policy::none())
+            .build()
+            .map_err(|e| ProviderError::Other(e.to_string()))?;
+
+        // Ordered candidate ports: the process's real listening ports first (Windows
+        // equivalent of `lsof`), then the heuristic window above the extension port, then a
+        // few known ports as a last resort.
+        let mut candidates: Vec<u16> = Vec::new();
+        if let Some(pid) = pid {
+            candidates.extend(Self::listening_ports_for_pid(pid));
+        }
+        if let Some(ep) = extension_port.filter(|&p| p > 0) {
+            candidates.extend((0..20u16).map(|offset| ep.saturating_add(offset)));
+        }
+        candidates.extend([53835, 53836, 53837, 53838, 53845, 53849]);
+
+        let mut probed: Vec<u16> = Vec::new();
+        for port in candidates {
+            if probed.contains(&port) {
+                continue; // probe each port at most once
+            }
+            probed.push(port);
+            if Self::probe_api_port(&client, port).await {
+                return Ok(port);
+            }
+        }
+
+        Err(ProviderError::Other(
+            "Could not find Antigravity API port".to_string(),
+        ))
+    }
+
+    /// Probe a single candidate port. Returns true if it answers the language server's
+    /// gRPC endpoint (HTTP 200 or 401).
+    async fn probe_api_port(client: &reqwest::Client, port: u16) -> bool {
+        let url = format!(
+            "https://127.0.0.1:{}/exa.language_server_pb.LanguageServerService/GetUnleashData",
+            port
+        );
+        match client
+            .post(&url)
+            .header("Content-Type", "application/json")
+            .header("Connect-Protocol-Version", "1")
+            .body("{}")
+            .send()
+            .await
+        {
+            Ok(resp) => {
+                let code = resp.status().as_u16();
+                code == 200 || code == 401
+            }
+            Err(_) => false,
+        }
+    }
+
+    /// Enumerate the TCP ports a given PID is listening on (Windows `lsof` equivalent).
+    /// On Windows this uses `Get-NetTCPConnection`; it returns an empty list on any failure
+    /// so the caller deterministically falls back to the heuristic candidate ports.
+    #[cfg(windows)]
+    fn listening_ports_for_pid(pid: u32) -> Vec<u16> {
+        const CREATE_NO_WINDOW: u32 = 0x08000000;
+
+        let mut cmd = Command::new("powershell.exe");
+        cmd.args([
+            "-ExecutionPolicy",
+            "Bypass",
+            "-Command",
+            &format!(
+                "Get-NetTCPConnection -OwningProcess {pid} -State Listen \
+                 -ErrorAction SilentlyContinue | Select-Object -ExpandProperty LocalPort"
+            ),
+        ]);
+        cmd.creation_flags(CREATE_NO_WINDOW);
+
+        let Ok(output) = cmd.output() else {
+            return Vec::new();
+        };
+        if !output.status.success() {
+            return Vec::new();
+        }
+
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let mut ports: Vec<u16> = stdout
+            .lines()
+            .filter_map(|l| l.trim().parse::<u16>().ok())
+            .collect();
+        ports.sort_unstable();
+        ports.dedup();
+        ports
+    }
+
+    /// Non-Windows platforms have no `Get-NetTCPConnection`; return an empty list by design so
+    /// the caller falls back to the heuristic candidate ports.
+    #[cfg(not(windows))]
+    fn listening_ports_for_pid(_pid: u32) -> Vec<u16> {
+        Vec::new()
+    }
+
+    /// Fetch user status from Antigravity API
+    async fn fetch_user_status(&self) -> Result<UsageSnapshot, ProviderError> {
+        let process_info = Self::detect_process_info()?;
+        let api_port = Self::find_api_port(process_info.extension_port, process_info.pid).await?;
+
+        // SECURITY: TLS verification disabled for local language server (see find_api_port)
+        let client = crate::core::credentialed_http_client_builder()
+            .timeout(std::time::Duration::from_secs(8))
+            .danger_accept_invalid_certs(true)
+            .redirect(reqwest::redirect::Policy::none())
+            .build()
+            .map_err(|e| ProviderError::Other(e.to_string()))?;
+
+        let url = format!(
+            "https://127.0.0.1:{}/exa.language_server_pb.LanguageServerService/GetUserStatus",
+            api_port
+        );
+
+        let body = serde_json::json!({
+            "metadata": {
+                "ideName": "antigravity",
+                "extensionName": "antigravity",
+                "ideVersion": "unknown",
+                "locale": "en"
+            }
+        });
+
+        // Use extension server CSRF token if available, otherwise fall back to language server token
+        let csrf_token = process_info
+            .extension_server_csrf_token
+            .as_deref()
+            .unwrap_or(&process_info.csrf_token);
+
+        let resp = client
+            .post(&url)
+            .header("Content-Type", "application/json")
+            .header("Connect-Protocol-Version", "1")
+            .header("X-Codeium-Csrf-Token", csrf_token)
+            .json(&body)
+            .send()
+            .await
+            .map_err(|e| ProviderError::Other(format!("API request failed: {}", e)))?;
+
+        if !resp.status().is_success() {
+            // Retry with language server CSRF token if extension server token failed
+            if process_info.extension_server_csrf_token.is_some() {
+                let retry_resp = client
+                    .post(&url)
+                    .header("Content-Type", "application/json")
+                    .header("Connect-Protocol-Version", "1")
+                    .header("X-Codeium-Csrf-Token", &process_info.csrf_token)
+                    .json(&body)
+                    .send()
+                    .await;
+
+                if let Ok(retry) = retry_resp
+                    && retry.status().is_success()
+                {
+                    let json: UserStatusResponse = retry
+                        .json()
+                        .await
+                        .map_err(|e| ProviderError::Parse(e.to_string()))?;
+                    return self.parse_user_status(json);
+                }
+            }
+
+            let status = resp.status();
+            let text = resp.text().await.unwrap_or_default();
+            return Err(ProviderError::Other(format!(
+                "API error {}: {}",
+                status, text
+            )));
+        }
+
+        let json: UserStatusResponse = resp
+            .json()
+            .await
+            .map_err(|e| ProviderError::Other(format!("Failed to parse response: {}", e)))?;
+
+        self.parse_user_status(json)
+    }
+
+    fn parse_user_status(
+        &self,
+        response: UserStatusResponse,
+    ) -> Result<UsageSnapshot, ProviderError> {
+        let user_status = response
+            .user_status
+            .ok_or_else(|| ProviderError::Other("Missing userStatus".to_string()))?;
+
+        let model_configs = user_status
+            .cascade_model_config_data
+            .and_then(|d| d.client_model_configs)
+            .unwrap_or_default();
+
+        let mut quota_configs = model_configs
+            .iter()
+            .filter(|config| config.quota_info.is_some())
+            .filter(|config| !model_label(config).is_empty())
+            .collect::<Vec<_>>();
+        quota_configs.sort_by(|a, b| compare_model_configs(a, b));
+
+        let summary_candidates = quota_configs
+            .iter()
+            .copied()
+            .filter(|config| !is_noisy_summary_model(model_label(config)))
+            .collect::<Vec<_>>();
+
+        let primary = best_summary_model(&summary_candidates, ModelFamily::Claude)
+            .and_then(|config| config.quota_info.as_ref())
+            .map(rate_window_from_quota)
+            .or_else(|| {
+                summary_candidates
+                    .first()
+                    .and_then(|config| config.quota_info.as_ref())
+                    .map(rate_window_from_quota)
+            })
+            .or_else(|| {
+                quota_configs
+                    .first()
+                    .and_then(|config| config.quota_info.as_ref())
+                    .map(rate_window_from_quota)
+            });
+
+        let secondary = best_summary_model(&summary_candidates, ModelFamily::GeminiPro)
+            .and_then(|config| config.quota_info.as_ref())
+            .map(rate_window_from_quota);
+
+        let tertiary = best_summary_model(&summary_candidates, ModelFamily::GeminiFlash)
+            .and_then(|config| config.quota_info.as_ref())
+            .map(rate_window_from_quota);
+
+        let primary = primary.unwrap_or_else(|| RateWindow::new(0.0));
+        let mut snapshot = UsageSnapshot::new(primary);
+
+        if let Some(sec) = secondary {
+            snapshot = snapshot.with_secondary(sec);
+        }
+        if let Some(ter) = tertiary {
+            snapshot = snapshot.with_model_specific(ter);
+        }
+
+        for config in quota_configs {
+            let Some(quota) = &config.quota_info else {
+                continue;
+            };
+            let title = clean_model_label(model_label(config));
+            if title.is_empty() {
+                continue;
+            }
+            snapshot = snapshot.with_extra_rate_window(
+                model_window_id(config),
+                title,
+                rate_window_from_quota(quota),
+            );
+        }
+
+        // Add plan info
+        let plan_name = user_status
+            .plan_status
+            .and_then(|ps| ps.plan_info)
+            .and_then(|pi| pi.plan_display_name.or(pi.plan_name));
+
+        if let Some(plan) = plan_name {
+            snapshot = snapshot.with_login_method(&plan);
+        }
+
+        Ok(snapshot)
+    }
+}
+
+impl Default for AntigravityProvider {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+#[async_trait]
+impl Provider for AntigravityProvider {
+    fn id(&self) -> ProviderId {
+        ProviderId::Antigravity
+    }
+
+    fn metadata(&self) -> &ProviderMetadata {
+        &self.metadata
+    }
+
+    async fn fetch_usage(&self, _ctx: &FetchContext) -> Result<ProviderFetchResult, ProviderError> {
+        tracing::debug!("Fetching Antigravity usage via local probe");
+
+        match self.fetch_user_status().await {
+            Ok(usage) => Ok(ProviderFetchResult::new(usage, "local")),
+            Err(e) => {
+                tracing::warn!("Antigravity probe failed: {}", e);
+                Err(e)
+            }
+        }
+    }
+
+    fn available_sources(&self) -> Vec<SourceMode> {
+        vec![SourceMode::Auto, SourceMode::Cli]
+    }
+
+    fn supports_cli(&self) -> bool {
+        true
+    }
+}
+
+struct ProcessInfo {
+    csrf_token: String,
+    extension_server_csrf_token: Option<String>,
+    extension_port: Option<u16>,
+    pid: Option<u32>,
+}
+
+// API Response types
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct UserStatusResponse {
+    user_status: Option<UserStatus>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct UserStatus {
+    #[allow(dead_code)]
+    email: Option<String>,
+    plan_status: Option<PlanStatus>,
+    cascade_model_config_data: Option<ModelConfigData>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct PlanStatus {
+    plan_info: Option<PlanInfo>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct PlanInfo {
+    plan_name: Option<String>,
+    plan_display_name: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ModelConfigData {
+    client_model_configs: Option<Vec<ModelConfig>>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ModelConfig {
+    #[serde(default)]
+    label: String,
+    #[serde(default)]
+    model_id: Option<String>,
+    #[serde(default)]
+    id: Option<String>,
+    quota_info: Option<QuotaInfo>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct QuotaInfo {
+    remaining_fraction: Option<f64>,
+    reset_time: Option<String>,
+}
+
+// ── Model-family classification ──────────────────────────────────────
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum ModelFamily {
+    Claude,
+    ClaudeThinking,
+    GeminiPro,
+    GeminiFlash,
+    Other,
+}
+
+fn classify_model(label: &str) -> ModelFamily {
+    let lower = label.to_lowercase();
+    if lower.contains("claude") {
+        if lower.contains("thinking") {
+            ModelFamily::ClaudeThinking
+        } else {
+            ModelFamily::Claude
+        }
+    } else if lower.contains("gemini") && lower.contains("pro") {
+        ModelFamily::GeminiPro
+    } else if lower.contains("gemini") && lower.contains("flash") {
+        ModelFamily::GeminiFlash
+    } else if lower.contains("pro") && !is_noisy_summary_model(&lower) {
+        ModelFamily::GeminiPro
+    } else if lower.contains("flash") {
+        ModelFamily::GeminiFlash
+    } else {
+        ModelFamily::Other
+    }
+}
+
+fn best_summary_model<'a>(
+    candidates: &[&'a ModelConfig],
+    family: ModelFamily,
+) -> Option<&'a ModelConfig> {
+    candidates
+        .iter()
+        .copied()
+        .filter(|config| classify_model(model_label(config)) == family)
+        .min_by(|a, b| {
+            let a_label = model_label(a);
+            let b_label = model_label(b);
+            let a_priority = selection_priority(a_label, family);
+            let b_priority = selection_priority(b_label, family);
+            a_priority
+                .cmp(&b_priority)
+                .then_with(|| compare_model_configs(a, b))
+        })
+}
+
+fn selection_priority(label: &str, family: ModelFamily) -> u8 {
+    let lower = label.to_lowercase();
+    match family {
+        ModelFamily::GeminiPro if lower.contains("low") => 0,
+        ModelFamily::GeminiPro => 1,
+        _ => 0,
+    }
+}
+
+fn compare_model_configs(a: &ModelConfig, b: &ModelConfig) -> std::cmp::Ordering {
+    let a_label = model_label(a);
+    let b_label = model_label(b);
+    family_rank(classify_model(a_label))
+        .cmp(&family_rank(classify_model(b_label)))
+        .then_with(|| parse_model_version(b_label).cmp(&parse_model_version(a_label)))
+        .then_with(|| tier_rank(a_label).cmp(&tier_rank(b_label)))
+        .then_with(|| clean_model_label(a_label).cmp(&clean_model_label(b_label)))
+}
+
+fn family_rank(family: ModelFamily) -> u8 {
+    match family {
+        ModelFamily::Claude => 0,
+        ModelFamily::GeminiPro => 1,
+        ModelFamily::GeminiFlash => 2,
+        ModelFamily::ClaudeThinking => 3,
+        ModelFamily::Other => 4,
+    }
+}
+
+fn tier_rank(label: &str) -> u8 {
+    let lower = label.to_lowercase();
+    if lower.contains("high") {
+        0
+    } else if lower.contains("medium") {
+        1
+    } else if lower.contains("low") {
+        2
+    } else {
+        3
+    }
+}
+
+fn parse_model_version(label: &str) -> (u16, u16) {
+    static VERSION_RE: OnceLock<Regex> = OnceLock::new();
+    let regex =
+        VERSION_RE.get_or_init(|| Regex::new(r"(?i)(\d+)(?:[.-](\d+))?").expect("valid regex"));
+    let Some(caps) = regex.captures(label) else {
+        return (0, 0);
+    };
+    let major = caps
+        .get(1)
+        .and_then(|m| m.as_str().parse::<u16>().ok())
+        .unwrap_or(0);
+    let minor = caps
+        .get(2)
+        .and_then(|m| m.as_str().parse::<u16>().ok())
+        .unwrap_or(0);
+    (major, minor)
+}
+
+fn is_noisy_summary_model(label: &str) -> bool {
+    let lower = label.to_lowercase();
+    lower.contains("image")
+        || lower.contains("lite")
+        || lower.contains("autocomplete")
+        || lower.contains("completion")
+        || lower.contains("internal")
+}
+
+fn model_label(config: &ModelConfig) -> &str {
+    if !config.label.trim().is_empty() {
+        &config.label
+    } else if let Some(model_id) = config.model_id.as_deref() {
+        model_id
+    } else {
+        config.id.as_deref().unwrap_or_default()
+    }
+}
+
+fn model_window_id(config: &ModelConfig) -> String {
+    let raw = config
+        .model_id
+        .as_deref()
+        .or(config.id.as_deref())
+        .unwrap_or_else(|| model_label(config));
+    let slug = raw
+        .chars()
+        .map(|ch| {
+            if ch.is_ascii_alphanumeric() {
+                ch.to_ascii_lowercase()
+            } else {
+                '-'
+            }
+        })
+        .collect::<String>()
+        .trim_matches('-')
+        .to_string();
+    format!("model-{}", if slug.is_empty() { "unknown" } else { &slug })
+}
+
+fn rate_window_from_quota(quota: &QuotaInfo) -> RateWindow {
+    let remaining = quota.remaining_fraction.unwrap_or(1.0);
+    let used_percent = (1.0 - remaining) * 100.0;
+    RateWindow::with_details(used_percent, None, None, quota.reset_time.clone())
+}
+
+fn clean_model_label(label: &str) -> String {
+    let mut out = label.trim().replace('_', " ");
+    while out.contains("  ") {
+        out = out.replace("  ", " ");
+    }
+    out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_classify_model_families() {
+        assert_eq!(classify_model("Claude 3.5 Sonnet"), ModelFamily::Claude);
+        assert_eq!(classify_model("claude-4-opus"), ModelFamily::Claude);
+        assert_eq!(
+            classify_model("Claude Thinking"),
+            ModelFamily::ClaudeThinking
+        );
+        assert_eq!(
+            classify_model("claude-3.5-sonnet-thinking"),
+            ModelFamily::ClaudeThinking
+        );
+        assert_eq!(classify_model("Gemini 2.5 Pro Low"), ModelFamily::GeminiPro);
+        assert_eq!(classify_model("gemini-pro-low"), ModelFamily::GeminiPro);
+        assert_eq!(classify_model("Pro Low Latency"), ModelFamily::GeminiPro);
+        assert_eq!(classify_model("Gemini 2.5 Flash"), ModelFamily::GeminiFlash);
+        assert_eq!(classify_model("gemini-flash"), ModelFamily::GeminiFlash);
+        assert_eq!(classify_model("Flash Model"), ModelFamily::GeminiFlash);
+        assert_eq!(classify_model("GPT-4o"), ModelFamily::Other);
+        assert_eq!(classify_model("unknown-model"), ModelFamily::Other);
+    }
+
+    #[test]
+    fn parses_current_language_server_process() {
+        let output = r"4242	C:\Users\test\AppData\Local\Programs\Antigravity\resources\bin\language_server.exe --csrf_token 11111111-2222-3333-4444-555555555555 --extension_server_port 54123";
+
+        let process = AntigravityProvider::parse_process_info(output).expect("process info");
+
+        assert_eq!(process.pid, Some(4242));
+        assert_eq!(process.extension_port, Some(54123));
+        assert_eq!(process.csrf_token, "11111111-2222-3333-4444-555555555555");
+    }
+
+    #[test]
+    fn parses_language_server_without_extension_server_port() {
+        let output = "34564\tC:\\Users\\test\\AppData\\Local\\Programs\\Antigravity\\resources\\bin\\language_server.exe --standalone --override_ide_name antigravity --subclient_type hub --override_ide_version 2.0.11 --https_server_port 0 --csrf_token 68dda2fb-6b26-40c0-aeef-b9a628615714 --app_data_dir antigravity";
+
+        let process = AntigravityProvider::parse_process_info(output)
+            .expect("process info should be detected");
+
+        assert_eq!(process.pid, Some(34564));
+        assert_eq!(process.extension_port, Some(0));
+        assert_eq!(process.csrf_token, "68dda2fb-6b26-40c0-aeef-b9a628615714");
+    }
+
+    #[test]
+    fn parses_language_server_without_any_port_arg() {
+        let output = "34564\tC:\\Users\\test\\AppData\\Local\\Programs\\Antigravity\\resources\\bin\\language_server.exe --standalone --csrf_token aabbccdd-1122-3344-5566-778899001122 --app_data_dir antigravity";
+
+        let process = AntigravityProvider::parse_process_info(output)
+            .expect("process info should be detected");
+
+        assert_eq!(process.pid, Some(34564));
+        assert_eq!(process.extension_port, None);
+        assert_eq!(process.csrf_token, "aabbccdd-1122-3344-5566-778899001122");
+    }
+
+    #[test]
+    fn parses_equals_form_args() {
+        let output = "34564\tC:\\Users\\test\\AppData\\Local\\Programs\\Antigravity\\resources\\bin\\language_server.exe --csrf_token=68dda2fb-6b26-40c0-aeef-b9a628615714 --https_server_port=61999";
+
+        let process = AntigravityProvider::parse_process_info(output)
+            .expect("process info should be detected");
+
+        assert_eq!(process.pid, Some(34564));
+        assert_eq!(process.extension_port, Some(61999));
+        assert_eq!(process.csrf_token, "68dda2fb-6b26-40c0-aeef-b9a628615714");
+    }
+
+    fn make_response(models: Vec<(&str, f64)>) -> UserStatusResponse {
+        let json = serde_json::json!({
+            "userStatus": {
+                "cascadeModelConfigData": {
+                    "clientModelConfigs": models.iter().map(|(label, remaining)| {
+                        serde_json::json!({
+                            "label": label,
+                            "quotaInfo": {
+                                "remainingFraction": remaining
+                            }
+                        })
+                    }).collect::<Vec<_>>()
+                }
+            }
+        });
+        serde_json::from_value(json).unwrap()
+    }
+
+    #[test]
+    fn test_parse_user_status_standard() {
+        let resp = make_response(vec![
+            ("Claude 3.5 Sonnet", 0.8),
+            ("Gemini 2.5 Pro Low", 0.5),
+            ("Gemini 2.5 Flash", 0.9),
+        ]);
+        let provider = AntigravityProvider::new();
+        let snap = provider.parse_user_status(resp).unwrap();
+
+        assert!((snap.primary.used_percent - 20.0).abs() < 0.1);
+        let sec = snap.secondary.unwrap();
+        assert!((sec.used_percent - 50.0).abs() < 0.1);
+        let ter = snap.model_specific.unwrap();
+        assert!((ter.used_percent - 10.0).abs() < 0.1);
+        assert_eq!(snap.extra_rate_windows.len(), 3);
+        assert!(
+            snap.extra_rate_windows
+                .iter()
+                .any(|window| window.title == "Gemini 2.5 Flash")
+        );
+    }
+
+    #[test]
+    fn test_parse_user_status_thinking_skipped() {
+        let resp = make_response(vec![
+            ("Claude Thinking", 0.6),
+            ("Claude 3.5 Sonnet", 0.7),
+            ("Gemini 2.5 Flash", 0.5),
+        ]);
+        let provider = AntigravityProvider::new();
+        let snap = provider.parse_user_status(resp).unwrap();
+
+        assert!((snap.primary.used_percent - 30.0).abs() < 0.1);
+    }
+
+    #[test]
+    fn test_parse_user_status_fallback_first() {
+        let resp = make_response(vec![("GPT-4o", 0.4), ("Mistral Large", 0.6)]);
+        let provider = AntigravityProvider::new();
+        let snap = provider.parse_user_status(resp).unwrap();
+
+        assert!((snap.primary.used_percent - 60.0).abs() < 0.1);
+        assert!(snap.secondary.is_none());
+        assert!(snap.model_specific.is_none());
+    }
+
+    #[test]
+    fn test_noisy_models_do_not_drive_summary_windows() {
+        let resp = make_response(vec![
+            ("Gemini 2.5 Flash Image", 0.01),
+            ("Gemini 2.5 Pro Lite", 0.02),
+            ("Gemini autocomplete internal", 0.03),
+            ("Claude 4 Sonnet", 0.8),
+            ("Gemini 2.5 Pro Low", 0.6),
+            ("Gemini 2.5 Flash", 0.7),
+        ]);
+        let provider = AntigravityProvider::new();
+        let snap = provider.parse_user_status(resp).unwrap();
+
+        assert!((snap.primary.used_percent - 20.0).abs() < 0.1);
+        assert!((snap.secondary.unwrap().used_percent - 40.0).abs() < 0.1);
+        assert!((snap.model_specific.unwrap().used_percent - 30.0).abs() < 0.1);
+        assert!(
+            snap.extra_rate_windows
+                .iter()
+                .any(|window| window.title == "Gemini 2.5 Flash Image")
+        );
+    }
+
+    #[test]
+    fn not_running_error_tells_user_how_to_start() {
+        let error = ProviderError::NotInstalled(NOT_RUNNING_MESSAGE.to_string()).to_string();
+
+        assert!(error.contains("Start Google Antigravity and sign in"));
+    }
+}

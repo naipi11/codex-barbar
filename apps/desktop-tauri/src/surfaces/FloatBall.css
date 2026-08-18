@@ -1,0 +1,63 @@
+html, body, #root { width: 100%; height: 100%; margin: 0; overflow: hidden; background: transparent !important; }
+
+.float-ball-shell { --quota-high: #56d98a; --quota-medium: #f0b84f; --quota-low: #f36b72; --quota-unknown: #9299aa; --surface-bg-alpha: 0.2; width: 100%; height: 100%; position: relative; color: #f7f8ff; user-select: none; touch-action: none; }
+.float-ball__body { position: relative; display: block; width: 100%; height: 100%; padding: 0; border: 0; color: inherit; cursor: grab; background: transparent; }
+.float-ball__body:active, .float-ball--dragging .float-ball__body { cursor: grabbing; }
+.float-ball__body:focus-visible { outline: 2px solid #8cc8ff; outline-offset: 2px; }
+
+.float-ball--collapsed .float-ball__body { --surface-fill-alpha: calc(var(--surface-bg-alpha) * 0.6); --surface-border-alpha: calc(var(--surface-bg-alpha) * 0); --surface-shadow-alpha: calc(var(--surface-bg-alpha) * 0); --surface-inset-alpha: calc(var(--surface-bg-alpha) * 0); width: 88px; height: 88px; border: 0; border-radius: 50%; background: radial-gradient(circle at 35% 25%, rgb(70 76 102 / var(--surface-fill-alpha)), rgb(17 19 27 / var(--surface-fill-alpha)) 70%); }
+.float-ball--expanded .float-ball__body { --surface-fill-alpha: calc(var(--surface-bg-alpha) * 1); --surface-border-alpha: calc(var(--surface-bg-alpha) * 0.21); --surface-shadow-alpha: calc(var(--surface-bg-alpha) * 0.42); --surface-inset-alpha: calc(var(--surface-bg-alpha) * 0.08); width: 260px; height: 148px; border: 1px solid rgb(255 255 255 / var(--surface-border-alpha)); border-radius: 22px; background: linear-gradient(145deg, rgb(45 49 65 / var(--surface-fill-alpha)), rgb(20 22 30 / var(--surface-fill-alpha))); box-shadow: 0 18px 46px rgb(0 0 0 / var(--surface-shadow-alpha)), inset 0 1px rgb(255 255 255 / var(--surface-inset-alpha)); }
+
+.float-ball__orbit { width: 100%; height: 100%; animation: float-ball-expand 180ms ease; }
+.float-ball__ring { position: absolute; inset: 0; width: 100%; height: 100%; transform: rotate(-90deg); }
+.float-ball__track, .float-ball__progress { fill: none; stroke-width: 5; }
+.float-ball__track { stroke: rgba(255, 255, 255, 0.18); }
+.float-ball__progress { stroke: var(--quota-high); stroke-linecap: round; transition: stroke-dashoffset 180ms ease, stroke 180ms ease; }
+.float-ball__progress[data-band="high"] { stroke: var(--quota-high); }
+.float-ball__progress[data-band="medium"] { stroke: var(--quota-medium); }
+.float-ball__progress[data-band="low"] { stroke: var(--quota-low); }
+.float-ball__progress[data-band="unknown"] { stroke: var(--quota-unknown); }
+.float-ball__orbit[data-band="high"] .float-ball__value { color: #16a34a; }
+.float-ball__orbit[data-band="medium"] .float-ball__value { color: #b45309; }
+.float-ball__orbit[data-band="low"] .float-ball__value { color: #dc2626; }
+.float-ball__orbit[data-band="unknown"] .float-ball__value { color: #5b6472; }
+.float-ball__value { position: absolute; inset: 25px 0 auto; text-align: center; font: 700 23px/1 "Segoe UI", system-ui, sans-serif; color: #5b6472; text-shadow: 0 0 8px rgb(255 255 255 / 0.5), 0 1px 2px rgb(0 0 0 / 0.25); }
+.float-ball__footer { position: absolute; inset: auto 0 15px; text-align: center; color: #6b7280; font: 600 10px/1 "Segoe UI", system-ui, sans-serif; }
+
+.float-ball__expanded-card { height: 100%; padding: 15px 17px 13px; box-sizing: border-box; text-align: left; animation: float-ball-expand 180ms ease; }
+.float-ball__card-header { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.float-ball__avatar { display: grid; width: 22px; height: 22px; flex: 0 0 auto; place-items: center; border-radius: 50%; background: #7b8cff; color: #14161e; font: 700 11px/1 "Segoe UI", system-ui, sans-serif; }
+.float-ball__name { min-width: 0; overflow-wrap: anywhere; font: 650 13px/1.2 "Segoe UI", system-ui, sans-serif; }
+.float-ball__state-dot { width: 7px; height: 7px; margin-left: auto; border-radius: 50%; background: #7b8cff; }
+.float-ball__quotas { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px 16px; max-height: 66px; margin-top: 13px; overflow-y: auto; padding-right: 3px; scrollbar-width: thin; }
+.float-ball__quota { display: grid; grid-template-columns: 1fr auto; row-gap: 3px; min-width: 0; }
+.float-ball__quota-label, .float-ball__quota small { color: #b9c0d0; font: 500 10px/1.1 "Segoe UI", system-ui, sans-serif; }
+.float-ball__quota strong { font: 700 12px/1 "Segoe UI", system-ui, sans-serif; }
+.float-ball__track-line { grid-column: 1 / -1; display: block; height: 4px; overflow: hidden; border-radius: 999px; background: rgba(255, 255, 255, 0.12); }
+.float-ball__track-line > span { display: block; height: 100%; border-radius: inherit; background: var(--quota-high); transition: width 180ms ease, background-color 180ms ease; }
+.float-ball__quota[data-band="high"] .float-ball__track-line > span { background: var(--quota-high); }
+.float-ball__quota[data-band="medium"] .float-ball__track-line > span { background: var(--quota-medium); }
+.float-ball__quota[data-band="low"] .float-ball__track-line > span { background: var(--quota-low); }
+.float-ball__quota[data-band="unknown"] .float-ball__track-line > span { background: var(--quota-unknown); }
+.float-ball__quota small { grid-column: 1 / -1; }
+.float-ball__card-footer { display: flex; justify-content: space-between; margin-top: 12px; color: #b9c0d0; font: 500 10px/1 "Segoe UI", system-ui, sans-serif; }
+
+
+.float-ball__error { position: absolute; left: 0; top: calc(100% + 5px); width: max-content; color: #ffd4d9; font: 600 11px/1.2 "Segoe UI", system-ui, sans-serif; }
+.float-ball-shell[data-trust="refreshing"] .float-ball__state-dot, .float-ball-shell[data-trust="refreshing"] .float-ball__track-line > span { animation: float-ball-breathe 1.2s ease-in-out infinite; }
+
+@keyframes float-ball-expand { from { opacity: 0; transform: translateY(4px) scale(.98); } to { opacity: 1; transform: translateY(0) scale(1); } }
+@keyframes float-ball-breathe { 50% { opacity: .45; } }
+@media (prefers-reduced-motion: reduce) { .float-ball__orbit, .float-ball__expanded-card, .float-ball--refreshing .float-ball__state-dot, .float-ball--refreshing .float-ball__track-line > span { animation: none; } .float-ball__progress, .float-ball__track-line > span { transition: none; } }
+
+
+/* Band-aware colors drive the in-ball pulse waves and the progress arc; the
+   ball body itself stays a clean solid disc so the edge never shows color. */
+.float-ball__body, .float-ball__orbit { --band: var(--quota-unknown); --pulse-duration: 3.6s; }
+.float-ball__body[data-band='high'], .float-ball__orbit[data-band='high'] { --band: var(--quota-high); --pulse-duration: 3.6s; }
+.float-ball__body[data-band='medium'], .float-ball__orbit[data-band='medium'] { --band: var(--quota-medium); --pulse-duration: 2.6s; }
+.float-ball__body[data-band='low'], .float-ball__orbit[data-band='low'] { --band: var(--quota-low); --pulse-duration: 1.8s; }
+
+.float-ball__progress { filter: drop-shadow(0 0 3px var(--band)); }
+
+

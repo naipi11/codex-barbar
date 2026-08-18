@@ -1,0 +1,10 @@
+{
+  "identifier": "default",
+  "description": "V1 codex-barbar desktop: tray panel + settings windows, core event only.",
+  "windows": ["main", "settings", "taskbar-status", "taskbar-status-measure", "float-ball"],
+  "permissions": [
+    "core:event:allow-listen",
+    "core:event:allow-unlisten",
+    "core:window:allow-start-dragging"
+  ]
+}
