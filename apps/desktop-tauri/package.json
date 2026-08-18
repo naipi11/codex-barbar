@@ -17,7 +17,7 @@
     "tauri:build:debug": "tauri build --debug --bundles nsis"
   },
   "dependencies": {
-    "@tauri-apps/api": "2.10.1",
+    "@tauri-apps/api": "2.11.1",
     "react": "18.3.1",
     "react-dom": "18.3.1"
   },
