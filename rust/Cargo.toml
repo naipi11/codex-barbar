@@ -61,7 +61,7 @@ dirs = "6"
 
 # Open URLs in browser
 open = "5"
-fluent-templates = "0.13"
+fluent-templates = "0.15"
 unic-langid = "0.9"
 
 # Windows-only
