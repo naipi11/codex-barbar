@@ -48,7 +48,7 @@ rusqlite = { version = "0.32", features = ["bundled"] }
 base64 = "0.22"
 
 # Hashing for update verification
-sha2 = "0.10"
+sha2 = "0.11"
 
 # UUID generation
 uuid = { version = "1", features = ["v4", "serde"] }
