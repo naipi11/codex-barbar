@@ -55,7 +55,7 @@ describe("buildTaskbarStatusPresentation", () => {
     expect(presentation.reset?.resetsAt).toBe("2026-08-20T00:00:00Z");
     expect(presentation.surfaceAlpha).toBe("0.2");
     expect(presentation.ariaLabel).toBe(
-      "打开完整面板，ProofUser，周 98%，6天，已更新，8天前",
+      "打开完整面板，ProofUser，Wk 98%，6天，已更新，8天前",
     );
   });
 
@@ -85,12 +85,12 @@ describe("buildTaskbarStatusPresentation", () => {
       "spark",
     ]);
     expect(presentation.reset?.limitId).toBe("spark");
-    expect(presentation.ariaLabel).toContain("5H 42%，周 61%，Spark 88%");
+    expect(presentation.ariaLabel).toContain("5H 42%，Wk 61%，Spark 88%");
   });
 
   it.each([
-    ["remaining", "周 98%"],
-    ["used", "周 2%"],
+    ["remaining", "Wk 98%"],
+    ["used", "Wk 2%"],
   ] as const)(
     "formats %s mode once in the shared aria label",
     (displayMode, text) => {
