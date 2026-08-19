@@ -4,18 +4,6 @@
 
 **一款在 Windows 托盘显示 Codex 用量与额度的应用。**
 
-![codex-barbar 托盘、任务栏和悬浮球](docs/images/gallery/hero.png)
-
-<p align="center">
-  <img src="docs/images/gallery/float-ball-idle.gif" alt="空闲悬浮球" width="180" />
-  <img src="docs/images/gallery/float-ball-thinking.gif" alt="思考悬浮球" width="180" />
-  <img src="docs/images/gallery/float-ball-fast.gif" alt="Fast 悬浮球" width="180" />
-</p>
-
-<p align="center">
-  <img src="docs/images/gallery/taskbar-status.png" alt="任务栏状态条" width="720" />
-</p>
-
 悬浮球保持和图标一样大，并顺时针旋转。颜色表示剩余额度（绿 / 金 / 红），
 转速表示状态：空闲、思考 ×2、Fast ×3。
 
