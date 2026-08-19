@@ -50,6 +50,7 @@ const EMPTY_BOOTSTRAP: BootstrapDto = {
     floatBallEnabled: true,
     taskbarStatusOpacity: 20,
     floatBallOpacity: 20,
+    floatBallGlow: 20,
   },
   profiles: [],
   selectedProfileId: "",
@@ -190,9 +191,11 @@ export function useStatusSurface(): UseStatusSurfaceResult {
         state: usage.state,
         displayMode:
           bootstrap?.settings.displayMode ?? EMPTY_BOOTSTRAP.settings.displayMode,
+        language:
+          bootstrap?.settings.language ?? EMPTY_BOOTSTRAP.settings.language,
         nowMs: Date.now(),
       }),
-    [bootstrap?.settings.displayMode, profile, usage.state],
+    [bootstrap?.settings.displayMode, bootstrap?.settings.language, profile, usage.state],
   );
   const openPanel = useCallback(() => openTrayPanel(), []);
   const disableSurface = useCallback(async (surface: StatusSurfaceKind) => {

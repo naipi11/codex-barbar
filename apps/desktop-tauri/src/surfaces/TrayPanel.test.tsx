@@ -30,6 +30,12 @@ vi.mock("@tauri-apps/api/event", () => ({
     eventHarness.listen(eventName, callback),
 }));
 
+vi.mock("@tauri-apps/api/window", () => ({
+  getCurrentWindow: () => ({
+    startDragging: () => Promise.resolve(),
+  }),
+}));
+
 function renderTray(bootstrap = bootstrapWithTwoProfiles()) {
   invokeMock.mockImplementation(async (command: string) => {
     if (command === "get_bootstrap_state") return bootstrap;
@@ -61,7 +67,7 @@ describe("TrayPanel", () => {
     );
     expect(
       await screen.findByRole("progressbar", { name: /5-hour quota/i }),
-    ).toHaveClass("quota-card--ready");
+    ).toHaveClass("quota-card--warning");
 
     const regions = (
       await screen.findAllByRole("region")
@@ -117,7 +123,7 @@ describe("TrayPanel", () => {
       "2020-01-01T00:00:00Z";
     renderTray(bootstrap);
 
-    expect(await screen.findByText("Awaiting refresh")).toBeInTheDocument();
+    expect(await screen.findByText(/Awaiting refresh/)).toBeInTheDocument();
     expect(screen.queryByText(/-\d/)).toBeNull();
   });
 
@@ -126,6 +132,7 @@ describe("TrayPanel", () => {
     bootstrap.usageByProfile.personal = {
       ...bootstrap.usageByProfile.personal,
       primary: null,
+      secondary: null,
       freshness: "missing",
       refreshStatus: "refreshing",
       protocolAnomaly: true,
@@ -134,7 +141,19 @@ describe("TrayPanel", () => {
 
     expect(await screen.findByText(/refreshing/i)).toBeInTheDocument();
     expect(screen.getByText(/no usage data/i)).toBeInTheDocument();
-    expect(screen.getByText(/protocol/i)).toBeInTheDocument();
+    expect(screen.getByText(/normalized/i)).toBeInTheDocument();
+  });
+
+  it("hides the protocol-anomaly note when a usable quota window is already shown", async () => {
+    const bootstrap = readyTwoWindowFixture();
+    bootstrap.usageByProfile.personal = {
+      ...bootstrap.usageByProfile.personal,
+      protocolAnomaly: true,
+    };
+    renderTray(bootstrap);
+
+    expect(await screen.findByRole("progressbar", { name: /weekly quota/i })).toBeInTheDocument();
+    expect(screen.queryByText(/normalized/i)).toBeNull();
   });
 
   it("maps API billing errors to the fixed usage-page action", async () => {

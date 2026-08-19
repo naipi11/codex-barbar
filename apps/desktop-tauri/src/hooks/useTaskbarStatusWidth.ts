@@ -20,7 +20,7 @@ function measuredReplicaWidth(
     element.getBoundingClientRect().width,
     element.scrollWidth,
   );
-  return Number.isFinite(width) && width > 0 ? Math.round(width) : null;
+  return Number.isFinite(width) && width > 0 ? Math.round(width) + 16 : null;
 }
 
 export function useTaskbarStatusWidth(ref: RefObject<HTMLElement>) {

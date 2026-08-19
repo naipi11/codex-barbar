@@ -23,6 +23,7 @@ export const defaultAppSettings: AppSettingsDto = {
   floatBallEnabled: true,
   taskbarStatusOpacity: 20,
   floatBallOpacity: 20,
+  floatBallGlow: 20,
 };
 
 export interface UseSettingsResult {

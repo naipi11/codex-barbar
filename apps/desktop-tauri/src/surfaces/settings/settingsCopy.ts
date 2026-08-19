@@ -19,6 +19,7 @@ export interface SettingsCopy {
     floatBallDescription: string;
     floatBallEnabled: string;
     floatBallOpacity: string;
+    floatBallGlow: string;
     refreshInterval: string;
     displayMode: string;
     theme: string;
@@ -26,6 +27,16 @@ export interface SettingsCopy {
     refreshOptions: readonly string[];
     displayOptions: readonly string[];
     themeOptions: readonly string[];
+    customTheme: string;
+    customMode: string;
+    customBg: string;
+    customSurface: string;
+    customFg: string;
+    customMuted: string;
+    customAccent: string;
+    customRadius: string;
+    applyCustom: string;
+    resetCustom: string;
     system: string;
     simplifiedChinese: string;
   };
@@ -90,7 +101,7 @@ const english: SettingsCopy = {
   tabs: { general: "General", providers: "Accounts", notifications: "Notifications", menuBar: "Menu bar", menu: "Menu", usageSpend: "Usage & spend", advanced: "Advanced", about: "About" },
   placeholder: "This settings section is reserved for a later release.",
   general: {
-    title: "General", autostart: "Start at login", taskbarTitle: "Taskbar status", taskbarDescription: "Show a compact usage status in the taskbar.", taskbarEnabled: "Show status in taskbar", taskbarOpacity: "Taskbar status opacity", floatBallTitle: "Floating status ball", floatBallDescription: "Show a movable usage status ball.", floatBallEnabled: "Show floating status ball", floatBallOpacity: "Floating status ball opacity", refreshInterval: "Refresh interval", displayMode: "Display mode", theme: "Theme", language: "Language", refreshOptions: ["Off", "1 minute", "5 minutes", "15 minutes", "30 minutes"], displayOptions: ["Remaining", "Used"], themeOptions: ["System", "Light", "Dark"], system: "System", simplifiedChinese: "Simplified Chinese",
+    title: "General", autostart: "Start at login", taskbarTitle: "Taskbar status", taskbarDescription: "Show a compact usage status in the taskbar.", taskbarEnabled: "Show status in taskbar", taskbarOpacity: "Taskbar status opacity", floatBallTitle: "Floating status ball", floatBallDescription: "Show a movable usage status ball.", floatBallEnabled: "Show floating status ball", floatBallOpacity: "Floating status ball opacity", floatBallGlow: "Floating status ball glow", refreshInterval: "Refresh interval", displayMode: "Display mode", theme: "Theme", language: "Language", refreshOptions: ["Off", "1 minute", "5 minutes", "15 minutes", "30 minutes"], displayOptions: ["Remaining", "Used"], themeOptions: ["System", "Ink Green", "VS Code", "macOS", "Pink", "Blue", "Custom"], customTheme: "Custom skin", customMode: "Mode", customBg: "Background", customSurface: "Surface", customFg: "Text", customMuted: "Muted text", customAccent: "Accent", customRadius: "Corner radius", applyCustom: "Apply custom skin", resetCustom: "Reset custom skin", system: "System", simplifiedChinese: "Simplified Chinese",
   },
   advanced: { title: "Advanced", executablePath: "Codex executable path", executablePlaceholder: "C:\\Program Files\\Codex\\codex.exe", validateAndSave: "Validate and save", exportDiagnostics: "Export diagnostics", compatible: (version) => `Compatible (${version}).`, notFound: "Codex executable not found.", unsupported: "Unsupported Codex executable.", exported: (path) => `Diagnostics exported to ${path}`, exportFailed: (error) => `Diagnostics export failed: ${error}`, unknownVersion: "unknown version", validationFailed: "Could not validate the Codex executable.", exportFailedFriendly: "Could not export diagnostics." },
   about: { title: "About", checkForUpdates: "Check for updates", checking: "Checking…", openReleases: "Open Releases", description: "codex-barbar 1.0.0 – a Windows 11 tray companion for Codex usage.", license: "MIT License. Windows port of CodexBar.", updateAvailable: (version) => `Update available: ${version}`, updateCurrent: "You are on the latest version.", updateUnavailable: "Release feed is unavailable right now.", updateCheckFailed: "Could not check for updates." },
@@ -103,7 +114,7 @@ const chinese: SettingsCopy = {
   tabs: { general: "通用", providers: "账户", notifications: "通知", menuBar: "菜单栏", menu: "菜单", usageSpend: "用量与费用", advanced: "高级", about: "关于" },
   placeholder: "此设置分类将在后续版本中提供。",
   general: {
-    title: "通用", autostart: "登录时启动", taskbarTitle: "任务栏状态", taskbarDescription: "在任务栏中显示紧凑的用量状态。", taskbarEnabled: "在任务栏中显示状态", taskbarOpacity: "任务栏状态透明度", floatBallTitle: "悬浮状态球", floatBallDescription: "显示可移动的用量状态球。", floatBallEnabled: "显示悬浮状态球", floatBallOpacity: "悬浮状态球透明度", refreshInterval: "刷新间隔", displayMode: "显示模式", theme: "主题", language: "语言", refreshOptions: ["关闭", "1 分钟", "5 分钟", "15 分钟", "30 分钟"], displayOptions: ["剩余", "已使用"], themeOptions: ["系统", "浅色", "深色"], system: "系统", simplifiedChinese: "简体中文",
+    title: "通用", autostart: "登录时启动", taskbarTitle: "任务栏状态", taskbarDescription: "在任务栏中显示紧凑的用量状态。", taskbarEnabled: "在任务栏中显示状态", taskbarOpacity: "任务栏状态透明度", floatBallTitle: "悬浮状态球", floatBallDescription: "显示可移动的用量状态球。", floatBallEnabled: "显示悬浮状态球", floatBallOpacity: "悬浮状态球透明度", floatBallGlow: "悬浮状态球荧光亮度", refreshInterval: "刷新间隔", displayMode: "显示模式", theme: "主题", language: "语言", refreshOptions: ["关闭", "1 分钟", "5 分钟", "15 分钟", "30 分钟"], displayOptions: ["剩余", "已使用"], themeOptions: ["系统", "黑绿", "VS Code", "macOS", "粉色", "蓝色", "自定义"], customTheme: "自定义皮肤", customMode: "明暗", customBg: "背景", customSurface: "面板", customFg: "文字", customMuted: "次要文字", customAccent: "强调色", customRadius: "圆角", applyCustom: "应用自定义皮肤", resetCustom: "重置自定义皮肤", system: "系统", simplifiedChinese: "简体中文",
   },
   advanced: { title: "高级", executablePath: "Codex 可执行文件路径", executablePlaceholder: "C:\\Program Files\\Codex\\codex.exe", validateAndSave: "验证并保存", exportDiagnostics: "导出诊断信息", compatible: (version) => `兼容 (${version})。`, notFound: "未找到 Codex 可执行文件。", unsupported: "不支持此 Codex 可执行文件。", exported: (path) => `诊断信息已导出到 ${path}`, exportFailed: (error) => `导出诊断信息失败：${error}`, unknownVersion: "未知版本", validationFailed: "无法验证 Codex 可执行文件。", exportFailedFriendly: "无法导出诊断信息。" },
   about: { title: "关于", checkForUpdates: "检查更新", checking: "正在检查…", openReleases: "打开发布页", description: "codex-barbar 是适用于 Codex 用量的 Windows 11 托盘伴侣。", license: "MIT 许可证。CodexBar 的 Windows 移植版。", updateAvailable: (version) => `有可用更新：${version}`, updateCurrent: "当前已是最新版本。", updateUnavailable: "暂时无法获取发布信息。", updateCheckFailed: "暂时无法检查更新。" },

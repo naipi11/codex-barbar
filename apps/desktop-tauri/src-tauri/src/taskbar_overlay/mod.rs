@@ -220,14 +220,16 @@ impl TaskbarOverlay {
     }
 
     pub fn reposition(&mut self, app: &tauri::AppHandle) -> Result<(), String> {
+        let window = self.ensure_window(app)?;
         let Some(snapshot) = win32::discover_native() else {
-            if let Some(window) = self.window.as_ref() {
-                let _ = window::hide(window);
+            // Keep the last known slot visible. Hiding here made the bar blink
+            // whenever Explorer briefly failed discovery after a desktop click.
+            if let Some(slot) = self.last_slot {
+                let _ = window::position_and_show(&window, slot);
+                return Ok(());
             }
-            self.last_slot = None;
             return Err("TASKBAR_DISCOVERY_UNAVAILABLE".to_string());
         };
-        let window = self.ensure_window(app)?;
         let slot = compute_slot(&snapshot, self.logical_width);
         window::position_and_show(&window, slot)?;
         self.last_slot = Some(slot);

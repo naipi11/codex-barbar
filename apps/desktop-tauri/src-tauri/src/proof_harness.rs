@@ -234,6 +234,7 @@ struct StatusProofProjection {
     float_ball_enabled: bool,
     taskbar_status_opacity: u8,
     float_ball_opacity: u8,
+    float_ball_glow: u8,
 }
 
 fn status_proof_projection(scenario: ProofScenario) -> Option<StatusProofProjection> {
@@ -243,12 +244,14 @@ fn status_proof_projection(scenario: ProofScenario) -> Option<StatusProofProject
             float_ball_enabled: false,
             taskbar_status_opacity: 20,
             float_ball_opacity: 20,
+            float_ball_glow: 20,
         }),
         ProofScenario::FloatBall(_) => Some(StatusProofProjection {
             taskbar_status_enabled: false,
             float_ball_enabled: true,
             taskbar_status_opacity: 20,
             float_ball_opacity: 20,
+            float_ball_glow: 20,
         }),
         _ => None,
     }
@@ -261,6 +264,7 @@ fn status_proof_settings(scenario: ProofScenario) -> Option<codexbar::storage::A
         float_ball_enabled: projection.float_ball_enabled,
         taskbar_status_opacity: projection.taskbar_status_opacity,
         float_ball_opacity: projection.float_ball_opacity,
+        float_ball_glow: projection.float_ball_glow,
         ..codexbar::storage::AppSettings::default()
     })
 }
@@ -832,6 +836,7 @@ mod tests {
                 float_ball_enabled: false,
                 taskbar_status_opacity: 20,
                 float_ball_opacity: 20,
+                float_ball_glow: 20,
             }
         );
 
@@ -840,8 +845,8 @@ mod tests {
         assert!(!float.taskbar_status_enabled);
         assert!(float.float_ball_enabled);
         assert_eq!(
-            (float.taskbar_status_opacity, float.float_ball_opacity),
-            (20, 20)
+            (float.taskbar_status_opacity, float.float_ball_opacity, float.float_ball_glow),
+            (20, 20, 20)
         );
         assert!(status_proof_projection(ProofScenario::SettingsGeneral).is_none());
     }

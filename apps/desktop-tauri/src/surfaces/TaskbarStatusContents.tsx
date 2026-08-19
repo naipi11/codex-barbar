@@ -1,5 +1,6 @@
 import type React from "react";
 import type { CSSProperties } from "react";
+import ChatGptMark from "../theme/ChatGptMark";
 import {
   compactTaskbarMetric,
   type TaskbarStatusPresentation,
@@ -12,12 +13,7 @@ export interface TaskbarStatusContentsProps {
   presentation: TaskbarStatusPresentation;
   closeFailed?: boolean;
   onOpen?(): void;
-  onClose?(event: React.MouseEvent<HTMLButtonElement>): void;
   measurementRef?: React.Ref<HTMLDivElement>;
-}
-
-function initials(name: string): string {
-  return Array.from(name.trim())[0]?.toUpperCase() ?? "C";
 }
 
 function resetDate(metric: TaskbarStatusPresentation["reset"]): string {
@@ -31,7 +27,6 @@ export function TaskbarStatusContents({
   presentation,
   closeFailed = false,
   onOpen,
-  onClose,
   measurementRef,
 }: TaskbarStatusContentsProps): JSX.Element {
   const visible = mode === "visible";
@@ -71,8 +66,7 @@ export function TaskbarStatusContents({
         onClick={visible && onOpen ? () => onOpen() : undefined}
       >
         <span className="taskbar-status__avatar" aria-hidden="true">
-          {initials(displayName)}
-          <span className="taskbar-status__state-dot" />
+          <ChatGptMark className="taskbar-status__avatar-mark" />
         </span>
         <span className="taskbar-status__identity">{compactIdentity}</span>
         <span
@@ -98,17 +92,6 @@ export function TaskbarStatusContents({
         >
           {resetDate(reset)}
         </span>
-      </button>
-      <button
-        type="button"
-        className="taskbar-status__close"
-        data-error={visible && closeFailed ? "true" : undefined}
-        aria-label={visible ? "关闭任务栏状态" : undefined}
-        title={visible && closeFailed ? "关闭失败，点击重试" : "关闭任务栏状态"}
-        tabIndex={visible ? undefined : -1}
-        onClick={visible ? onClose : undefined}
-      >
-        <span aria-hidden="true">×</span>
       </button>
     </div>
   );

@@ -1,4 +1,3 @@
-import { useEffect, useState } from "react";
 import { formatResetTime } from "../lib/relativeTime";
 
 function systemTimeZone(): string {
@@ -15,17 +14,9 @@ export function useFormattedResetTime(
   timeZone = systemTimeZone(),
   nowOverride?: Date,
 ): string {
-  const [now, setNow] = useState(() => nowOverride ?? new Date());
-
-  useEffect(() => {
-    if (nowOverride) return;
-    const timer = window.setInterval(() => setNow(new Date()), 30_000);
-    return () => window.clearInterval(timer);
-  }, [nowOverride]);
-
   return formatResetTime(
     resetsAt,
-    nowOverride ?? now,
+    nowOverride ?? new Date(),
     locale,
     timeZone,
   );

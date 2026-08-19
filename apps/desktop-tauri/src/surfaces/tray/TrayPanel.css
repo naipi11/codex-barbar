@@ -1,31 +1,31 @@
 .tray-panel.tray-panel--macos {
-  --tray-bg: #17181d;
-  --tray-surface: rgba(35, 36, 44, 0.92);
-  --tray-surface-muted: rgba(48, 49, 59, 0.96);
+  --tray-bg: #10131a;
+  --tray-surface: rgba(23, 28, 38, 0.96);
+  --tray-surface-muted: rgba(28, 34, 48, 0.98);
   --tray-border: rgba(255, 255, 255, 0.11);
   --tray-border-strong: rgba(255, 255, 255, 0.18);
-  --tray-fg: #f6f7fb;
-  --tray-fg-muted: #aeb1c1;
-  --tray-accent: #76a9ff;
-  --tray-warning: #f2b66d;
-  --tray-critical: #f07d8c;
-  --tray-radius: 16px;
-  --tray-shadow: 0 18px 48px rgba(0, 0, 0, 0.32);
+  --tray-fg: #e8edf6;
+  --tray-fg-muted: #8b95a7;
+  --tray-accent: #30d158;
+  --tray-warning: #ffd60a;
+  --tray-critical: #ff453a;
+  --tray-radius: 12px;
+  --tray-shadow: 0 10px 28px rgba(0, 0, 0, 0.28);
 
   display: flex;
   flex-direction: column;
   gap: 12px;
-  min-height: 100%;
-  max-height: 100%;
-  overflow: auto;
+  min-height: 0;
+  height: auto;
+  overflow: visible;
   box-sizing: border-box;
   padding: 18px;
   color: var(--tray-fg);
   background:
-    radial-gradient(circle at 96% 0%, rgba(101, 142, 255, 0.16), transparent 35%),
-    radial-gradient(circle at 0% 100%, rgba(160, 103, 241, 0.12), transparent 38%),
+    linear-gradient(180deg, rgba(86, 217, 138, 0.06), transparent 28%),
+    linear-gradient(0deg, rgba(226, 163, 58, 0.05), transparent 22%),
     var(--tray-bg);
-  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Segoe UI", sans-serif;
+  font-family: -apple-system, BlinkMacSystemFont, "IBM Plex Sans", "Segoe UI", sans-serif;
   scrollbar-color: rgba(255, 255, 255, 0.24) transparent;
   scrollbar-width: thin;
 }
@@ -41,7 +41,7 @@
 .tray-panel.tray-panel--macos::-webkit-scrollbar-thumb {
   background: rgba(255, 255, 255, 0.22);
   border: 2px solid transparent;
-  border-radius: 999px;
+  border-radius: 8px;
   background-clip: padding-box;
 }
 
@@ -57,7 +57,7 @@
   display: flex;
   min-width: 0;
   align-items: center;
-  gap: 11px;
+  gap: 10px;
 }
 
 .tray-panel--macos .tray-panel__avatar {
@@ -67,11 +67,11 @@
   height: 38px;
   place-items: center;
   color: #fff;
-  background: linear-gradient(135deg, #7b8dff 0%, #9e6fe8 52%, #e989b8 100%);
+  background: linear-gradient(180deg, #3a3a3c 0%, #2c2c2e 100%);
   border: 1px solid rgba(255, 255, 255, 0.24);
   border-radius: 13px;
-  box-shadow: 0 8px 20px rgba(112, 108, 224, 0.3);
-  font-size: 16px;
+  box-shadow: inset 0 0 0 1px rgba(86, 217, 138, 0.28);
+  font-size: 12px;
   font-weight: 700;
   letter-spacing: -0.03em;
 }
@@ -103,7 +103,7 @@
 }
 
 .tray-panel--macos .tray-panel__identity-status {
-  color: #8fd5ad;
+  color: #30d158;
   font-size: 11px;
 }
 
@@ -155,7 +155,7 @@
   border-radius: var(--tray-radius);
   box-shadow: var(--tray-shadow);
   box-sizing: border-box;
-  backdrop-filter: blur(18px);
+  backdrop-filter: none;
 }
 
 .tray-panel--macos .tray-region h2 {
@@ -163,7 +163,7 @@
   color: var(--tray-fg-muted);
   font-size: 11px;
   font-weight: 600;
-  letter-spacing: 0.05em;
+  letter-spacing: 0.08em;
   text-transform: uppercase;
 }
 
@@ -233,7 +233,7 @@
   margin: 0;
   padding: 5px;
   list-style: none;
-  background: #292a33;
+  background: rgba(44, 44, 46, 0.96);
   border: 1px solid var(--tray-border-strong);
   border-radius: 12px;
   box-shadow: 0 18px 40px rgba(0, 0, 0, 0.45);
@@ -271,9 +271,6 @@
   color: #b8ccff;
 }
 
-.tray-panel--macos .quota-card {
-  gap: 10px;
-}
 
 .tray-panel--macos .quota-card h2 {
   color: var(--tray-fg);
@@ -284,27 +281,27 @@
 
 .tray-panel--macos .quota-card__progress {
   position: relative;
-  height: 8px;
+  height: 4px;
   overflow: hidden;
   background: rgba(255, 255, 255, 0.12);
-  border-radius: 999px;
+  border-radius: 8px;
 }
 
 .tray-panel--macos .quota-card__progress-fill {
   display: block;
   height: 100%;
   min-width: 2px;
-  background: linear-gradient(90deg, #78a9ff 0%, #8d8bff 100%);
+  background: #30d158;
   border-radius: inherit;
   transition: width 260ms ease, background 160ms ease;
 }
 
 .tray-panel--macos .quota-card--warning .quota-card__progress-fill {
-  background: linear-gradient(90deg, #e8a65f 0%, #f1c477 100%);
+  background: #ffd60a;
 }
 
 .tray-panel--macos .quota-card--critical .quota-card__progress-fill {
-  background: linear-gradient(90deg, #e56e81 0%, #f39b8d 100%);
+  background: #ff453a;
 }
 
 .tray-panel--macos .quota-card__value,
@@ -324,7 +321,7 @@
 
 .tray-panel--macos .quota-card__value strong {
   color: var(--tray-fg);
-  font-size: 21px;
+  font-size: 22px;
   font-weight: 700;
   letter-spacing: -0.02em;
 }
@@ -336,7 +333,7 @@
 }
 
 .tray-panel--macos .usage-status__state {
-  color: #9fe0bd;
+  color: #30d158;
   font-size: 13px;
   font-weight: 600;
 }
@@ -379,7 +376,7 @@
   color: var(--tray-fg);
   background: rgba(255, 255, 255, 0.08);
   border: 1px solid var(--tray-border);
-  border-radius: 999px;
+  border-radius: 8px;
   cursor: pointer;
   font: inherit;
   font-size: 12px;
@@ -388,9 +385,9 @@
 
 .tray-panel--macos .tray-actions button:first-child {
   color: #fff;
-  background: linear-gradient(135deg, #6f93ef, #8d76d4);
+  background: #1d3b2c;
   border-color: transparent;
-  box-shadow: 0 5px 14px rgba(104, 115, 223, 0.28);
+  box-shadow: inset 0 0 0 1px rgba(86, 217, 138, 0.4);
 }
 
 .tray-panel--macos .tray-actions button:hover,
@@ -401,7 +398,7 @@
 }
 
 .tray-panel--macos .tray-actions button:first-child:hover {
-  background: linear-gradient(135deg, #82a4fb, #a187ee);
+  background: #234836;
 }
 
 .tray-panel--macos button:focus-visible,
@@ -432,17 +429,17 @@
 }
 
 [data-theme="light"] .tray-panel.tray-panel--macos {
-  --tray-bg: #f3f5fb;
-  --tray-surface: rgba(255, 255, 255, 0.78);
+  --tray-bg: #eef2f6;
+  --tray-surface: rgba(255, 255, 255, 0.94);
   --tray-surface-muted: rgba(245, 246, 252, 0.98);
   --tray-border: rgba(43, 52, 77, 0.12);
   --tray-border-strong: rgba(43, 52, 77, 0.2);
-  --tray-fg: #23283a;
-  --tray-fg-muted: #697188;
+  --tray-fg: #17202b;
+  --tray-fg-muted: #5d6a7a;
   --tray-shadow: 0 14px 36px rgba(77, 91, 135, 0.14);
   background:
-    radial-gradient(circle at 96% 0%, rgba(110, 146, 246, 0.18), transparent 35%),
-    radial-gradient(circle at 0% 100%, rgba(182, 125, 236, 0.13), transparent 38%),
+    linear-gradient(180deg, rgba(20, 122, 67, 0.08), transparent 30%),
+    linear-gradient(0deg, rgba(154, 100, 8, 0.06), transparent 24%),
     var(--tray-bg);
   scrollbar-color: rgba(55, 65, 95, 0.28) transparent;
 }
@@ -452,13 +449,13 @@
 }
 
 [data-theme="light"] .tray-panel--macos .tray-panel__identity-status {
-  color: #268056;
+  color: #147a43;
 }
 
 [data-theme="light"] .tray-panel--macos .tray-account__listbox {
   color: var(--tray-fg);
   background: #fff;
-  box-shadow: 0 16px 30px rgba(64, 72, 103, 0.2);
+  box-shadow: 0 12px 30px rgba(64, 72, 103, 0.2);
 }
 
 [data-theme="light"] .tray-panel--macos .tray-account__option:hover,
@@ -487,4 +484,323 @@
     animation-duration: 0.01ms !important;
     animation-iteration-count: 1 !important;
   }
+}
+
+
+
+
+
+.tray-panel--macos .quota-card__value strong {
+  font-family: var(--app-mono, "IBM Plex Mono", ui-monospace, monospace);
+  letter-spacing: -0.03em;
+}
+
+.tray-panel--macos .tray-panel__avatar {
+  border-radius: 10px;
+  font-family: var(--app-mono, "IBM Plex Mono", ui-monospace, monospace);
+}
+
+.tray-panel--macos .tray-actions button:first-child {
+  color: #d7ffe8;
+}
+
+[data-theme="light"] 
+[data-theme="light"] 
+[data-theme="light"] .tray-panel--macos .quota-card--critical::before {
+  background: #b42318;
+}
+.tray-panel--macos .quota-card h2 {
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0;
+  text-transform: none;
+  color: var(--tray-fg);
+}
+
+.tray-panel--macos .quota-card__value {
+  align-items: baseline;
+}
+
+.tray-panel--macos .quota-card__value strong {
+  font-size: 20px;
+  font-weight: 650;
+}
+
+[data-theme="light"] .tray-panel.tray-panel--macos {
+  --tray-bg: rgba(246, 246, 248, 0.82);
+  --tray-fg: #1d1d1f;
+  --tray-fg-muted: rgba(60, 60, 67, 0.64);
+  --tray-accent: #248a3d;
+  background: var(--tray-bg);
+  border-color: rgba(0, 0, 0, 0.08);
+}
+
+[data-theme="light"] .tray-panel--macos .tray-region {
+  background: rgba(255, 255, 255, 0.55);
+  border-bottom-color: rgba(60, 60, 67, 0.12);
+}
+.tray-panel.tray-panel--macos {
+  padding: 10px;
+  gap: 8px;
+}
+
+.tray-panel--macos .tray-panel__header {
+  padding: 4px 6px 10px;
+  margin: 0;
+}
+
+.tray-panel--macos .tray-panel__avatar {
+  width: 42px;
+  height: 42px;
+  flex-basis: 42px;
+  border-radius: 50%;
+  background: linear-gradient(180deg, #5b5b60 0%, #2c2c2e 100%);
+  box-shadow: inset 0 1px rgba(255,255,255,.28);
+  font-size: 15px;
+}
+
+.tray-panel--macos .tray-panel__identity-name {
+  margin: 0;
+  color: var(--tray-fg);
+  font-size: 15px;
+  font-weight: 650;
+}
+
+.tray-panel--macos .tray-panel__header h1 {
+  margin: 1px 0 0;
+  color: var(--tray-fg-muted);
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.tray-stack {
+  overflow: hidden;
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.tray-panel--macos .tray-stack .tray-region {
+  background: transparent;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 0;
+  padding: 10px 12px;
+}
+
+.tray-panel--macos .tray-stack .tray-region:last-child {
+  border-bottom: 0;
+}
+
+.tray-panel--macos .quota-card__row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.tray-panel--macos .quota-card__copy {
+  min-width: 0;
+}
+
+.tray-panel--macos .quota-card__value {
+  display: grid;
+  justify-items: end;
+  gap: 1px;
+  margin: 0;
+  color: var(--tray-fg-muted);
+  font-size: 11px;
+}
+
+.tray-panel--macos .quota-card__value strong {
+  color: var(--tray-fg);
+  font-size: 20px;
+  font-weight: 650;
+  letter-spacing: -0.03em;
+}
+
+.tray-panel--macos .quota-card__progress {
+  margin-top: 8px;
+  height: 3px;
+  background: rgba(255,255,255,.14);
+}
+
+.tray-panel--macos .usage-status,
+.tray-panel--macos .tray-actions {
+  background: rgba(255, 255, 255, 0.08);
+  border: 0;
+  border-radius: 14px;
+  padding: 10px 12px;
+}
+
+.tray-panel--macos .tray-actions h2,
+.tray-panel--macos .usage-status h2 {
+  display: none;
+}
+
+.tray-panel--macos .tray-actions__buttons {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.tray-panel--macos .tray-actions button,
+.tray-panel--macos .usage-status button {
+  min-height: 30px;
+  border-radius: 10px;
+  background: rgba(255,255,255,.08);
+}
+
+.tray-panel--macos .tray-actions button:first-child {
+  background: #0a84ff;
+  color: #fff;
+  box-shadow: none;
+}
+.tray-panel.tray-panel--macos {
+  padding: 14px;
+  gap: 10px;
+}
+
+.tray-stack {
+  display: contents;
+}
+
+.tray-panel--macos .tray-region,
+.tray-panel--macos .usage-status,
+.tray-panel--macos .tray-actions {
+  background: rgba(255,255,255,.06);
+  border: 1px solid rgba(255,255,255,.08);
+  border-radius: 14px;
+  padding: 12px;
+}
+
+.tray-panel--macos .tray-actions__buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.tray-panel--macos .tray-actions button,
+.tray-panel--macos .usage-status button {
+  min-height: 32px;
+  border-radius: 999px;
+}
+
+.tray-panel--macos .tray-panel__close {
+  font-family: Arial, sans-serif;
+  font-size: 18px;
+  line-height: 1;
+}
+
+.tray-panel.tray-panel--macos {
+  min-height: 0;
+  height: auto;
+  overflow: visible;
+  padding: 12px;
+  gap: 8px;
+  border-radius: 22px;
+}
+
+.tray-panel--macos .tray-panel__avatar {
+  overflow: hidden;
+  width: 36px;
+  height: 36px;
+  flex: 0 0 36px;
+  padding: 0;
+  border-radius: var(--tray-avatar-radius, 50%);
+  background: #000;
+  border: 0;
+  box-shadow: none;
+}
+
+.tray-panel__avatar-mark,
+.taskbar-status__avatar-mark {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.tray-panel--macos .tray-region,
+.tray-panel--macos .usage-status,
+.tray-panel--macos .tray-actions {
+  padding: var(--tray-region-padding, 10px 12px);
+  border-radius: var(--tray-radius, 12px);
+  background: var(--tray-surface);
+  border: 1px solid var(--tray-border);
+  box-shadow: var(--tray-shadow);
+}
+
+.tray-panel--macos .tray-actions {
+  margin-bottom: 0;
+}
+
+.tray-panel--macos .tray-actions button,
+.tray-panel--macos .usage-status button {
+  border-radius: var(--tray-button-radius, 999px);
+}
+
+[data-skin="vscode"] .tray-panel.tray-panel--macos {
+  gap: 6px;
+  background: var(--tray-bg);
+}
+
+[data-skin="vscode"] .tray-panel--macos .tray-region,
+[data-skin="vscode"] .tray-panel--macos .usage-status,
+[data-skin="vscode"] .tray-panel--macos .tray-actions {
+  border-radius: 4px;
+  box-shadow: none;
+}
+
+[data-skin="macos"] .tray-panel.tray-panel--macos {
+  background: linear-gradient(180deg, rgba(255,255,255,0.08), transparent 30%), var(--tray-bg);
+  backdrop-filter: blur(22px) saturate(160%);
+}
+
+[data-skin="macos"] .tray-panel--macos .tray-region {
+  backdrop-filter: blur(18px);
+}
+
+[data-skin="pink"] .tray-panel.tray-panel--macos {
+  background:
+    radial-gradient(circle at 12% 0%, rgba(212, 83, 134, 0.16), transparent 36%),
+    var(--tray-bg);
+}
+
+[data-skin="pink"] .tray-panel--macos .tray-region {
+  border-radius: 22px;
+}
+
+[data-skin="blue"] .tray-panel.tray-panel--macos {
+  background:
+    linear-gradient(180deg, rgba(37, 99, 235, 0.1), transparent 34%),
+    var(--tray-bg);
+}
+
+[data-skin="ink-green"] .tray-panel.tray-panel--macos {
+  background:
+    linear-gradient(180deg, rgba(62, 224, 122, 0.08), transparent 28%),
+    var(--tray-bg);
+}
+
+.tray-panel.tray-panel--macos {
+  position: relative;
+  min-height: 0;
+  height: auto;
+  overflow: visible;
+  border-radius: 22px;
+}
+.tray-panel--macos .tray-panel__header {
+  cursor: grab;
+}
+.tray-panel--macos .tray-panel__header:active {
+  cursor: grabbing;
+}
+.tray-panel--macos .tray-panel__avatar {
+  background: transparent;
+  border: 0;
+  box-shadow: none;
+  overflow: hidden;
+}
+.tray-panel__avatar-mark {
+  display: block;
+  width: 100%;
+  height: 100%;
 }

@@ -17,6 +17,7 @@ import UsageStatus from "./tray/UsageStatus";
 import { trayCopy } from "./tray/copy";
 import "./tray/TrayPanel.css";
 
+
 function systemTimeZone(): string {
   try {
     return Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
@@ -54,6 +55,7 @@ function TrayDashboard({ bootstrap }: { bootstrap: BootstrapDto }) {
         onDismiss={dismissTrayPanel}
       />
 
+      <div className="tray-stack">
       <ProfileSelector
         profiles={usage.profiles}
         selectedProfileId={usage.selectedProfileId}
@@ -80,6 +82,8 @@ function TrayDashboard({ bootstrap }: { bootstrap: BootstrapDto }) {
           timeZone={timeZone}
         />
       ) : null}
+
+      </div>
 
       <UsageStatus
         state={usage.state}

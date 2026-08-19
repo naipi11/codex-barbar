@@ -5,6 +5,7 @@ mod auto_refresh;
 mod commands;
 mod events;
 mod float_ball;
+mod float_ball_motion;
 mod geometry_store;
 mod proof_harness;
 mod shell;
@@ -115,6 +116,7 @@ fn main() {
         }))
         .invoke_handler(tauri::generate_handler![
             commands::get_bootstrap_state,
+            float_ball_motion::get_float_ball_motion,
             commands::get_settings_snapshot,
             commands::update_settings,
             commands::set_status_surface_enabled,
@@ -138,12 +140,14 @@ fn main() {
             commands::dismiss_tray_panel,
             commands::open_tray_panel,
             commands::set_flyout_size,
+            commands::set_flyout_interacting,
             commands::get_current_surface_state,
             commands::quit_app,
         ])
         .setup(move |app| {
             if let Some(window) = app.get_webview_window("main") {
                 shell::dwm::force_dark_caption(&window);
+                let _ = window.set_resizable(false);
                 window.hide()?;
             }
             // Forward account-service events to the WebView using the fixed
@@ -301,10 +305,19 @@ fn main() {
             if window.label() != crate::shell::flyout_window::FLYOUT_LABEL {
                 return;
             }
-            if let tauri::WindowEvent::Focused(false) = event
-                && !proof_harness::is_proof_mode(window.app_handle())
-            {
-                let _ = crate::shell::flyout_window::hide(window.app_handle());
+            match event {
+                tauri::WindowEvent::Focused(false)
+                    if !proof_harness::is_proof_mode(window.app_handle())
+                        && crate::shell::flyout_window::should_blur_dismiss() =>
+                {
+                    let _ = crate::shell::flyout_window::hide(window.app_handle());
+                }
+                tauri::WindowEvent::Moved(_)
+                | tauri::WindowEvent::Resized(_)
+                | tauri::WindowEvent::ScaleFactorChanged { .. } => {
+                    crate::shell::flyout_window::keep_inside_work_area(window.app_handle());
+                }
+                _ => {}
             }
         })
         .run(tauri::generate_context!())

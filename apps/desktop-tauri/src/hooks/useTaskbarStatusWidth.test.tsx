@@ -71,7 +71,7 @@ describe("useTaskbarStatusWidth", () => {
     const view = render(<ReplicaSubject />);
 
     await vi.waitFor(() =>
-      expect(invokeMock).toHaveBeenLastCalledWith("set_taskbar_status_width", { width: 247 }),
+      expect(invokeMock).toHaveBeenLastCalledWith("set_taskbar_status_width", { width: 263 }),
     );
     expect(invokeMock).toHaveBeenCalledTimes(1);
     expect(ResizeObserverStub.instances[0]!.observe).toHaveBeenCalledWith(
@@ -88,7 +88,7 @@ describe("useTaskbarStatusWidth", () => {
     ResizeObserverStub.instances[0]!.report(281);
 
     await vi.waitFor(() =>
-      expect(invokeMock).toHaveBeenLastCalledWith("set_taskbar_status_width", { width: 281 }),
+      expect(invokeMock).toHaveBeenLastCalledWith("set_taskbar_status_width", { width: 297 }),
     );
     expect(invokeMock).toHaveBeenCalledTimes(2);
   });
@@ -103,7 +103,7 @@ describe("useTaskbarStatusWidth", () => {
     ResizeObserverStub.instances[0]!.report(226);
 
     await vi.waitFor(() =>
-      expect(invokeMock).toHaveBeenLastCalledWith("set_taskbar_status_width", { width: 226 }),
+      expect(invokeMock).toHaveBeenLastCalledWith("set_taskbar_status_width", { width: 242 }),
     );
     expect(invokeMock).toHaveBeenCalledTimes(2);
   });
@@ -133,7 +133,7 @@ describe("useTaskbarStatusWidth", () => {
 
     ResizeObserverStub.instances[0]!.report(226);
     await vi.waitFor(() => expect(invokeMock).toHaveBeenCalledTimes(2));
-    expect(invokeMock).toHaveBeenLastCalledWith("set_taskbar_status_width", { width: 226 });
+    expect(invokeMock).toHaveBeenLastCalledWith("set_taskbar_status_width", { width: 242 });
   });
 
   it("serializes one request in flight and drains only the latest queued width", async () => {
@@ -149,7 +149,7 @@ describe("useTaskbarStatusWidth", () => {
 
     first.resolve();
     await vi.waitFor(() => expect(invokeMock).toHaveBeenCalledTimes(2));
-    expect(invokeMock).toHaveBeenLastCalledWith("set_taskbar_status_width", { width: 226 });
+    expect(invokeMock).toHaveBeenLastCalledWith("set_taskbar_status_width", { width: 242 });
   });
 
   it("does not dispatch a queued width after unmounting with a request pending", async () => {

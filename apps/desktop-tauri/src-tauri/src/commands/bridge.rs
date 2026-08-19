@@ -44,6 +44,7 @@ pub struct AppSettingsDto {
     pub float_ball_enabled: bool,
     pub taskbar_status_opacity: u8,
     pub float_ball_opacity: u8,
+    pub float_ball_glow: u8,
 }
 
 impl Default for AppSettingsDto {
@@ -59,6 +60,7 @@ impl Default for AppSettingsDto {
             float_ball_enabled: false,
             taskbar_status_opacity: 20,
             float_ball_opacity: 20,
+            float_ball_glow: 20,
         }
     }
 }
@@ -76,6 +78,7 @@ pub struct SettingsPatchDto {
     pub float_ball_enabled: Option<bool>,
     pub taskbar_status_opacity: Option<u8>,
     pub float_ball_opacity: Option<u8>,
+    pub float_ball_glow: Option<u8>,
 }
 
 impl AppSettingsDto {
@@ -102,6 +105,7 @@ impl AppSettingsDto {
             float_ball_enabled: settings.float_ball_enabled,
             taskbar_status_opacity: settings.taskbar_status_opacity,
             float_ball_opacity: settings.float_ball_opacity,
+            float_ball_glow: settings.float_ball_glow,
         }
     }
 }
@@ -145,6 +149,7 @@ impl SettingsPatchDto {
             float_ball_enabled: self.float_ball_enabled,
             taskbar_status_opacity: self.taskbar_status_opacity,
             float_ball_opacity: self.float_ball_opacity,
+            float_ball_glow: self.float_ball_glow,
         })
     }
 }

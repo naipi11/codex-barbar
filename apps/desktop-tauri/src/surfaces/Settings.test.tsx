@@ -19,6 +19,7 @@ const defaultSettings = {
   floatBallEnabled: false,
   taskbarStatusOpacity: 20,
   floatBallOpacity: 20,
+  floatBallGlow: 20,
 };
 
 function renderSettings(language: "system" | "zh-CN" | "en-US" = "system") {

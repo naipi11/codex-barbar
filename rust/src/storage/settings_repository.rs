@@ -68,6 +68,8 @@ pub struct AppSettings {
     pub taskbar_status_opacity: u8,
     #[serde(default = "default_surface_opacity")]
     pub float_ball_opacity: u8,
+    #[serde(default = "default_surface_opacity")]
+    pub float_ball_glow: u8,
 }
 
 impl Default for AppSettings {
@@ -83,6 +85,7 @@ impl Default for AppSettings {
             float_ball_enabled: true,
             taskbar_status_opacity: DEFAULT_SURFACE_OPACITY,
             float_ball_opacity: DEFAULT_SURFACE_OPACITY,
+            float_ball_glow: DEFAULT_SURFACE_OPACITY,
         }
     }
 }
@@ -99,6 +102,7 @@ pub struct SettingsPatch {
     pub float_ball_enabled: Option<bool>,
     pub taskbar_status_opacity: Option<u8>,
     pub float_ball_opacity: Option<u8>,
+    pub float_ball_glow: Option<u8>,
 }
 
 #[derive(Clone)]
@@ -152,7 +156,7 @@ impl SettingsPatch {
                 "refresh interval is not supported",
             ));
         }
-        for value in [self.taskbar_status_opacity, self.float_ball_opacity]
+        for value in [self.taskbar_status_opacity, self.float_ball_opacity, self.float_ball_glow]
             .into_iter()
             .flatten()
         {
@@ -199,6 +203,9 @@ impl AppSettings {
         }
         if let Some(value) = patch.float_ball_opacity {
             self.float_ball_opacity = value;
+        }
+        if let Some(value) = patch.float_ball_glow {
+            self.float_ball_glow = value;
         }
     }
 }
@@ -249,6 +256,7 @@ mod tests {
         assert!(settings.float_ball_enabled);
         assert_eq!(settings.taskbar_status_opacity, 20);
         assert_eq!(settings.float_ball_opacity, 20);
+        assert_eq!(settings.float_ball_glow, 20);
     }
 
     #[test]

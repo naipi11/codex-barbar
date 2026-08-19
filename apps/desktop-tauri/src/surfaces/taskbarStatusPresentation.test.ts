@@ -18,6 +18,7 @@ function surfaceFrom(
     profile,
     state,
     displayMode: bootstrap.settings.displayMode,
+    language: bootstrap.settings.language,
     nowMs: Date.parse("2026-08-14T00:00:00Z"),
   });
 

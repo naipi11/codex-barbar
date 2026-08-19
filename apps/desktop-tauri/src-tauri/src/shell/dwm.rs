@@ -95,6 +95,7 @@ unsafe extern "system" {
 unsafe extern "system" {
     fn CreateSolidBrush(color: u32) -> isize;
     fn CreateEllipticRgn(left: i32, top: i32, right: i32, bottom: i32) -> isize;
+    fn CreateRoundRectRgn(left: i32, top: i32, right: i32, bottom: i32, width: i32, height: i32) -> isize;
 }
 
 #[cfg(windows)]
@@ -108,6 +109,10 @@ const WM_NCPAINT: u32 = 0x0085;
 const WM_NCACTIVATE: u32 = 0x0086;
 #[cfg(windows)]
 const WM_GETMINMAXINFO: u32 = 0x0024;
+#[cfg(windows)]
+const WM_ENTERSIZEMOVE: u32 = 0x0231;
+#[cfg(windows)]
+const WM_EXITSIZEMOVE: u32 = 0x0232;
 #[cfg(windows)]
 const BORDERLESS_SUBCLASS_ID: usize = 0xC0DE_BA12;
 
@@ -136,6 +141,14 @@ unsafe extern "system" fn borderless_subclass_proc(
         WM_NCACTIVATE => {
             // Return TRUE to accept activation but skip DWM painting.
             1
+        }
+        WM_ENTERSIZEMOVE => {
+            crate::shell::flyout_window::set_interacting(true);
+            unsafe { DefSubclassProc(hwnd, msg, wparam, lparam) }
+        }
+        WM_EXITSIZEMOVE => {
+            crate::shell::flyout_window::set_interacting(false);
+            unsafe { DefSubclassProc(hwnd, msg, wparam, lparam) }
         }
         WM_GETMINMAXINFO => {
             // A borderless window whose non-client area is zeroed maximizes to
@@ -170,6 +183,7 @@ unsafe extern "system" fn borderless_subclass_proc(
         _ => unsafe { DefSubclassProc(hwnd, msg, wparam, lparam) },
     }
 }
+
 
 /// Eliminate the DWM caption bar by subclassing the window to zero the
 /// non-client area.  Safe to call on multiple windows — each gets its
@@ -353,6 +367,37 @@ pub fn shape_round_window(win: &tauri::WebviewWindow) -> Result<(), String> {
     }
 }
 
+
+#[cfg(windows)]
+pub fn shape_rounded_rect_window(win: &tauri::WebviewWindow, radius: i32) -> Result<(), String> {
+    let hwnd = root_hwnd(win).map_err(str::to_string)?;
+    let mut rect = WinRect::default();
+    let ok = unsafe { GetClientRect(hwnd, &mut rect) };
+    if ok == 0 {
+        return Err("OVERLAY_REGION_FAILED".to_string());
+    }
+    let width = rect.right - rect.left;
+    let height = rect.bottom - rect.top;
+    if width <= 0 || height <= 0 {
+        return Err("OVERLAY_REGION_FAILED".to_string());
+    }
+    let radius = radius.max(8);
+    let region = unsafe { CreateRoundRectRgn(0, 0, width + 1, height + 1, radius, radius) };
+    if region == 0 {
+        return Err("OVERLAY_REGION_FAILED".to_string());
+    }
+    let applied = unsafe { SetWindowRgn(hwnd, region, 1) };
+    if applied == 0 {
+        Err("OVERLAY_REGION_FAILED".to_string())
+    } else {
+        Ok(())
+    }
+}
+
+#[cfg(not(windows))]
+pub fn shape_rounded_rect_window(_win: &tauri::WebviewWindow, _radius: i32) -> Result<(), String> {
+    Ok(())
+}
 #[cfg(windows)]
 pub fn set_no_activate_bounds(
     win: &tauri::WebviewWindow,

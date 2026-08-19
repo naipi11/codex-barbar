@@ -40,7 +40,7 @@ describe("TaskbarStatusMeasure", () => {
     render(<TaskbarStatusMeasure />);
 
     const measurement = await screen.findByTestId("taskbar-status-measurement");
-    expect(await within(measurement).findByText("周 98%")).toBeInTheDocument();
+    expect(await within(measurement).findByText(/周 98%|Wk 98%/)).toBeInTheDocument();
     expect(within(measurement).getByText("ProofU")).toBeInTheDocument();
     expect(within(measurement).getByText("8/20")).toBeInTheDocument();
     expect(within(measurement).queryByText(/5H/)).toBeNull();
@@ -78,7 +78,7 @@ describe("TaskbarStatusMeasure", () => {
     expect(alphaDeclarationSelectors).toEqual([".taskbar-status"]);
   });
 
-  it("renders the exact visible geometry sequence including the 24px close column", async () => {
+  it("renders the exact visible geometry sequence without a close column", async () => {
     const bootstrap = bootstrapWithTwoProfiles();
     bootstrap.profiles[0]!.accountDisplayName = "ProofUser";
     bootstrap.usageByProfile.personal = weeklyOnlyUsage();
@@ -86,11 +86,11 @@ describe("TaskbarStatusMeasure", () => {
 
     const visibleView = render(<TaskbarStatus />);
     const visible = await screen.findByTestId("taskbar-status-visible");
-    await within(visible).findByText("周 98%");
+    await within(visible).findByText(/周 98%|Wk 98%/);
     const geometry = (root: HTMLElement) =>
       Array.from(
         root.querySelectorAll(
-          ".taskbar-status__avatar, .taskbar-status__identity, .taskbar-status__metric, .taskbar-status__reset, .taskbar-status__close",
+          ".taskbar-status__avatar, .taskbar-status__identity, .taskbar-status__metric, .taskbar-status__reset",
         ),
       ).map((element) => `${element.className}:${element.textContent}`);
     const visibleGeometry = geometry(visible);
@@ -98,22 +98,15 @@ describe("TaskbarStatusMeasure", () => {
 
     const measurementView = render(<TaskbarStatusMeasure />);
     const measurement = await screen.findByTestId("taskbar-status-measurement");
-    await within(measurement).findByText("周 98%");
+    await within(measurement).findByText(/周 98%|Wk 98%/);
     const measurementGeometry = geometry(measurement);
     expect(measurementGeometry).toEqual(visibleGeometry);
     expect(visibleGeometry).toEqual([
-      "taskbar-status__avatar:P",
+      "taskbar-status__avatar:",
       "taskbar-status__identity:ProofU",
-      "taskbar-status__metric:周 98%",
+      "taskbar-status__metric:Wk 98%",
       "taskbar-status__reset:8/20",
-      "taskbar-status__close:×",
     ]);
-    const closeStart = taskbarStatusCss.lastIndexOf(".taskbar-status__close {");
-    const closeRule = taskbarStatusCss.slice(
-      closeStart,
-      taskbarStatusCss.indexOf("}", closeStart),
-    );
-    expect(closeRule).toContain("width: 24px");
     measurementView.unmount();
   });
 
@@ -129,7 +122,7 @@ describe("TaskbarStatusMeasure", () => {
     }
     vi.stubGlobal("ResizeObserver", ResizeObserverStub);
     vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockReturnValue({
-      width: 247,
+      width: 279,
     } as DOMRect);
     vi.spyOn(HTMLElement.prototype, "scrollWidth", "get").mockReturnValue(247);
     const bootstrap = bootstrapWithTwoProfiles();
@@ -142,7 +135,7 @@ describe("TaskbarStatusMeasure", () => {
     await screen.findByTestId("taskbar-status-measurement");
     await vi.waitFor(() =>
       expect(invokeMock).toHaveBeenCalledWith("set_taskbar_status_width", {
-        width: 247,
+        width: 295,
       }),
     );
     expect(ResizeObserverStub.instances).toHaveLength(1);
@@ -157,3 +150,4 @@ describe("TaskbarStatusMeasure", () => {
     );
   });
 });
+

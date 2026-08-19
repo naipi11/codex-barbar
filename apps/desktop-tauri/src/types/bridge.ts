@@ -45,6 +45,7 @@ export interface AppSettingsDto {
   floatBallEnabled: boolean;
   taskbarStatusOpacity: number;
   floatBallOpacity: number;
+  floatBallGlow: number;
 }
 
 export type StatusSurfaceKind = "taskbarStatus" | "floatBall";

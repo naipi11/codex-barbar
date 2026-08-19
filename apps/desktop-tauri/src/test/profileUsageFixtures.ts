@@ -12,12 +12,13 @@ export const defaultSettings: AppSettingsDto = {
   refreshIntervalSeconds: 300,
   displayMode: "remaining",
   theme: "system",
-  language: "system",
+  language: "en-US",
   codexExecutableOverride: null,
   taskbarStatusEnabled: false,
   floatBallEnabled: false,
   taskbarStatusOpacity: 20,
   floatBallOpacity: 20,
+  floatBallGlow: 20,
 };
 
 export function currentCliProfile(

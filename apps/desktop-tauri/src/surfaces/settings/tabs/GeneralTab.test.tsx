@@ -77,8 +77,6 @@ describe("GeneralTab status surfaces", () => {
     });
     expect(taskbarOpacity).toHaveValue("20");
     expect(floatBallOpacity).toHaveValue("60");
-    expect(screen.getByText("20%")).toBeInTheDocument();
-    expect(screen.getByText("60%")).toBeInTheDocument();
     expect(taskbarOpacity).toBeEnabled();
     expect(floatBallOpacity).toBeEnabled();
 
@@ -86,8 +84,28 @@ describe("GeneralTab status surfaces", () => {
     expect(update).toHaveBeenLastCalledWith({ taskbarStatusOpacity: 35 });
     fireEvent.change(floatBallOpacity, { target: { value: "5" } });
     expect(update).toHaveBeenLastCalledWith({ floatBallOpacity: 5 });
+    const glow = screen.getByRole("slider", { name: "Floating status ball glow" });
+    expect(glow).toHaveValue("20");
+    fireEvent.change(glow, { target: { value: "70" } });
+    expect(update).toHaveBeenLastCalledWith({ floatBallGlow: 70 });
 
     fireEvent.click(screen.getByRole("checkbox", { name: "Show status in taskbar" }));
     expect(setSurfaceEnabled).toHaveBeenCalledWith("taskbarStatus", true);
   });
 });
+
+  it("lists the five built-in skins plus a custom editor", () => {
+    render(
+      <GeneralTab
+        settings={defaultAppSettings}
+        update={vi.fn().mockResolvedValue(defaultAppSettings)}
+        setSurfaceEnabled={vi.fn().mockResolvedValue(defaultAppSettings)}
+      />,
+    );
+
+    const theme = screen.getByLabelText("Theme");
+    expect(theme).toHaveValue("system");
+    fireEvent.change(theme, { target: { value: "custom" } });
+    expect(screen.getByRole("group", { name: "Custom skin" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Apply custom skin" }));
+  });

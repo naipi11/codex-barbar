@@ -1,69 +1,80 @@
-import { useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { CSSProperties, PointerEvent as ReactPointerEvent } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
+import { getFloatBallMotion } from "../lib/tauri";
 import { useStatusSurface } from "../hooks/useStatusSurface";
+import { useTheme } from "../hooks/useTheme";
+import ChatGptMark from "../theme/ChatGptMark";
 import "./FloatBall.css";
 
-const RADIUS = 27;
-const CIRCUMFERENCE = 2 * Math.PI * RADIUS;
 const DRAG_THRESHOLD = 4;
+const IDLE_SECONDS = 2.222;
 
-function surfaceAlpha(opacity: number | undefined): string {
-  return String(Math.max(0, Math.min(100, opacity ?? 20)) / 100);
+function clampPercent(value: number | undefined): number {
+  return Math.max(0, Math.min(100, value ?? 20));
 }
 
-function trustText(trustState: ReturnType<typeof useStatusSurface>["trustState"], refreshStatus: string): string {
-  if (trustState === "cached") return "缓存数据";
-  if (trustState === "missing") return "额度不可用";
-  return refreshStatus;
+function motionFromSnapshot(snapshot: { thinking: boolean; fast: boolean }): "idle" | "thinking" | "fast" {
+  if (snapshot.fast && snapshot.thinking) return "fast";
+  if (snapshot.fast) return "fast";
+  if (snapshot.thinking) return "thinking";
+  return "idle";
+}
+
+function detectMotion(): { thinking: boolean; fast: boolean } {
+  // Best-effort local probe: any live Codex/ChatGPT process counts as thinking.
+  // Fast is inferred from the current Codex config service tier / model name.
+  return { thinking: false, fast: false };
 }
 
 export default function FloatBall() {
   const surface = useStatusSurface();
-  const closeError = surface.closeFailedBySurface.floatBall
-    ? "关闭失败，请重试"
-    : null;
-  const pointerRef = useRef<{
-    id: number;
-    x: number;
-    y: number;
-    dragged: boolean;
-  } | null>(null);
+  useTheme(surface.bootstrap?.settings.theme ?? "system");
+  const closeError = surface.closeFailedBySurface.floatBall ? "关闭失败，请重试" : null;
+  const pointerRef = useRef<{ id: number; x: number; y: number; dragged: boolean } | null>(null);
   const skipNextClickRef = useRef(false);
+  const [motion, setMotion] = useState<"idle" | "thinking" | "fast">("idle");
   const metric = surface.urgentMetric;
   const displayedPercent = metric?.displayedPercent ?? null;
-  const percent = displayedPercent ?? 0;
-  const dashOffset = CIRCUMFERENCE * (1 - percent / 100);
-  const footer = metric ? `${metric.shortLabel} 剩余` : "额度剩余";
-  const confidence = trustText(surface.trustState, surface.refreshStatus);
-  const updated = surface.updatedText ? `，${surface.updatedText}` : "";
-  const bodyLabel = `打开完整面板，${surface.displayName}，${
-    displayedPercent === null
-      ? "额度不可用"
-      : `${displayedPercent}% ${metric?.displayMode ?? "remaining"}`
-  }，${confidence}${updated}，${surface.status}${
-    surface.status === "missing" ? " unavailable" : ""
-  }`;
+  const language = surface.bootstrap?.settings.language;
+  const chinese =
+    language === "zh-CN" ||
+    (language !== "en-US" && (navigator.language || "").toLowerCase().startsWith("zh"));
+  const glow = clampPercent(surface.bootstrap?.settings.floatBallGlow);
+  const opacity = clampPercent(surface.bootstrap?.settings.floatBallOpacity);
+  const speedSeconds =
+    motion === "fast" ? IDLE_SECONDS / 3 : motion === "thinking" ? IDLE_SECONDS / 2 : IDLE_SECONDS;
+  const bodyLabel = `${chinese ? "打开完整面板" : "Open panel"}，${surface.displayName}，${
+    displayedPercent === null ? (chinese ? "额度不可用" : "quota unavailable") : `${displayedPercent}%`
+  }，${motion}`;
+
+  useEffect(() => {
+    let cancelled = false;
+    const tick = async () => {
+      try {
+        const snapshot = await getFloatBallMotion();
+        if (!cancelled) setMotion(motionFromSnapshot(snapshot));
+      } catch {
+        if (!cancelled) setMotion(motionFromSnapshot(detectMotion()));
+      }
+    };
+    void tick();
+    const id = window.setInterval(() => void tick(), 4000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(id);
+    };
+  }, []);
 
   const startDrag = (event: ReactPointerEvent<HTMLButtonElement>) => {
-    pointerRef.current = {
-      id: event.pointerId,
-      x: event.clientX,
-      y: event.clientY,
-      dragged: false,
-    };
+    pointerRef.current = { id: event.pointerId, x: event.clientX, y: event.clientY, dragged: false };
     event.currentTarget.setPointerCapture?.(event.pointerId);
   };
 
   const moveDrag = (event: ReactPointerEvent<HTMLButtonElement>) => {
     const pointer = pointerRef.current;
     if (!pointer || pointer.id !== event.pointerId || pointer.dragged) return;
-    const distance = Math.hypot(
-      event.clientX - pointer.x,
-      event.clientY - pointer.y,
-    );
-    if (distance <= DRAG_THRESHOLD) return;
-
+    if (Math.hypot(event.clientX - pointer.x, event.clientY - pointer.y) <= DRAG_THRESHOLD) return;
     pointer.dragged = true;
     void (async () => {
       surface.setIsDragging(true);
@@ -75,11 +86,8 @@ export default function FloatBall() {
     const pointer = pointerRef.current;
     if (!pointer || pointer.id !== event.pointerId) return;
     pointerRef.current = null;
-    const movedDistance = Math.hypot(
-      event.clientX - pointer.x,
-      event.clientY - pointer.y,
-    );
-    const dragged = pointer.dragged || movedDistance > DRAG_THRESHOLD;
+    const dragged =
+      pointer.dragged || Math.hypot(event.clientX - pointer.x, event.clientY - pointer.y) > DRAG_THRESHOLD;
     surface.setIsDragging(false);
     if (event.currentTarget.hasPointerCapture?.(event.pointerId)) {
       event.currentTarget.releasePointerCapture(event.pointerId);
@@ -87,7 +95,6 @@ export default function FloatBall() {
     skipNextClickRef.current = true;
     if (!dragged) void surface.openPanel();
   };
-
 
   return (
     <div
@@ -98,9 +105,14 @@ export default function FloatBall() {
       data-status={surface.status}
       data-dragging={surface.isDragging}
       data-trust={surface.trustState}
-      style={{
-        "--surface-bg-alpha": surfaceAlpha(surface.bootstrap?.settings.floatBallOpacity),
-      } as CSSProperties}
+      data-motion={motion}
+      style={
+        {
+          "--surface-bg-alpha": String(opacity / 100),
+          "--float-glow": String(glow / 80),
+          "--float-spin-duration": `${speedSeconds}s`,
+        } as CSSProperties
+      }
     >
       <button
         type="button"
@@ -108,6 +120,7 @@ export default function FloatBall() {
         data-band={metric?.band ?? "unknown"}
         data-status={surface.status}
         data-dragging={surface.isDragging}
+        data-motion={motion}
         aria-label={bodyLabel}
         title={bodyLabel}
         onPointerDown={startDrag}
@@ -127,35 +140,16 @@ export default function FloatBall() {
           void surface.openPanel();
         }}
       >
-        <div className="float-ball__orbit" data-band={metric?.band ?? "unknown"}>
-
-          <svg className="float-ball__ring" viewBox="0 0 64 64" aria-hidden="true">
-            <circle className="float-ball__track" cx="32" cy="32" r={RADIUS} />
-            <circle
-              className="float-ball__progress"
-              data-testid="float-ball-ring-progress"
-              data-band={metric?.band ?? "unknown"}
-              cx="32"
-              cy="32"
-              r={RADIUS}
-              strokeDasharray={CIRCUMFERENCE}
-              strokeDashoffset={dashOffset}
-              opacity={percent > 0 ? 1 : 0}
-            />
-
-          </svg>
-          <span className="float-ball__value" aria-hidden="true">
-            {displayedPercent === null ? "—" : displayedPercent}
-          </span>
-          <span className="float-ball__footer" aria-hidden="true">{footer}</span>
-        </div>
+        <span className="float-ball__halo" aria-hidden="true" />
+        <span className="float-ball__spin" aria-hidden="true">
+          <ChatGptMark className="float-ball__blossom" variant="blossom" />
+        </span>
       </button>
-
-      {closeError && (
+      {closeError ? (
         <span className="float-ball__error" role="status">
           {closeError}
         </span>
-      )}
+      ) : null}
     </div>
   );
 }

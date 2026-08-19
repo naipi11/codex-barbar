@@ -40,8 +40,10 @@ export const commands = {
   dismissTrayPanel: "dismiss_tray_panel",
   openTrayPanel: "open_tray_panel",
   setFlyoutSize: "set_flyout_size",
+  setFlyoutInteracting: "set_flyout_interacting",
   getCurrentSurfaceState: "get_current_surface_state",
   quitApp: "quit_app",
+  getFloatBallMotion: "get_float_ball_motion",
 } as const;
 
 /** Frozen event names emitted by the Rust account/settings services. */
@@ -151,7 +153,13 @@ export const openTrayPanel = () => invoke<void>(commands.openTrayPanel);
 export const setFlyoutSize = (width: number, height: number) =>
   invoke<void>(commands.setFlyoutSize, { width, height });
 
+export const setFlyoutInteracting = (active: boolean) =>
+  invoke<void>(commands.setFlyoutInteracting, { active });
+
 export const getCurrentSurfaceState = () =>
   invoke<CurrentSurfaceState>(commands.getCurrentSurfaceState);
 
 export const quitApp = () => invoke<void>(commands.quitApp);
+
+export const getFloatBallMotion = () =>
+  invoke<{ thinking: boolean; fast: boolean }>(commands.getFloatBallMotion);

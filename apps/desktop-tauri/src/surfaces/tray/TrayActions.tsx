@@ -22,7 +22,7 @@ export default function TrayActions({
   return (
     <section className="tray-region tray-actions" role="region" aria-label={copy.actions}>
       <h2>{copy.actions}</h2>
-      <div className="tray-actions__buttons">
+      <div className="tray-actions__buttons tray-actions__buttons--single">
         <button
           type="button"
           autoFocus={autoFocusRefresh}

@@ -3,30 +3,30 @@ body,
 #root {
   width: 100%;
   height: 100%;
-  overflow: hidden;
+  overflow: visible;
   background: transparent !important;
 }
 
 .taskbar-status {
-  --quota-high: #56d98a;
-  --quota-medium: #f0b84f;
-  --quota-low: #f36b72;
+  --quota-high: #30d158;
+  --quota-medium: #ffd60a;
+  --quota-low: #ff453a;
   --quota-unknown: #9299aa;
   --surface-bg-alpha: 0.2;
   display: inline-grid;
   grid-auto-flow: column;
-  grid-template-columns: minmax(0, max-content) max-content;
+  grid-template-columns: minmax(0, max-content);
   height: 40px;
-  gap: 7px;
+  gap: 0;
   box-sizing: border-box;
-  padding: 0 7px 0 8px;
+  padding: 0 10px 0 8px;
   align-items: center;
-  border: 1px solid rgb(255 255 255 / calc(0.08 + var(--surface-bg-alpha) * 0.18));
-  border-radius: 12px;
-  background: rgb(24 26 34 / var(--surface-bg-alpha));
+  border: 1px solid rgb(255 255 255 / calc(0.14 + var(--surface-bg-alpha) * 0.12));
+  border-radius: 999px;
+  background: rgb(44 44 46 / calc(0.42 + var(--surface-bg-alpha) * 0.38)); backdrop-filter: blur(18px) saturate(160%); -webkit-backdrop-filter: blur(18px) saturate(160%);
   box-shadow: 0 6px 18px rgb(0 0 0 / calc(var(--surface-bg-alpha) * 0.32));
   color: #f5f6fb;
-  font: 600 12px "Segoe UI", system-ui, sans-serif;
+  font: 600 12px -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", system-ui, sans-serif;
   text-shadow: 0 1px 2px rgb(0 0 0 / 0.8);
   user-select: none;
 }
@@ -74,7 +74,7 @@ body,
 
 .taskbar-status__main:focus-visible,
 .taskbar-status__close:focus-visible {
-  outline: 2px solid #aeb9ff;
+  outline: 2px solid #56d98a;
   outline-offset: 2px;
 }
 
@@ -84,10 +84,10 @@ body,
   width: 24px;
   height: 24px;
   place-items: center;
-  border: 1px solid rgb(123 140 255 / 0.65);
+  border: 1px solid rgb(47 158 91 / 0.7);
   border-radius: 8px;
-  background: rgb(123 140 255 / calc(0.12 + var(--surface-bg-alpha) * 0.2));
-  color: #e2e6ff;
+  background: rgb(47 158 91 / calc(0.12 + var(--surface-bg-alpha) * 0.2));
+  color: #d7ffe8;
   font-size: 10px;
 }
 
@@ -108,10 +108,10 @@ body,
   grid-auto-flow: column;
   grid-auto-columns: max-content;
   min-width: 0;
-  max-width: 166px;
+  max-width: none;
   gap: 7px;
-  overflow: hidden;
-  mask-image: linear-gradient(to right, #000 calc(100% - 12px), transparent);
+  overflow: visible;
+  mask-image: none;
 }
 .taskbar-status__metric { font-variant-numeric: tabular-nums; }
 .taskbar-status__metric[data-band="high"] { color: var(--quota-high); }
@@ -142,7 +142,7 @@ body,
   position: absolute;
   width: 1px;
   height: 1px;
-  overflow: hidden;
+  overflow: visible;
   clip-path: inset(50%);
   white-space: nowrap;
 }
@@ -157,4 +157,30 @@ body,
 @media (prefers-reduced-motion: reduce) {
   .taskbar-status__state-dot { animation: none !important; }
   .taskbar-status__close[data-error="true"] { animation: none; }
+}
+
+.taskbar-status {
+  border-radius: var(--tray-capsule-radius, 999px);
+  background: color-mix(in srgb, var(--tray-surface, rgb(44 44 46)) calc((0.42 + var(--surface-bg-alpha) * 0.38) * 100%), transparent);
+  border-color: color-mix(in srgb, var(--tray-border, rgb(255 255 255)) 70%, transparent);
+}
+.taskbar-status__avatar {
+  overflow: hidden;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--tray-avatar-radius, 50%);
+  background: #000;
+  color: transparent;
+}
+[data-skin="vscode"] .taskbar-status,
+[data-skin="vscode"] .taskbar-status__avatar {
+  border-radius: 4px;
+}
+
+.taskbar-status__avatar-mark {
+  display: block;
+  width: 100%;
+  height: 100%;
 }

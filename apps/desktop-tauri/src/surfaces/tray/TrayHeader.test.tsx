@@ -8,7 +8,7 @@ describe("TrayHeader", () => {
   it("shows the account email and hides the panel from the close button", () => {
     const onDismiss = vi.fn();
 
-    render(
+    const { container } = render(
       <TrayHeader
         productName="codex-barbar"
         version="1.0.0"
@@ -26,6 +26,8 @@ describe("TrayHeader", () => {
     );
 
     expect(screen.getByText("user@example.com")).toBeInTheDocument();
+    expect(container.querySelector(".tray-panel__avatar-mark")).not.toBeNull();
+    expect(container.querySelector(".tray-panel__avatar")?.textContent).not.toMatch(/N/);
     const close = screen.getByRole("button", { name: /hide panel|隐藏面板/i });
     fireEvent.click(close);
     expect(onDismiss).toHaveBeenCalledOnce();

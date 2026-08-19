@@ -1,7 +1,7 @@
 use crate::window_positioner::Rect;
 
-pub const FLOAT_BALL_COLLAPSED_WIDTH: i32 = 88;
-pub const FLOAT_BALL_COLLAPSED_HEIGHT: i32 = 88;
+pub const FLOAT_BALL_COLLAPSED_WIDTH: i32 = 40;
+pub const FLOAT_BALL_COLLAPSED_HEIGHT: i32 = 40;
 pub const FLOAT_BALL_EXPANDED_WIDTH: i32 = 260;
 pub const FLOAT_BALL_EXPANDED_HEIGHT: i32 = 148;
 pub const FLOAT_BALL_LOGICAL_SIZE: u32 = FLOAT_BALL_COLLAPSED_WIDTH as u32;
@@ -266,9 +266,9 @@ mod tests {
     use crate::window_positioner::Rect;
 
     #[test]
-    fn collapsed_size_is_eighty_eight_logical_pixels() {
-        assert_eq!(FLOAT_BALL_COLLAPSED_WIDTH, 88);
-        assert_eq!(FLOAT_BALL_COLLAPSED_HEIGHT, 88);
+    fn collapsed_size_is_icon_sized_logical_pixels() {
+        assert_eq!(FLOAT_BALL_COLLAPSED_WIDTH, 40);
+        assert_eq!(FLOAT_BALL_COLLAPSED_HEIGHT, 40);
     }
 
     #[test]
@@ -279,7 +279,7 @@ mod tests {
             width: 1920,
             height: 1032,
         };
-        let collapsed = Point { x: 1824, y: 936 };
+        let collapsed = Point { x: 1872, y: 984 };
         assert_eq!(
             presentation_rect(collapsed, work_area, 1.0, FloatBallPresentation::Expanded,),
             Rect {
@@ -347,7 +347,7 @@ mod tests {
 
         assert_eq!(
             initial_position(monitor, work_area, 1.0),
-            Point { x: 1824, y: 936 }
+            Point { x: 1872, y: 984 }
         );
     }
 
@@ -367,7 +367,7 @@ mod tests {
         };
 
         let position = initial_position(monitor, work_area, 2.0);
-        assert_eq!(position, Point { x: 3648, y: 1872 });
+        assert_eq!(position, Point { x: 3744, y: 1968 });
         assert!(
             position.y + (FLOAT_BALL_LOGICAL_SIZE as i32 * 2) <= work_area.y + work_area.height
         );
@@ -390,7 +390,7 @@ mod tests {
 
         assert_eq!(
             initial_position(monitor, work_area, 1.0),
-            Point { x: -96, y: 816 }
+            Point { x: -48, y: 864 }
         );
     }
 
@@ -467,7 +467,7 @@ mod tests {
 
         assert_eq!(
             restore_position(Some(Point { x: 5000, y: 5000 }), &[secondary, primary]),
-            Point { x: 1824, y: 936 }
+            Point { x: 1872, y: 984 }
         );
     }
 
@@ -492,7 +492,7 @@ mod tests {
 
         assert_eq!(
             restore_position(Some(Point { x: 1630, y: 843 }), &[monitor]),
-            Point { x: 2416, y: 1224 }
+            Point { x: 2445, y: 1265 }
         );
     }
 }

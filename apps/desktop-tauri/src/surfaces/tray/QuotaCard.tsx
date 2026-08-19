@@ -17,9 +17,9 @@ function clampPercent(value: number): number {
   return Math.max(0, Math.min(100, value));
 }
 
-function quotaStatus(usedPercent: number): "ready" | "warning" | "critical" {
-  if (usedPercent >= 90) return "critical";
-  if (usedPercent >= 75) return "warning";
+function quotaStatus(remainingPercent: number): "ready" | "warning" | "critical" {
+  if (remainingPercent < 34) return "critical";
+  if (remainingPercent < 67) return "warning";
   return "ready";
 }
 
@@ -41,13 +41,24 @@ export default function QuotaCard({
     window.windowDurationMinutes === null
       ? null
       : formatDurationMinutes(window.windowDurationMinutes, locale);
-  const accessibleName = `${label}, ${displayedPercent}% ${modeLabel}, ${resetText}`;
+  const accessibleName = [label, displayedPercent + "% " + modeLabel, resetText].join(", ");
 
   return (
     <section className="tray-region quota-card" role="region" aria-label={label}>
-      <h2>{label}</h2>
+      <div className="quota-card__row">
+        <div className="quota-card__copy">
+          <h2>{label}</h2>
+          <p className="quota-card__reset">
+            {resetText}
+            {duration ? " · " + duration : ""}
+          </p>
+        </div>
+        <p className="quota-card__value">
+          <strong>{displayedPercent}% {modeLabel}</strong>
+        </p>
+      </div>
       <div
-        className={`quota-card__progress quota-card--${quotaStatus(window.usedPercent)}`}
+        className={"quota-card__progress quota-card--" + quotaStatus(window.remainingPercent)}
         role="progressbar"
         aria-valuemin={0}
         aria-valuemax={100}
@@ -56,17 +67,10 @@ export default function QuotaCard({
       >
         <span
           className="quota-card__progress-fill"
-          style={{ width: `${percent}%` }}
+          style={{ width: percent + "%" }}
           aria-hidden="true"
         />
       </div>
-      <p className="quota-card__value">
-        <strong>
-          {displayedPercent}% {modeLabel}
-        </strong>
-        {duration ? <span> · {duration}</span> : null}
-      </p>
-      <p className="quota-card__reset">{resetText}</p>
     </section>
   );
 }

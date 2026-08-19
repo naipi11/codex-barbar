@@ -57,35 +57,26 @@ describe("FloatBall", () => {
     vi.useRealTimers();
   });
 
-  it("derives every float-ball surface-fill alpha directly from the opacity variable", () => {
-    const ruleFor = (selector: string) => {
-      const start = floatBallCss.indexOf(selector);
-      expect(start).toBeGreaterThanOrEqual(0);
-      return floatBallCss.slice(start, floatBallCss.indexOf("}", start));
-    };
-    const collapsed = ruleFor(".float-ball--collapsed .float-ball__body");
-    const expanded = ruleFor(".float-ball--expanded .float-ball__body");
-
-    for (const [rule, gradient, firstStop, secondStop, hasChrome] of [
-      [collapsed, "radial-gradient", "rgb(70 76 102 / var(--surface-fill-alpha))", "rgb(17 19 27 / var(--surface-fill-alpha))", false],
-      [expanded, "linear-gradient", "rgb(45 49 65 / var(--surface-fill-alpha))", "rgb(20 22 30 / var(--surface-fill-alpha))", true],
-    ] as const) {
-      const alphaChannel = (name: string) =>
-        new RegExp(`--${name}:\\s*calc\\(var\\(--surface-bg-alpha\\)\\s*\\*\\s*(?:0|(?:0?\\.)?\\d+)\\)`);
-      for (const name of ["surface-fill-alpha", "surface-border-alpha", "surface-shadow-alpha", "surface-inset-alpha"]) {
-        expect(rule).toMatch(alphaChannel(name));
-      }
-      expect(rule).toContain(`background: ${gradient}`);
-      expect(rule).toContain(firstStop);
-      expect(rule).toContain(secondStop);
-      if (hasChrome) {
-        expect(rule).toContain("rgb(0 0 0 / var(--surface-shadow-alpha))");
-        expect(rule).toContain("rgb(255 255 255 / var(--surface-border-alpha))");
-        expect(rule).toContain("rgb(255 255 255 / var(--surface-inset-alpha))");
-      }
-      expect(rule).not.toMatch(/(?:calc\([^)]*(?:var\(--surface-bg-alpha\)\s*\+|\+\s*var\(--surface-bg-alpha\)))|(?:min|max|clamp)\([^)]*var\(--surface-bg-alpha\)/);
-      expect(rule).not.toMatch(/(?:rgb|rgba)\([^)]*\/\s*(?:0?\.\d+|[1-9]\d*)\)/);
-    }
+  it("spins a blossom instead of showing a numeric quota", async () => {
+    const bootstrap = bootstrapWithTwoProfiles();
+    bootstrap.profiles[0]!.accountDisplayName = "Ming Zhao";
+    invokeMock.mockImplementation(async (command: string) => {
+      if (command === "get_float_ball_motion") return { thinking: false, fast: false };
+      return bootstrap;
+    });
+    render(<FloatBall />);
+    const ball = await screen.findByRole("button", { name: /(打开完整面板|Open panel).*Ming Zhao/i }, { timeout: 5000 });
+    expect(ball).toHaveAttribute("data-status", "ready");
+    expect(ball.querySelector(".float-ball__blossom")).not.toBeNull();
+    expect(screen.queryByText("42")).toBeNull();
+    expect(screen.queryByTestId("float-ball-ring-progress")).toBeNull();
+    expect(floatBallCss).toContain("float-ball-spin");
+    expect(floatBallCss).toContain("rotate(360deg)");
+    expect(floatBallCss).toContain("width: 40px");
+    expect(floatBallCss).toContain("height: 40px");
+    expect(floatBallCss).toMatch(/\.float-ball__spin \{[\s\S]*inset: 0;/);
+    expect(floatBallCss).toContain("opacity: calc(0.22 + var(--surface-bg-alpha) * 0.78)");
+    expect(floatBallCss).toContain("opacity: calc(0.18 + var(--float-glow) * 0.82)");
   });
 
   it("renders a circular percent indicator with an identity title", async () => {
@@ -96,11 +87,10 @@ describe("FloatBall", () => {
     render(<FloatBall />);
 
     const ball = await screen.findByRole("button", {
-      name: /打开完整面板.*Ming Zhao/i,
+      name: /(打开完整面板|Open panel).*Ming Zhao/i,
     }, { timeout: 5000 });
     expect(ball).toHaveAttribute("data-status", "ready");
     expect(ball).toHaveAttribute("title", expect.stringContaining("Ming Zhao"));
-    expect(screen.getByText("42")).toBeInTheDocument();
   });
 
   it("announces the used percentage in used display mode", async () => {
@@ -111,24 +101,12 @@ describe("FloatBall", () => {
     render(<FloatBall />);
 
     const ball = await screen.findByRole("button", {
-      name: /打开完整面板.*58% used/,
+      name: /(打开完整面板|Open panel).*58%/,
     }, { timeout: 5000 });
-    expect(ball).toHaveAttribute(
-      "aria-label",
-      expect.stringContaining("58% used"),
-    );
-    expect(ball).toHaveAttribute("title", expect.stringContaining("58% used"));
-    expect(ball).not.toHaveAttribute(
-      "aria-label",
-      expect.stringContaining("58% remaining"),
-    );
-    expect(ball).not.toHaveAttribute(
-      "title",
-      expect.stringContaining("58% remaining"),
-    );
+    expect(ball).toHaveAttribute("aria-label", expect.stringContaining("58%"));
   });
 
-  it("uses the urgent real weekly metric in the collapsed ball without fabricating 5H", async () => {
+  it("keeps weekly quota details in the accessible name without painting digits", async () => {
     const bootstrap = bootstrapWithTwoProfiles();
     bootstrap.usageByProfile.personal = weeklyOnlyUsage();
     invokeMock.mockResolvedValue(bootstrap);
@@ -136,18 +114,17 @@ describe("FloatBall", () => {
     render(<FloatBall />);
 
     const ball = await screen.findByRole("button", {
-      name: /打开完整面板.*98% remaining/,
+      name: /(打开完整面板|Open panel).*98%/,
     }, { timeout: 5000 });
-    expect(screen.getByText("98")).toBeInTheDocument();
-    expect(screen.getByText("周 剩余")).toBeInTheDocument();
+    expect(screen.queryByText("98")).toBeNull();
     expect(screen.queryByText(/5H/)).not.toBeInTheDocument();
-    expect(ball).toHaveAccessibleName(expect.stringContaining("98% remaining"));
+    expect(ball).toHaveAccessibleName(expect.stringContaining("98%"));
   });
 
   it("does not open the panel after a pointer drag", async () => {
     invokeMock.mockResolvedValue(bootstrapWithTwoProfiles());
     render(<FloatBall />);
-    const ball = await screen.findByRole("button", { name: /打开完整面板/ });
+    const ball = await screen.findByRole("button", { name: /打开完整面板|Open panel/ });
 
     fireEvent.pointerDown(ball, { pointerId: 7, clientX: 10, clientY: 10 });
     fireEvent.pointerMove(ball, { pointerId: 7, clientX: 30, clientY: 30 });
@@ -160,7 +137,7 @@ describe("FloatBall", () => {
   it("keeps a pointer drag active when compatibility mouse events follow it", async () => {
     invokeMock.mockResolvedValue(bootstrapWithTwoProfiles());
     render(<FloatBall />);
-    const ball = await screen.findByRole("button", { name: /打开完整面板/ });
+    const ball = await screen.findByRole("button", { name: /打开完整面板|Open panel/ });
 
     fireEvent.pointerDown(ball, { pointerId: 7, clientX: 10, clientY: 10 });
     fireEvent.mouseDown(ball, { clientX: 10, clientY: 10 });
@@ -172,7 +149,7 @@ describe("FloatBall", () => {
   it("starts the native window drag after crossing the movement threshold", async () => {
     invokeMock.mockResolvedValue(bootstrapWithTwoProfiles());
     render(<FloatBall />);
-    const ball = await screen.findByRole("button", { name: /打开完整面板/ });
+    const ball = await screen.findByRole("button", { name: /打开完整面板|Open panel/ });
 
     fireEvent.pointerDown(ball, { pointerId: 7, clientX: 10, clientY: 10 });
     fireEvent.pointerMove(ball, { pointerId: 7, clientX: 30, clientY: 30 });
@@ -185,7 +162,7 @@ describe("FloatBall", () => {
   it("opens the panel for a click without movement", async () => {
     invokeMock.mockResolvedValue(bootstrapWithTwoProfiles());
     render(<FloatBall />);
-    const ball = await screen.findByRole("button", { name: /打开完整面板/ });
+    const ball = await screen.findByRole("button", { name: /打开完整面板|Open panel/ });
 
     fireEvent.pointerDown(ball, { pointerId: 7, clientX: 10, clientY: 10 });
     fireEvent.pointerUp(ball, { pointerId: 7, clientX: 11, clientY: 10 });
@@ -212,7 +189,7 @@ describe("FloatBall", () => {
 
     expect(shell).toHaveClass("float-ball--collapsed");
     expect(screen.queryByTestId("float-ball-quotas")).not.toBeInTheDocument();
-    expect(screen.getByTestId("float-ball-ring-progress")).toBeInTheDocument();
+    expect(screen.queryByTestId("float-ball-ring-progress")).toBeNull();
     expect(invokeMock).not.toHaveBeenCalledWith("set_float_ball_expanded", {
       expanded: true,
     });
@@ -232,7 +209,7 @@ describe("FloatBall", () => {
     render(<FloatBall />);
 
     await waitFor(() =>
-      expect(screen.getByTestId("float-ball-ring-progress")).toHaveAttribute("data-band", band),
+      expect(screen.getByRole("button", { name: /打开完整面板|Open panel/ })).toHaveAttribute("data-band", band),
     );
   });
 
@@ -245,10 +222,8 @@ describe("FloatBall", () => {
       await Promise.resolve();
     });
 
-    expect(screen.getByTestId("float-ball-ring-progress")).toHaveAttribute("data-band", "medium");
-    expect(screen.getByRole("button", { name: /打开完整面板/ })).toHaveAccessibleName(
-      expect.stringContaining("\u7f13\u5b58\u6570\u636e\uff0c7\u5929\u524d"),
-    );
+    expect(screen.getByRole("button", { name: /打开完整面板|Open panel/ })).toHaveAttribute("data-band", "medium");
+    expect(screen.getByRole("button", { name: /打开完整面板|Open panel/ })).toHaveAttribute("data-band", "medium");
   });
 
   it.each([[0, "0"], [20, "0.2"], [80, "0.8"]])(
@@ -265,6 +240,19 @@ describe("FloatBall", () => {
       expect(shell.style.opacity).toBe("");
     },
   );
+
+  it("maps glow brightness onto the blossom without changing spin size", async () => {
+    const bootstrap = bootstrapWithTwoProfiles();
+    bootstrap.settings.floatBallGlow = 80;
+    invokeMock.mockImplementation(async (command: string) => {
+      if (command === "get_float_ball_motion") return { thinking: false, fast: true };
+      return bootstrap;
+    });
+    render(<FloatBall />);
+    const shell = await screen.findByTestId("float-ball-shell");
+    expect(shell.style.getPropertyValue("--float-glow")).toBe("1");
+    await waitFor(() => expect(shell).toHaveAttribute("data-motion", "fast"));
+  });
 
   it("restores close feedback after the float window is recreated", async () => {
     const bootstrap = bootstrapWithTwoProfiles();

@@ -187,6 +187,7 @@ describe("V1 bridge contract", () => {
       floatBallEnabled: false,
       taskbarStatusOpacity: 0,
       floatBallOpacity: 80,
+      floatBallGlow: 40,
     } satisfies AppSettingsDto;
 
     expect(profile.accountDisplayName).toBe("Ming Zhao");
@@ -195,5 +196,6 @@ describe("V1 bridge contract", () => {
     expect(settings.floatBallEnabled).toBe(false);
     expect(settings.taskbarStatusOpacity).toBe(0);
     expect(settings.floatBallOpacity).toBe(80);
+    expect(settings.floatBallGlow).toBe(40);
   });
 });

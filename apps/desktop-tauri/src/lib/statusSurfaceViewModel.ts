@@ -7,7 +7,7 @@ import type {
 
 const FIVE_HOUR_MINUTES = 300;
 const WEEKLY_MINUTES = 10_080;
-const GENERIC_QUOTA_LABEL = "额度";
+const GENERIC_QUOTA_LABEL = "Quota";
 const STATUS_LABEL_LENGTH = 6;
 
 export type StatusSurfaceStatus =
@@ -54,6 +54,7 @@ export interface StatusSurfaceViewModelInput {
   profile: ProfileSummaryDto | null;
   state: ProfileUsageStateDto;
   displayMode: AppSettingsDto["displayMode"];
+  language?: AppSettingsDto["language"];
   nowMs: number;
 }
 
@@ -141,9 +142,15 @@ function metricKind(window: UsageWindowDto): StatusQuotaMetric["kind"] {
   return "other";
 }
 
-function shortWindowLabel(window: UsageWindowDto): string {
-  if (window.windowDurationMinutes === FIVE_HOUR_MINUTES) return "5H";
-  if (window.windowDurationMinutes === WEEKLY_MINUTES) return "周";
+function isChinese(language?: AppSettingsDto["language"]): boolean {
+  if (language === "en-US") return false;
+  return true;
+}
+
+
+function shortWindowLabel(window: UsageWindowDto, language?: AppSettingsDto["language"]): string {
+  if (window.windowDurationMinutes === FIVE_HOUR_MINUTES) return isChinese(language) ? "5H" : "5H";
+  if (window.windowDurationMinutes === WEEKLY_MINUTES) return isChinese(language) ? "周" : "Wk";
   const label = window.label?.trim();
   return label
     ? Array.from(label).slice(0, STATUS_LABEL_LENGTH).join("")
@@ -191,10 +198,11 @@ function toMetric(
   displayMode: AppSettingsDto["displayMode"],
   nowMs: number,
   trustState: TrustState,
+  language?: AppSettingsDto["language"],
 ): StatusQuotaMetric {
   const remainingPercent = clampPercent(window.remainingPercent);
   const usedPercent = clampPercent(window.usedPercent);
-  const shortLabel = shortWindowLabel(window);
+  const shortLabel = shortWindowLabel(window, language);
   return {
     kind: metricKind(window),
     limitId: window.limitId,
@@ -232,6 +240,7 @@ function deriveStatus(
   state: ProfileUsageStateDto,
   urgent: StatusQuotaMetric | null,
   trustState: TrustState,
+  language?: AppSettingsDto["language"],
 ): StatusSurfaceStatus {
   switch (trustState) {
     case "missing":
@@ -264,12 +273,13 @@ export function buildStatusSurfaceViewModel({
   profile,
   state,
   displayMode,
+  language,
   nowMs,
 }: StatusSurfaceViewModelInput): StatusSurfaceViewModel {
   const windows = metricWindows(state);
   const trustState = trustStateFor(state, windows);
   const metrics = windows.map((window) =>
-    toMetric(window, displayMode, nowMs, trustState),
+    toMetric(window, displayMode, nowMs, trustState, language),
   );
   const urgent = urgentMetric(metrics);
   const displayName = profileDisplayName(profile);

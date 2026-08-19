@@ -1,5 +1,8 @@
+import { getCurrentWindow } from "@tauri-apps/api/window";
+import { setFlyoutInteracting } from "../../lib/tauri";
 import type { ProfileSummaryDto } from "../../types/bridge";
 import { profileDisplayName, profileStatusLabel } from "../../hooks/useStatusSurface";
+import ChatGptMark from "../../theme/ChatGptMark";
 import type { TrayCopy } from "./copy";
 
 interface TrayHeaderProps {
@@ -8,18 +11,6 @@ interface TrayHeaderProps {
   profile: ProfileSummaryDto | null;
   copy: TrayCopy;
   onDismiss(): Promise<void> | void;
-}
-
-function initials(profile: ProfileSummaryDto | null): string {
-  const name = profileDisplayName(profile).trim();
-  const letters = name
-    .split(/\s+/)
-    .map((part) => part[0])
-    .filter((value): value is string => Boolean(value))
-    .slice(0, 2)
-    .join("")
-    .toUpperCase();
-  return letters || "C";
 }
 
 export default function TrayHeader({
@@ -35,15 +26,33 @@ export default function TrayHeader({
       ? profile.accountEmail
       : profileStatusLabel(profile);
 
+  const beginDrag = () => {
+    void setFlyoutInteracting(true).catch(() => undefined);
+    void getCurrentWindow().startDragging().finally(() => {
+      window.setTimeout(() => {
+        void setFlyoutInteracting(false).catch(() => undefined);
+      }, 250);
+    });
+  };
+
   return (
-    <header className="tray-panel__header">
+    <header
+      className="tray-panel__header"
+      onPointerDown={(event) => {
+        if (event.button !== 0) return;
+        const target = event.target as HTMLElement | null;
+        if (target?.closest("button")) return;
+        event.preventDefault();
+        beginDrag();
+      }}
+    >
       <div className="tray-panel__identity">
         <span className="tray-panel__avatar" aria-hidden="true">
-          {initials(profile)}
+          <ChatGptMark className="tray-panel__avatar-mark" />
         </span>
         <div className="tray-panel__title-group">
-          <h1>{productName}</h1>
           <p className="tray-panel__identity-name">{identity}</p>
+          <h1>{productName}</h1>
           <p className="tray-panel__identity-status">{secondary}</p>
         </div>
       </div>
@@ -56,7 +65,7 @@ export default function TrayHeader({
           title={copy.hidePanel}
           onClick={() => void onDismiss()}
         >
-          <span aria-hidden="true">×</span>
+          <span aria-hidden="true">x</span>
         </button>
       </div>
     </header>

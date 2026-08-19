@@ -91,7 +91,7 @@ export default function UsageStatus({
           {copy.lastUpdated}: {updated}
         </p>
       ) : null}
-      {state.protocolAnomaly ? (
+      {state.protocolAnomaly && !state.primary && !state.secondary ? (
         <p className="usage-status__anomaly">{copy.protocolAnomaly}</p>
       ) : null}
       {error ? (

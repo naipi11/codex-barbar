@@ -249,6 +249,7 @@ mod tests {
             float_ball_enabled: Some(false),
             taskbar_status_opacity: Some(0),
             float_ball_opacity: Some(80),
+            float_ball_glow: Some(40),
         };
         let settings = patch.into_patch().unwrap();
         assert_eq!(settings.start_at_login, Some(true));
@@ -264,6 +265,7 @@ mod tests {
         assert_eq!(settings.float_ball_enabled, Some(false));
         assert_eq!(settings.taskbar_status_opacity, Some(0));
         assert_eq!(settings.float_ball_opacity, Some(80));
+        assert_eq!(settings.float_ball_glow, Some(40));
     }
 
     #[test]
@@ -289,5 +291,6 @@ mod tests {
         assert!(dto.float_ball_enabled);
         assert_eq!(dto.taskbar_status_opacity, 20);
         assert_eq!(dto.float_ball_opacity, 20);
+        assert_eq!(dto.float_ball_glow, 20);
     }
 }
