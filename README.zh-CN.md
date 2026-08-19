@@ -4,6 +4,21 @@
 
 **一款在 Windows 托盘显示 Codex 用量与额度的应用。**
 
+![codex-barbar 托盘、任务栏和悬浮球](docs/images/gallery/hero.png)
+
+<p align="center">
+  <img src="docs/images/gallery/float-ball-idle.gif" alt="空闲悬浮球" width="180" />
+  <img src="docs/images/gallery/float-ball-thinking.gif" alt="思考悬浮球" width="180" />
+  <img src="docs/images/gallery/float-ball-fast.gif" alt="Fast 悬浮球" width="180" />
+</p>
+
+<p align="center">
+  <img src="docs/images/gallery/taskbar-status.png" alt="任务栏状态条" width="720" />
+</p>
+
+悬浮球保持和图标一样大，并顺时针旋转。颜色表示剩余额度（绿 / 金 / 红），
+转速表示状态：空闲、思考 ×2、Fast ×3。
+
 codex-barbar 是一款 Windows 11 x64 托盘应用，用于随时查看你的
 [Codex](https://developers.openai.com/codex/) 用量与额度。它通过官方
 Codex App Server 协议读取数据，凭据保存在本地，并在托盘、任务栏和悬浮球中实时展示额度。

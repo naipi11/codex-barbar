@@ -4,6 +4,21 @@
 
 **A Windows tray app that shows your Codex usage and limits at a glance.**
 
+![codex-barbar tray, taskbar, and floating ball](docs/images/gallery/hero.png)
+
+<p align="center">
+  <img src="docs/images/gallery/float-ball-idle.gif" alt="Idle floating ball" width="180" />
+  <img src="docs/images/gallery/float-ball-thinking.gif" alt="Thinking floating ball" width="180" />
+  <img src="docs/images/gallery/float-ball-fast.gif" alt="Fast floating ball" width="180" />
+</p>
+
+<p align="center">
+  <img src="docs/images/gallery/taskbar-status.png" alt="Taskbar status capsule" width="720" />
+</p>
+
+The floating ball stays icon-sized and clockwise. Color shows remaining quota
+(green / gold / red). Speed shows activity: idle, thinking ×2, Fast ×3.
+
 codex-barbar is a Windows 11 x64 tray application for tracking your
 [Codex](https://developers.openai.com/codex/) usage and quota limits. It
 talks to the official Codex App Server protocol, keeps credentials local,
