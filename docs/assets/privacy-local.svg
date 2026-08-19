@@ -1,0 +1,30 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 420" font-family="Segoe UI, system-ui, -apple-system, sans-serif">
+  <text x="560" y="78" fill="#17181d" font-size="28" font-weight="700">Local-first by design</text>
+
+  <g>
+    <rect x="110" y="110" width="340" height="215" rx="16" fill="#17181d" stroke="#23283a"/>
+    <rect x="132" y="130" width="296" height="158" rx="8" fill="#0d1017" stroke="#1f232e"/>
+    <path d="M 280 160 L 318 177 L 318 210 C 318 244 297 259 280 265 C 263 259 242 244 242 210 L 242 177 Z"
+          fill="#1b1d26" stroke="#7b8cff" stroke-width="3" stroke-linejoin="round"/>
+    <circle cx="280" cy="212" r="11" fill="#7b8cff"/>
+    <rect x="277" y="212" width="6" height="14" rx="3" fill="#0d1017"/>
+    <rect x="150" y="325" width="260" height="10" rx="5" fill="#1f232e"/>
+    <rect x="210" y="340" width="140" height="7" rx="3.5" fill="#17181d" stroke="#23283a"/>
+  </g>
+
+  <g>
+    <circle cx="588" cy="150" r="15" fill="#142b21" stroke="#67d49a" stroke-width="2"/>
+    <path d="M 582 150 L 587 155 L 595 145" fill="none" stroke="#67d49a" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+    <text x="618" y="156" fill="#17181d" font-size="19" font-weight="600">Credentials stay on this device</text>
+
+    <circle cx="588" cy="230" r="15" fill="#142b21" stroke="#67d49a" stroke-width="2"/>
+    <path d="M 582 230 L 587 235 L 595 225" fill="none" stroke="#67d49a" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+    <text x="618" y="236" fill="#17181d" font-size="19" font-weight="600">Protected with Windows DPAPI · current user only</text>
+
+    <circle cx="588" cy="310" r="15" fill="#142b21" stroke="#67d49a" stroke-width="2"/>
+    <path d="M 582 310 L 587 315 L 595 305" fill="none" stroke="#67d49a" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+    <text x="618" y="316" fill="#17181d" font-size="19" font-weight="600">No telemetry · updates only when you trigger them</text>
+  </g>
+
+  <text x="600" y="392" fill="#5f6572" font-size="13" text-anchor="middle">Concept illustration · no real data shown</text>
+</svg>

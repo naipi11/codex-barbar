@@ -1,0 +1,59 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 680" font-family="Segoe UI, system-ui, -apple-system, sans-serif">
+  <defs>
+    <linearGradient id="winPanel" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#1b1d26"/>
+      <stop offset="1" stop-color="#17181d"/>
+    </linearGradient>
+    <filter id="softShadow" x="-30%" y="-30%" width="160%" height="160%">
+      <feDropShadow dx="0" dy="16" stdDeviation="26" flood-color="#000000" flood-opacity="0.45"/>
+    </filter>
+  </defs>
+
+  <g filter="url(#softShadow)">
+    <rect x="150" y="40" width="900" height="580" rx="18" fill="url(#winPanel)" stroke="#23283a"/>
+    <circle cx="186" cy="72" r="8" fill="#ef7c88"/>
+    <circle cx="214" cy="72" r="8" fill="#e7ad5b"/>
+    <circle cx="242" cy="72" r="8" fill="#67d49a"/>
+    <text x="600" y="78" fill="#9299aa" font-size="15" text-anchor="middle">codex-barbar Settings</text>
+
+    <rect x="150" y="96" width="230" height="524" fill="#14161e"/>
+    <rect x="162" y="172" width="206" height="44" rx="10" fill="#23283a"/>
+    <text x="178" y="122" fill="#9299aa" font-size="15">General</text>
+    <text x="178" y="200" fill="#f7f8ff" font-size="15" font-weight="600">Status</text>
+    <text x="178" y="256" fill="#9299aa" font-size="15">Display</text>
+    <text x="178" y="312" fill="#9299aa" font-size="15">Language</text>
+    <text x="178" y="368" fill="#9299aa" font-size="15">About</text>
+
+    <text x="420" y="132" fill="#9299aa" font-size="13">STATUS SURFACES</text>
+
+    <text x="420" y="172" fill="#f7f8ff" font-size="18" font-weight="600">Show in taskbar</text>
+    <text x="420" y="196" fill="#9299aa" font-size="14">Weekly usage capsule pinned to the Windows taskbar</text>
+    <rect x="930" y="148" width="50" height="28" rx="14" fill="#268056"/>
+    <circle cx="950" cy="162" r="10" fill="#ffffff"/>
+
+    <line x1="420" y1="220" x2="1010" y2="220" stroke="#23283a" stroke-width="1"/>
+
+    <text x="420" y="252" fill="#f7f8ff" font-size="18" font-weight="600">Float ball</text>
+    <text x="420" y="276" fill="#9299aa" font-size="14">Animated orbit ball that reflects quota color and activity speed</text>
+    <rect x="930" y="228" width="50" height="28" rx="14" fill="#268056"/>
+    <circle cx="950" cy="242" r="10" fill="#ffffff"/>
+
+    <line x1="420" y1="300" x2="1010" y2="300" stroke="#23283a" stroke-width="1"/>
+
+    <text x="420" y="332" fill="#f7f8ff" font-size="18" font-weight="600">Interface language</text>
+    <text x="420" y="356" fill="#9299aa" font-size="14">English · 简体中文</text>
+    <rect x="806" y="314" width="204" height="38" rx="10" fill="#20232d" stroke="#2a2f3d"/>
+    <rect x="812" y="320" width="94" height="26" rx="7" fill="#3a3f4f"/>
+    <text x="859" y="338" fill="#f7f8ff" font-size="14" text-anchor="middle">English</text>
+    <text x="960" y="338" fill="#9299aa" font-size="14" text-anchor="middle">简体中文</text>
+
+    <line x1="420" y1="380" x2="1010" y2="380" stroke="#23283a" stroke-width="1"/>
+
+    <text x="420" y="412" fill="#f7f8ff" font-size="18" font-weight="600">Signed in as</text>
+    <text x="420" y="436" fill="#9299aa" font-size="14">Demo Account · local profile</text>
+    <rect x="904" y="394" width="106" height="34" rx="17" fill="#23283a"/>
+    <text x="957" y="416" fill="#b9c0d0" font-size="14" text-anchor="middle">abc12</text>
+  </g>
+
+  <text x="600" y="658" fill="#5f6572" font-size="13" text-anchor="middle">Illustrative settings mockup · fictional data</text>
+</svg>

@@ -1,0 +1,81 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 480" font-family="Segoe UI, system-ui, -apple-system, sans-serif">
+  <defs>
+    <linearGradient id="gGrad" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#67d49a"/>
+      <stop offset="1" stop-color="#9fe0bd"/>
+    </linearGradient>
+    <linearGradient id="aGrad" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#e7ad5b"/>
+      <stop offset="1" stop-color="#f1c477"/>
+    </linearGradient>
+    <linearGradient id="rGrad" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#ef7c88"/>
+      <stop offset="1" stop-color="#ffb7b9"/>
+    </linearGradient>
+    <filter id="softShadow" x="-40%" y="-40%" width="180%" height="180%">
+      <feDropShadow dx="0" dy="12" stdDeviation="20" flood-color="#000000" flood-opacity="0.35"/>
+    </filter>
+    <filter id="glowG" x="-80%" y="-80%" width="260%" height="260%">
+      <feGaussianBlur stdDeviation="6" result="blur"/>
+      <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+    <filter id="glowA" x="-80%" y="-80%" width="260%" height="260%">
+      <feGaussianBlur stdDeviation="6" result="blur"/>
+      <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+    <filter id="glowR" x="-80%" y="-80%" width="260%" height="260%">
+      <feGaussianBlur stdDeviation="6" result="blur"/>
+      <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+  </defs>
+
+  <g filter="url(#softShadow)">
+    <rect x="40" y="40" width="350" height="400" rx="20" fill="#14161e" stroke="#23283a"/>
+    <circle cx="215" cy="190" r="64" fill="none" stroke="#2a2f3d" stroke-width="2"/>
+    <circle cx="215" cy="190" r="52" fill="none" stroke="#ffffff" stroke-opacity="0.06" stroke-width="1.5"/>
+    <circle cx="215" cy="190" r="9" fill="#9fe0bd" filter="url(#glowG)"/>
+    <path d="M 215 178 a 1 1 0 0 1 0 24 a 1 1 0 0 1 0 -48 a 1 1 0 0 1 0 72 a 1 1 0 0 1 0 -80"
+          fill="none" stroke="url(#gGrad)" stroke-width="6" stroke-linecap="round" filter="url(#glowG)"/>
+    <g fill="#7b8cff">
+      <circle cx="279" cy="190" r="5"/>
+      <circle cx="215" cy="126" r="4"/>
+      <circle cx="151" cy="190" r="3.5"/>
+    </g>
+    <text x="215" y="310" fill="#f7f8ff" font-size="24" font-weight="600" text-anchor="middle">High remaining</text>
+    <text x="215" y="342" fill="#9299aa" font-size="15" text-anchor="middle">Green · plenty of quota left</text>
+  </g>
+
+  <g filter="url(#softShadow)">
+    <rect x="425" y="40" width="350" height="400" rx="20" fill="#14161e" stroke="#23283a"/>
+    <circle cx="600" cy="190" r="64" fill="none" stroke="#2a2f3d" stroke-width="2"/>
+    <circle cx="600" cy="190" r="52" fill="none" stroke="#ffffff" stroke-opacity="0.06" stroke-width="1.5"/>
+    <circle cx="600" cy="190" r="9" fill="#f1c477" filter="url(#glowA)"/>
+    <path d="M 600 178 a 1 1 0 0 1 0 24 a 1 1 0 0 1 0 -48 a 1 1 0 0 1 0 72 a 1 1 0 0 1 0 -80"
+          fill="none" stroke="url(#aGrad)" stroke-width="6" stroke-linecap="round" filter="url(#glowA)"/>
+    <g fill="#7b8cff">
+      <circle cx="664" cy="190" r="5"/>
+      <circle cx="600" cy="126" r="4"/>
+      <circle cx="536" cy="190" r="3.5"/>
+    </g>
+    <text x="600" y="310" fill="#f7f8ff" font-size="24" font-weight="600" text-anchor="middle">Medium remaining</text>
+    <text x="600" y="342" fill="#9299aa" font-size="15" text-anchor="middle">Amber · keep an eye on it</text>
+  </g>
+
+  <g filter="url(#softShadow)">
+    <rect x="810" y="40" width="350" height="400" rx="20" fill="#14161e" stroke="#23283a"/>
+    <circle cx="985" cy="190" r="64" fill="none" stroke="#2a2f3d" stroke-width="2"/>
+    <circle cx="985" cy="190" r="52" fill="none" stroke="#ffffff" stroke-opacity="0.06" stroke-width="1.5"/>
+    <circle cx="985" cy="190" r="9" fill="#ffb7b9" filter="url(#glowR)"/>
+    <path d="M 985 178 a 1 1 0 0 1 0 24 a 1 1 0 0 1 0 -48 a 1 1 0 0 1 0 72 a 1 1 0 0 1 0 -80"
+          fill="none" stroke="url(#rGrad)" stroke-width="6" stroke-linecap="round" filter="url(#glowR)"/>
+    <g fill="#7b8cff">
+      <circle cx="1049" cy="190" r="5"/>
+      <circle cx="985" cy="126" r="4"/>
+      <circle cx="921" cy="190" r="3.5"/>
+    </g>
+    <text x="985" y="310" fill="#f7f8ff" font-size="24" font-weight="600" text-anchor="middle">Low remaining</text>
+    <text x="985" y="342" fill="#9299aa" font-size="15" text-anchor="middle">Red · plan your usage</text>
+  </g>
+
+  <text x="600" y="462" fill="#5f6572" font-size="13" text-anchor="middle">Fictional demo states · colors follow the app quota status</text>
+</svg>

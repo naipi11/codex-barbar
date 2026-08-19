@@ -1,0 +1,24 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 320" font-family="Segoe UI, system-ui, -apple-system, sans-serif">
+  <text x="600" y="70" fill="#17181d" font-size="30" font-weight="700" text-anchor="middle">The taskbar capsule — always in view</text>
+  <text x="600" y="102" fill="#5f6572" font-size="16" text-anchor="middle">Weekly usage and reset countdown, embedded in the Windows taskbar</text>
+
+  <rect x="0" y="180" width="1200" height="110" fill="#0d1017" stroke="#1f232e"/>
+
+  <g>
+    <rect x="190" y="202" width="380" height="66" rx="33" fill="#17181d" stroke="#23283a"/>
+    <circle cx="228" cy="235" r="8" fill="#67d49a"/>
+    <text x="248" y="241" fill="#f7f8ff" font-size="20" font-weight="600">Weekly 72%</text>
+    <circle cx="410" cy="235" r="2.5" fill="#3a3f4f"/>
+    <text x="426" y="241" fill="#9299aa" font-size="17">3d 04h</text>
+  </g>
+
+  <g>
+    <rect x="630" y="202" width="380" height="66" rx="33" fill="#17181d" stroke="#23283a"/>
+    <circle cx="668" cy="235" r="8" fill="#e7ad5b"/>
+    <text x="688" y="241" fill="#f7f8ff" font-size="20" font-weight="600">Weekly 46%</text>
+    <circle cx="850" cy="235" r="2.5" fill="#3a3f4f"/>
+    <text x="866" y="241" fill="#9299aa" font-size="17">2d 09h</text>
+  </g>
+
+  <text x="600" y="308" fill="#5f6572" font-size="13" text-anchor="middle">Fictional demo values</text>
+</svg>
