@@ -1,8 +1,8 @@
 //! V1 tray visual-state contracts.
 //!
 //! The selected Codex profile owns one visual state. Percentage thresholds
-//! are computed from the unrounded remaining value, while the icon displays a
-//! rounded integer.
+//! are computed from the same rounded integer displayed by the status
+//! surfaces so every surface keeps one color band.
 
 /// Color threshold for a fresh remaining-quota icon.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -24,10 +24,10 @@ pub enum TrayVisualState {
 impl TrayVisualState {
     /// Construct a remaining-quota state.
     ///
-    /// Thresholds use the finite, unrounded value:
-    /// - greater than 50: normal
-    /// - greater than 20: warning
-    /// - otherwise: danger
+    /// Thresholds use the rounded remaining value shared with the frontend:
+    /// - 67 or greater: normal
+    /// - 34 through 66: warning
+    /// - 33 or lower: danger
     pub fn from_remaining(remaining: f64, stale: bool) -> Self {
         if !remaining.is_finite() {
             return Self::Unavailable;
@@ -39,9 +39,9 @@ impl TrayVisualState {
             return Self::Stale { percent };
         }
 
-        let level = if normalized > 50.0 {
+        let level = if percent >= 67 {
             TrayLevel::Normal
-        } else if normalized > 20.0 {
+        } else if percent >= 34 {
             TrayLevel::Warning
         } else {
             TrayLevel::Danger
@@ -164,34 +164,37 @@ mod tests {
     #[test]
     fn remaining_thresholds_use_exact_v1_levels() {
         assert_eq!(
-            TrayVisualState::from_remaining(51.0, false).level(),
+            TrayVisualState::from_remaining(67.0, false).level(),
             Some(TrayLevel::Normal)
         );
         assert_eq!(
-            TrayVisualState::from_remaining(50.0, false).level(),
+            TrayVisualState::from_remaining(66.0, false).level(),
             Some(TrayLevel::Warning)
         );
         assert_eq!(
-            TrayVisualState::from_remaining(50.4, false).level(),
-            Some(TrayLevel::Normal)
-        );
-        assert_eq!(
-            TrayVisualState::from_remaining(21.0, false).level(),
+            TrayVisualState::from_remaining(34.0, false).level(),
             Some(TrayLevel::Warning)
         );
         assert_eq!(
-            TrayVisualState::from_remaining(20.0, false).level(),
+            TrayVisualState::from_remaining(33.0, false).level(),
             Some(TrayLevel::Danger)
         );
     }
 
     #[test]
-    fn remaining_display_is_rounded_after_level_selection() {
+    fn remaining_display_is_rounded_before_level_selection() {
         assert_eq!(
-            TrayVisualState::from_remaining(50.4, false),
+            TrayVisualState::from_remaining(66.6, false),
             TrayVisualState::Remaining {
-                percent: 50,
+                percent: 67,
                 level: TrayLevel::Normal,
+            }
+        );
+        assert_eq!(
+            TrayVisualState::from_remaining(66.4, false),
+            TrayVisualState::Remaining {
+                percent: 66,
+                level: TrayLevel::Warning,
             }
         );
     }

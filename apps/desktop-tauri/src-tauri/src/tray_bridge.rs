@@ -5,10 +5,10 @@ use std::sync::Mutex;
 use chrono::SecondsFormat;
 use codexbar::accounts::model::{AccountProfile, ProfileLifecycle};
 use codexbar::core::{
-    AppErrorKind, AuthMode, Freshness, ProfileUsageState, RefreshStatus, RefreshTrigger,
-    UsageWindow,
+    AppErrorKind, AuthMode, Freshness, ProfileUsageSnapshot, ProfileUsageState, RefreshStatus,
+    RefreshTrigger, UsageWindow,
 };
-use codexbar::tray::{TrayVisualState, minimum_remaining, render_tray_icon_rgba};
+use codexbar::tray::{TrayVisualState, render_tray_icon_rgba};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
 use tauri::{App, AppHandle, Listener, Manager};
 
@@ -16,6 +16,7 @@ use crate::state::AppState;
 use crate::tray_menu::{self, TrayMenuAction, TrayProfileMenuItem};
 
 const TRAY_ID: &str = "main";
+const UNIVERSAL_WEEKLY_MINUTES: u64 = 10_080;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct TrayPresentation {
@@ -83,17 +84,22 @@ fn visual_state(
     let Some(snapshot) = state.snapshot.as_ref() else {
         return TrayVisualState::Unavailable;
     };
-    let remaining = snapshot
+    universal_weekly_window(snapshot)
+        .map(|window| {
+            TrayVisualState::from_remaining(
+                window.remaining_percent,
+                state.freshness == Freshness::Stale,
+            )
+        })
+        .unwrap_or(TrayVisualState::Unavailable)
+}
+
+fn universal_weekly_window(snapshot: &ProfileUsageSnapshot) -> Option<&UsageWindow> {
+    snapshot
         .primary
         .iter()
         .chain(snapshot.secondary.iter())
-        .chain(snapshot.additional_windows.iter())
-        .map(|window| window.remaining_percent);
-    minimum_remaining(remaining)
-        .map(|minimum| {
-            TrayVisualState::from_remaining(minimum, state.freshness == Freshness::Stale)
-        })
-        .unwrap_or(TrayVisualState::Unavailable)
+        .find(|window| window.window_duration_minutes == Some(UNIVERSAL_WEEKLY_MINUTES))
 }
 
 fn build_tooltip(
@@ -108,16 +114,10 @@ fn build_tooltip(
     let mut lines = vec![format!("codex-barbar — {profile_label}")];
 
     if let Some(percent) = visual.percent() {
-        lines.push(format!("Minimum remaining: {percent}%"));
+        lines.push(format!("Weekly remaining: {percent}%"));
     }
 
     if let Some(snapshot) = usage.and_then(|state| state.snapshot.as_ref()) {
-        if let Some(primary) = snapshot.primary.as_ref() {
-            lines.push(format_window(primary));
-        }
-        if let Some(secondary) = snapshot.secondary.as_ref() {
-            lines.push(format_window(secondary));
-        }
         lines.push(format!(
             "Updated: {}",
             snapshot
@@ -129,15 +129,6 @@ fn build_tooltip(
     let status = tooltip_status(usage, visual);
     lines.push(format!("State: {status}"));
     lines.join("\n")
-}
-
-fn format_window(window: &UsageWindow) -> String {
-    let label = match window.window_duration_minutes {
-        Some(300) => "5-hour",
-        Some(10080) => "Weekly",
-        _ => "Quota",
-    };
-    format!("{label}: {:.0}% remaining", window.remaining_percent)
 }
 
 fn tooltip_status(usage: Option<&ProfileUsageState>, visual: TrayVisualState) -> &'static str {
@@ -445,9 +436,20 @@ mod tests {
     }
 
     #[test]
-    fn selected_profile_uses_the_most_exhausted_window() {
+    fn selected_profile_uses_the_universal_weekly_window_and_shared_bands() {
         let profile = profile(AuthMode::ChatGpt);
-        let usage = usage(20.0, 80.0, false);
+        let mut usage = usage(99.0, 34.0, false);
+        usage.snapshot.as_mut().unwrap().additional_windows.push(
+            UsageWindow::normalized(
+                "codex-spark:weekly",
+                Some("GPT-5.3-Codex-Spark".into()),
+                0.0,
+                Some(10_080),
+                None,
+                None,
+            )
+            .0,
+        );
         let presentation = presentation_from(
             Some(&profile),
             std::slice::from_ref(&profile),
@@ -457,8 +459,8 @@ mod tests {
         assert_eq!(
             presentation.visual,
             codexbar::tray::TrayVisualState::Remaining {
-                percent: 20,
-                level: codexbar::tray::TrayLevel::Danger,
+                percent: 66,
+                level: codexbar::tray::TrayLevel::Warning,
             }
         );
     }
@@ -466,13 +468,38 @@ mod tests {
     #[test]
     fn api_key_without_quota_uses_api_state() {
         let profile = profile(AuthMode::ApiKey);
+        let usage = usage(99.0, 34.0, false);
         let presentation = presentation_from(
             Some(&profile),
             std::slice::from_ref(&profile),
-            None,
+            Some(&usage),
             "en-US",
         );
         assert_eq!(presentation.visual, codexbar::tray::TrayVisualState::Api);
+        assert!(!presentation.tooltip.contains("Weekly remaining"));
+        assert!(!presentation.tooltip.contains("Weekly:"));
+    }
+
+    #[test]
+    fn tooltip_uses_the_same_rounded_weekly_percent_as_the_icon() {
+        let profile = profile(AuthMode::ChatGpt);
+        let usage = usage(99.0, 33.5, false);
+        let presentation = presentation_from(
+            Some(&profile),
+            std::slice::from_ref(&profile),
+            Some(&usage),
+            "en-US",
+        );
+
+        assert_eq!(
+            presentation.visual,
+            codexbar::tray::TrayVisualState::Remaining {
+                percent: 67,
+                level: codexbar::tray::TrayLevel::Normal,
+            }
+        );
+        assert!(presentation.tooltip.contains("Weekly remaining: 67%"));
+        assert!(!presentation.tooltip.contains("Weekly: 66% remaining"));
     }
 
     #[test]
@@ -486,8 +513,8 @@ mod tests {
             "en-US",
         );
         assert!(presentation.tooltip.contains("Work"));
-        assert!(presentation.tooltip.contains("42%"));
-        assert!(presentation.tooltip.contains("5-hour"));
+        assert!(presentation.tooltip.contains("Weekly remaining: 61%"));
+        assert!(!presentation.tooltip.contains("5-hour"));
         assert!(presentation.tooltip.contains("Weekly"));
         assert!(presentation.tooltip.contains("Cached"));
         for forbidden in ["user@example.com", "token", "secret", "diagnostic"] {

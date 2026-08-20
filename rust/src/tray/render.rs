@@ -1,43 +1,65 @@
-//! Deterministic pixel-level V1 tray icon renderer.
+//! Deterministic Graphite Knot tray icon renderer.
 
 use super::{TrayLevel, TrayVisualState};
 
 pub const TRAY_ICON_SIZE: u32 = 32;
 
-pub const NORMAL_RGBA: [u8; 4] = [59, 130, 246, 255];
-pub const WARNING_RGBA: [u8; 4] = [245, 158, 11, 255];
-pub const DANGER_RGBA: [u8; 4] = [239, 68, 68, 255];
-pub const STALE_RGBA: [u8; 4] = [156, 163, 175, 255];
+pub const NORMAL_RGBA: [u8; 4] = [86, 217, 138, 255];
+pub const WARNING_RGBA: [u8; 4] = [226, 163, 58, 255];
+pub const DANGER_RGBA: [u8; 4] = [226, 75, 85, 255];
+pub const STALE_RGBA: [u8; 4] = [154, 163, 178, 255];
 
-const BACKGROUND_RGBA: [u8; 4] = [24, 24, 27, 255];
-const TRACK_RGBA: [u8; 4] = [63, 63, 70, 255];
+const GRAPHITE_RGBA: [u8; 4] = [16, 19, 26, 255];
+const KNOT_ALPHA: &[u8; (TRAY_ICON_SIZE * TRAY_ICON_SIZE) as usize] =
+    include_bytes!("knot_alpha_32.bin");
 
-/// Render one V1 visual state to raw RGBA pixels.
+/// Render one visual state as a transparent, anti-aliased knot.
 pub fn render_tray_icon_rgba(state: TrayVisualState) -> (Vec<u8>, u32, u32) {
-    let mut pixels = vec![0; (TRAY_ICON_SIZE * TRAY_ICON_SIZE * 4) as usize];
-    fill_rect(&mut pixels, 2, 2, 30, 30, BACKGROUND_RGBA);
+    let color = match state {
+        TrayVisualState::Remaining { level, .. } => level_color(level),
+        TrayVisualState::Stale { .. } | TrayVisualState::Api | TrayVisualState::Unavailable => {
+            STALE_RGBA
+        }
+    };
+    let mut pixels = Vec::with_capacity((TRAY_ICON_SIZE * TRAY_ICON_SIZE * 4) as usize);
+    for y in 0..TRAY_ICON_SIZE {
+        for x in 0..TRAY_ICON_SIZE {
+            let alpha = KNOT_ALPHA[(y * TRAY_ICON_SIZE + x) as usize];
+            if alpha > 0 {
+                pixels.extend_from_slice(&[color[0], color[1], color[2], alpha]);
+                continue;
+            }
 
-    match state {
-        TrayVisualState::Remaining { percent, level } => {
-            let color = level_color(level);
-            draw_percent(&mut pixels, percent, color);
-            draw_status_bar(&mut pixels, percent, color);
-        }
-        TrayVisualState::Stale { percent } => {
-            draw_percent(&mut pixels, percent, STALE_RGBA);
-            draw_status_bar(&mut pixels, percent, STALE_RGBA);
-        }
-        TrayVisualState::Api => {
-            draw_text_centered(&mut pixels, "API", 2, NORMAL_RGBA);
-            draw_status_bar(&mut pixels, 100, NORMAL_RGBA);
-        }
-        TrayVisualState::Unavailable => {
-            draw_text_centered(&mut pixels, "!", 4, DANGER_RGBA);
-            draw_status_bar(&mut pixels, 100, DANGER_RGBA);
+            let keyline_alpha = neighboring_alpha(x, y);
+            if keyline_alpha > 0 {
+                pixels.extend_from_slice(&[
+                    GRAPHITE_RGBA[0],
+                    GRAPHITE_RGBA[1],
+                    GRAPHITE_RGBA[2],
+                    keyline_alpha,
+                ]);
+            } else {
+                pixels.extend_from_slice(&[0, 0, 0, 0]);
+            }
         }
     }
 
     (pixels, TRAY_ICON_SIZE, TRAY_ICON_SIZE)
+}
+
+fn neighboring_alpha(x: u32, y: u32) -> u8 {
+    let left = x.saturating_sub(1);
+    let top = y.saturating_sub(1);
+    let right = (x + 1).min(TRAY_ICON_SIZE - 1);
+    let bottom = (y + 1).min(TRAY_ICON_SIZE - 1);
+    (top..=bottom)
+        .flat_map(|neighbor_y| {
+            (left..=right).map(move |neighbor_x| {
+                KNOT_ALPHA[(neighbor_y * TRAY_ICON_SIZE + neighbor_x) as usize]
+            })
+        })
+        .max()
+        .unwrap_or(0)
 }
 
 fn level_color(level: TrayLevel) -> [u8; 4] {
@@ -46,97 +68,6 @@ fn level_color(level: TrayLevel) -> [u8; 4] {
         TrayLevel::Warning => WARNING_RGBA,
         TrayLevel::Danger => DANGER_RGBA,
     }
-}
-
-fn draw_percent(pixels: &mut [u8], percent: u8, color: [u8; 4]) {
-    let text = percent.to_string();
-    let scale = if text.len() >= 3 { 2 } else { 3 };
-    draw_text_centered(pixels, &text, scale, color);
-}
-
-fn draw_status_bar(pixels: &mut [u8], percent: u8, color: [u8; 4]) {
-    fill_rect(pixels, 5, 26, 27, 29, TRACK_RGBA);
-    let width = ((22.0 * f64::from(percent) / 100.0).round() as u32).min(22);
-    if width > 0 {
-        fill_rect(pixels, 5, 26, 5 + width, 29, color);
-    }
-}
-
-fn draw_text_centered(pixels: &mut [u8], text: &str, scale: u32, color: [u8; 4]) {
-    let glyph_width = 3 * scale;
-    let gap = scale.max(1);
-    let text_width = text.chars().count() as u32 * glyph_width
-        + text.chars().count().saturating_sub(1) as u32 * gap;
-    let text_height = 5 * scale;
-    let start_x = TRAY_ICON_SIZE.saturating_sub(text_width) / 2;
-    let start_y = (TRAY_ICON_SIZE.saturating_sub(text_height) / 2).saturating_sub(2);
-
-    let mut x = start_x;
-    for character in text.chars() {
-        draw_glyph(pixels, character, x, start_y, scale, color);
-        x += glyph_width + gap;
-    }
-}
-
-fn draw_glyph(pixels: &mut [u8], character: char, x: u32, y: u32, scale: u32, color: [u8; 4]) {
-    let Some(rows) = glyph_rows(character) else {
-        return;
-    };
-    for (row_index, row) in rows.into_iter().enumerate() {
-        for column in 0..3 {
-            let bit = 1 << (2 - column);
-            if row & bit == 0 {
-                continue;
-            }
-            for offset_y in 0..scale {
-                for offset_x in 0..scale {
-                    set_pixel(
-                        pixels,
-                        x + column * scale + offset_x,
-                        y + row_index as u32 * scale + offset_y,
-                        color,
-                    );
-                }
-            }
-        }
-    }
-}
-
-fn glyph_rows(character: char) -> Option<[u8; 5]> {
-    Some(match character {
-        '0' => [0b111, 0b101, 0b101, 0b101, 0b111],
-        '1' => [0b010, 0b110, 0b010, 0b010, 0b111],
-        '2' => [0b111, 0b001, 0b111, 0b100, 0b111],
-        '3' => [0b111, 0b001, 0b111, 0b001, 0b111],
-        '4' => [0b101, 0b101, 0b111, 0b001, 0b001],
-        '5' => [0b111, 0b100, 0b111, 0b001, 0b111],
-        '6' => [0b111, 0b100, 0b111, 0b101, 0b111],
-        '7' => [0b111, 0b001, 0b010, 0b010, 0b010],
-        '8' => [0b111, 0b101, 0b111, 0b101, 0b111],
-        '9' => [0b111, 0b101, 0b111, 0b001, 0b111],
-        'A' => [0b010, 0b101, 0b111, 0b101, 0b101],
-        'P' => [0b110, 0b101, 0b110, 0b100, 0b100],
-        'I' => [0b111, 0b010, 0b010, 0b010, 0b111],
-        '!' => [0b010, 0b010, 0b010, 0b000, 0b010],
-        '%' => [0b101, 0b001, 0b010, 0b100, 0b101],
-        _ => return None,
-    })
-}
-
-fn fill_rect(pixels: &mut [u8], left: u32, top: u32, right: u32, bottom: u32, color: [u8; 4]) {
-    for y in top..bottom.min(TRAY_ICON_SIZE) {
-        for x in left..right.min(TRAY_ICON_SIZE) {
-            set_pixel(pixels, x, y, color);
-        }
-    }
-}
-
-fn set_pixel(pixels: &mut [u8], x: u32, y: u32, color: [u8; 4]) {
-    if x >= TRAY_ICON_SIZE || y >= TRAY_ICON_SIZE {
-        return;
-    }
-    let index = ((y * TRAY_ICON_SIZE + x) * 4) as usize;
-    pixels[index..index + 4].copy_from_slice(&color);
 }
 
 /// Compatibility wrapper for the pre-V1 used-percent icon API.
@@ -187,23 +118,155 @@ mod tests {
     }
 
     #[test]
+    fn graphite_knot_has_a_transparent_safe_zone_and_open_center() {
+        let (rgba, width, _) = render_tray_icon_rgba(TrayVisualState::Remaining {
+            percent: 72,
+            level: TrayLevel::Normal,
+        });
+
+        let alpha_at = |x: u32, y: u32| rgba[((y * width + x) * 4 + 3) as usize];
+        for edge in 0..2 {
+            for offset in 0..width {
+                assert_eq!(
+                    alpha_at(offset, edge),
+                    0,
+                    "top safe zone at {offset},{edge}"
+                );
+                assert_eq!(alpha_at(offset, width - 1 - edge), 0, "bottom safe zone");
+                assert_eq!(alpha_at(edge, offset), 0, "left safe zone");
+                assert_eq!(alpha_at(width - 1 - edge, offset), 0, "right safe zone");
+            }
+        }
+        let center_negative_space = (12..21)
+            .flat_map(|y| (12..21).map(move |x| alpha_at(x, y)))
+            .filter(|alpha| *alpha < 128)
+            .count();
+        assert!(
+            center_negative_space >= 20,
+            "the knot center must retain visible negative space"
+        );
+
+        let visible_pixels = rgba.chunks_exact(4).filter(|pixel| pixel[3] > 0).count();
+        assert!(
+            (220..=650).contains(&visible_pixels),
+            "the mark must not become an opaque tile: {visible_pixels} pixels"
+        );
+    }
+
+    #[test]
+    fn every_state_tints_one_shared_knot_silhouette() {
+        let states = [
+            TrayVisualState::Remaining {
+                percent: 72,
+                level: TrayLevel::Normal,
+            },
+            TrayVisualState::Remaining {
+                percent: 48,
+                level: TrayLevel::Warning,
+            },
+            TrayVisualState::Remaining {
+                percent: 12,
+                level: TrayLevel::Danger,
+            },
+            TrayVisualState::Stale { percent: 48 },
+            TrayVisualState::Api,
+            TrayVisualState::Unavailable,
+        ];
+
+        let rendered = states.map(|state| render_tray_icon_rgba(state).0);
+        let alpha_mask = |rgba: &[u8]| {
+            rgba.chunks_exact(4)
+                .map(|pixel| pixel[3])
+                .collect::<Vec<_>>()
+        };
+        let expected_mask = alpha_mask(&rendered[0]);
+
+        for rgba in &rendered {
+            assert_eq!(alpha_mask(rgba), expected_mask);
+            let visible_colors = rgba
+                .chunks_exact(4)
+                .filter(|pixel| pixel[3] > 0)
+                .map(|pixel| [pixel[0], pixel[1], pixel[2]])
+                .collect::<std::collections::BTreeSet<_>>();
+            assert_eq!(
+                visible_colors,
+                std::collections::BTreeSet::from([
+                    [16, 19, 26],
+                    match state_color_for_test(rgba) {
+                        Some(color) => color,
+                        None => panic!("state must retain its quota-band color"),
+                    },
+                ]),
+                "a graphite keyline and one quota-band color must be the only visible colors"
+            );
+        }
+    }
+
+    fn state_color_for_test(rgba: &[u8]) -> Option<[u8; 3]> {
+        rgba.chunks_exact(4)
+            .filter(|pixel| pixel[3] > 0)
+            .map(|pixel| [pixel[0], pixel[1], pixel[2]])
+            .find(|color| *color != [16, 19, 26])
+    }
+
+    #[test]
+    fn graphite_knot_uses_the_approved_band_palette() {
+        let color_for = |state| {
+            render_tray_icon_rgba(state)
+                .0
+                .chunks_exact(4)
+                .find(|pixel| pixel[3] > 0 && pixel[..3] != GRAPHITE_RGBA[..3])
+                .map(|pixel| [pixel[0], pixel[1], pixel[2], 255])
+                .expect("knot contains visible pixels")
+        };
+
+        assert_eq!(
+            color_for(TrayVisualState::Remaining {
+                percent: 72,
+                level: TrayLevel::Normal,
+            }),
+            [86, 217, 138, 255]
+        );
+        assert_eq!(
+            color_for(TrayVisualState::Remaining {
+                percent: 48,
+                level: TrayLevel::Warning,
+            }),
+            [226, 163, 58, 255]
+        );
+        assert_eq!(
+            color_for(TrayVisualState::Remaining {
+                percent: 12,
+                level: TrayLevel::Danger,
+            }),
+            [226, 75, 85, 255]
+        );
+        for state in [
+            TrayVisualState::Stale { percent: 48 },
+            TrayVisualState::Api,
+            TrayVisualState::Unavailable,
+        ] {
+            assert_eq!(color_for(state), [154, 163, 178, 255]);
+        }
+    }
+
+    #[test]
     fn exact_v1_color_constants_are_used() {
-        let (normal, _, _) = render_tray_icon_rgba(TrayVisualState::from_remaining(51.0, false));
-        let (warning, _, _) = render_tray_icon_rgba(TrayVisualState::from_remaining(50.0, false));
-        let (danger, _, _) = render_tray_icon_rgba(TrayVisualState::from_remaining(20.0, false));
+        let (normal, _, _) = render_tray_icon_rgba(TrayVisualState::from_remaining(67.0, false));
+        let (warning, _, _) = render_tray_icon_rgba(TrayVisualState::from_remaining(66.0, false));
+        let (danger, _, _) = render_tray_icon_rgba(TrayVisualState::from_remaining(33.0, false));
         assert!(normal.chunks_exact(4).any(|pixel| pixel == NORMAL_RGBA));
         assert!(warning.chunks_exact(4).any(|pixel| pixel == WARNING_RGBA));
         assert!(danger.chunks_exact(4).any(|pixel| pixel == DANGER_RGBA));
     }
 
     #[test]
-    fn stale_api_and_unavailable_pixels_are_distinct() {
+    fn stale_api_and_unavailable_share_the_neutral_knot() {
         let stale = render_tray_icon_rgba(TrayVisualState::Stale { percent: 42 }).0;
         let api = render_tray_icon_rgba(TrayVisualState::Api).0;
         let unavailable = render_tray_icon_rgba(TrayVisualState::Unavailable).0;
-        assert_ne!(stale, api);
-        assert_ne!(api, unavailable);
-        assert_ne!(stale, unavailable);
+        assert_eq!(stale, api);
+        assert_eq!(api, unavailable);
         assert!(stale.chunks_exact(4).any(|pixel| pixel == STALE_RGBA));
     }
 
