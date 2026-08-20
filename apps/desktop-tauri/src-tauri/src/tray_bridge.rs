@@ -2,7 +2,6 @@
 
 use std::sync::Mutex;
 
-use chrono::SecondsFormat;
 use codexbar::accounts::model::{AccountProfile, ProfileLifecycle};
 use codexbar::core::{
     AppErrorKind, AuthMode, Freshness, ProfileUsageSnapshot, ProfileUsageState, RefreshStatus,
@@ -113,22 +112,30 @@ fn build_tooltip(
         .unwrap_or_else(|| "No account".to_string());
     let mut lines = vec![format!("codex-barbar — {profile_label}")];
 
+    let status = compact_tooltip_status(tooltip_status(usage, visual));
     if let Some(percent) = visual.percent() {
-        lines.push(format!("Weekly remaining: {percent}%"));
+        lines.push(format!("Weekly {percent}% {status}"));
+    } else {
+        lines.push(format!("State: {status}"));
     }
 
     if let Some(snapshot) = usage.and_then(|state| state.snapshot.as_ref()) {
         lines.push(format!(
-            "Updated: {}",
-            snapshot
-                .fetched_at
-                .to_rfc3339_opts(SecondsFormat::Secs, true)
+            "Updated {}",
+            snapshot.fetched_at.format("%Y-%m-%d %H:%M")
         ));
     }
 
-    let status = tooltip_status(usage, visual);
-    lines.push(format!("State: {status}"));
     lines.join("\n")
+}
+
+fn compact_tooltip_status(status: &'static str) -> &'static str {
+    match status {
+        "Refreshing" => "Busy",
+        status if status.starts_with("Cached") => "Cached",
+        "API key (quota unavailable)" => "API",
+        status => status,
+    }
 }
 
 fn tooltip_status(usage: Option<&ProfileUsageState>, visual: TrayVisualState) -> &'static str {
@@ -161,13 +168,21 @@ fn tooltip_status(usage: Option<&ProfileUsageState>, visual: TrayVisualState) ->
 }
 
 fn sanitize_label(label: &str) -> String {
-    label
-        .split_whitespace()
-        .collect::<Vec<_>>()
-        .join(" ")
-        .chars()
-        .take(48)
-        .collect()
+    let normalized = label.split_whitespace().collect::<Vec<_>>().join(" ");
+    if normalized.eq_ignore_ascii_case("current cli") {
+        return "CLI".to_string();
+    }
+
+    // Windows reserves a compact 64-character tooltip buffer. Keep the
+    // profile label bounded so the weekly value and timestamp stay whole.
+    let mut compact = String::new();
+    for character in normalized.chars() {
+        if compact.len() + character.len_utf8() > 6 {
+            break;
+        }
+        compact.push(character);
+    }
+    compact
 }
 
 fn load_presentation(app: &AppHandle) -> TrayPresentation {
@@ -498,8 +513,27 @@ mod tests {
                 level: codexbar::tray::TrayLevel::Normal,
             }
         );
-        assert!(presentation.tooltip.contains("Weekly remaining: 67%"));
+        assert!(presentation.tooltip.contains("Weekly 67%"));
         assert!(!presentation.tooltip.contains("Weekly: 66% remaining"));
+    }
+
+    #[test]
+    fn tooltip_keeps_updated_timestamp_complete_within_windows_limit() {
+        let mut profile = profile(AuthMode::ChatGpt);
+        profile.label = "Current CLI".into();
+        let usage = usage(99.0, 34.0, false);
+        let presentation = presentation_from(
+            Some(&profile),
+            std::slice::from_ref(&profile),
+            Some(&usage),
+            "en-US",
+        );
+
+        assert_eq!(
+            presentation.tooltip,
+            "codex-barbar — CLI\nWeekly 66% Fresh\nUpdated 2026-08-06 01:02"
+        );
+        assert!(presentation.tooltip.len() <= 64);
     }
 
     #[test]
@@ -513,7 +547,7 @@ mod tests {
             "en-US",
         );
         assert!(presentation.tooltip.contains("Work"));
-        assert!(presentation.tooltip.contains("Weekly remaining: 61%"));
+        assert!(presentation.tooltip.contains("Weekly 61%"));
         assert!(!presentation.tooltip.contains("5-hour"));
         assert!(presentation.tooltip.contains("Weekly"));
         assert!(presentation.tooltip.contains("Cached"));
