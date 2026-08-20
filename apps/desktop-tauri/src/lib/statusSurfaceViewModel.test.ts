@@ -61,6 +61,58 @@ describe("buildStatusSurfaceViewModel", () => {
     ]);
   });
 
+  it("derives the universal metric from the selected weekly window", () => {
+    const state = weeklyOnlyUsage({
+      limitId: "codex:primary",
+      remainingPercent: 99,
+      usedPercent: 1,
+    });
+    state.additionalWindows = [
+      usageWindow(0, {
+        limitId: "codex-spark:primary",
+        label: "GPT-5.3-Codex-Spark",
+        windowDurationMinutes: 300,
+      }),
+      usageWindow(100, {
+        limitId: "codex-spark:secondary",
+        label: "GPT-5.3-Codex-Spark",
+        windowDurationMinutes: 10_080,
+      }),
+    ];
+
+    const model = modelFor("remaining", state);
+
+    expect(model.universalMetric).toMatchObject({
+      limitId: "codex:primary",
+      kind: "weekly",
+      displayedPercent: 99,
+    });
+    expect(model.urgentMetric?.limitId).toBe("codex-spark:primary");
+    expect(model.status).toBe("ready");
+  });
+
+  it("marks five-hour-only and model-only payloads as missing", () => {
+    const fiveHourOnly = profileUsageFixture("personal", 42);
+    const modelOnly = profileUsageFixture("personal", 42, {
+      primary: null,
+      secondary: null,
+      additionalWindows: [
+        usageWindow(80, {
+          limitId: "codex-spark:primary",
+          label: "GPT-5.3-Codex-Spark",
+          windowDurationMinutes: 300,
+        }),
+      ],
+    });
+
+    for (const state of [fiveHourOnly, modelOnly]) {
+      const model = modelFor("remaining", state);
+      expect(model.universalMetric).toBeNull();
+      expect(model.trustState).toBe("missing");
+      expect(model.status).toBe("missing");
+    }
+  });
+
   it("selects the lowest remaining real window as urgent with stable tie order", () => {
     const state = readyTwoWindowFixture().usageByProfile.personal!;
     state.primary!.remainingPercent = 34;
@@ -206,6 +258,10 @@ describe("buildStatusSurfaceViewModel", () => {
 
   it("preserves identity and cached quota when stale", () => {
     const stale = staleOfflineFixture();
+    stale.usageByProfile.personal!.secondary = weeklyOnlyUsage({
+      remainingPercent: 42,
+      usedPercent: 58,
+    }).primary;
     const model = modelFor("remaining", stale.usageByProfile.personal!);
 
     expect(model.displayName).toBe("Ming Zhao");

@@ -34,7 +34,7 @@ export default function FloatBall() {
   const pointerRef = useRef<{ id: number; x: number; y: number; dragged: boolean } | null>(null);
   const skipNextClickRef = useRef(false);
   const [motion, setMotion] = useState<"idle" | "thinking" | "fast">("idle");
-  const metric = surface.urgentMetric;
+  const metric = surface.universalMetric;
   const displayedPercent = metric?.displayedPercent ?? null;
   const language = surface.bootstrap?.settings.language;
   const chinese =

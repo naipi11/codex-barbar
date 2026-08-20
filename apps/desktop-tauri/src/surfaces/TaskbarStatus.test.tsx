@@ -81,6 +81,48 @@ describe("TaskbarStatus", () => {
     ).toBe(false);
   });
 
+  it("shows only the universal weekly quota when model-specific limits are present", async () => {
+    const bootstrap = bootstrapWithTwoProfiles();
+    bootstrap.usageByProfile.personal = weeklyOnlyUsage({
+      limitId: "codex:primary",
+      remainingPercent: 99,
+      usedPercent: 1,
+      resetsAt: "2026-08-27T05:13:00Z",
+    });
+    bootstrap.usageByProfile.personal.additionalWindows = [
+      {
+        limitId: "codex-spark:primary",
+        label: "GPT-5.3-Codex-Spark",
+        usedPercent: 0,
+        remainingPercent: 100,
+        windowDurationMinutes: 300,
+        resetsAt: "2026-08-20T10:46:00Z",
+        reachedType: null,
+      },
+      {
+        limitId: "codex-spark:secondary",
+        label: "GPT-5.3-Codex-Spark",
+        usedPercent: 0,
+        remainingPercent: 100,
+        windowDurationMinutes: 10_080,
+        resetsAt: "2026-08-27T05:46:00Z",
+        reachedType: null,
+      },
+    ];
+    invokeMock.mockResolvedValue(bootstrap);
+
+    render(<TaskbarStatus />);
+
+    const visible = await screen.findByTestId("taskbar-status-visible");
+    expect(await within(visible).findByText(/周 99%|Wk 99%/)).toBeVisible();
+    expect(within(visible).queryByText(/5H/)).not.toBeInTheDocument();
+    expect(within(visible).queryByText(/100%/)).not.toBeInTheDocument();
+    expect(
+      within(visible).getByTestId("taskbar-status-quota-track")
+        .querySelectorAll('[data-testid="taskbar-status-metric"]'),
+    ).toHaveLength(1);
+  });
+
   it("ignores the retired external-measurement query on the visible route", async () => {
     window.history.replaceState({}, "", "/?measurement=external");
     const bootstrap = bootstrapWithTwoProfiles();
@@ -97,7 +139,7 @@ describe("TaskbarStatus", () => {
     expect(screen.queryByTestId("taskbar-status-measurement")).toBeNull();
   });
 
-  it("renders every real metric in backend order without duplicating an urgent metric", async () => {
+  it("renders only the universal weekly metric from a multi-window payload", async () => {
     const bootstrap = readyTwoWindowFixture();
     bootstrap.usageByProfile.personal!.additionalWindows = [{
       limitId: "spark", label: "Spark quota", usedPercent: 12, remainingPercent: 88,
@@ -107,13 +149,13 @@ describe("TaskbarStatus", () => {
     render(<TaskbarStatus />);
 
     const visible = await screen.findByTestId("taskbar-status-visible");
-    expect(await within(visible).findByText("5H 42%")).toBeInTheDocument();
-    expect(within(visible).getByText(/周 61%|Wk 61%/)).toBeInTheDocument();
-    expect(within(visible).getByText("Spark 88%")).toBeInTheDocument();
+    expect(await within(visible).findByText(/周 61%|Wk 61%/)).toBeInTheDocument();
+    expect(within(visible).queryByText("5H 42%")).not.toBeInTheDocument();
+    expect(within(visible).queryByText("Spark 88%")).not.toBeInTheDocument();
     expect(within(visible).getAllByText(/周 61%|Wk 61%/)).toHaveLength(1);
   });
 
-  it("contains long real metrics in the only overflow track while reserving reset", async () => {
+  it("keeps the universal metric in the quota track while reserving reset", async () => {
     const bootstrap = readyTwoWindowFixture();
     bootstrap.usageByProfile.personal!.additionalWindows = Array.from(
       { length: 6 },
@@ -131,17 +173,17 @@ describe("TaskbarStatus", () => {
     render(<TaskbarStatus />);
 
     const visible = await screen.findByTestId("taskbar-status-visible");
-    await within(visible).findByText("Legiti 90%");
+    await within(visible).findByText(/周 61%|Wk 61%/);
     const track = within(visible).getByTestId("taskbar-status-quota-track");
     const reset = within(visible).getByTestId("taskbar-status-reset");
-    expect(track.querySelectorAll('[data-testid="taskbar-status-metric"]')).toHaveLength(8);
-    expect(within(visible).getByText("Legiti 90%")).toBeInTheDocument();
-    expect(track).toContainElement(within(visible).getByText("Legiti 90%"));
+    expect(track.querySelectorAll('[data-testid="taskbar-status-metric"]')).toHaveLength(1);
+    expect(within(visible).queryByText("Legiti 90%")).not.toBeInTheDocument();
+    expect(track).toContainElement(within(visible).getByText(/周 61%|Wk 61%/));
     expect(track).not.toContainElement(reset);
     expect(visible.lastElementChild).toBe(screen.getByRole("button", { name: /打开完整面板/ }));
   });
 
-  it("uses stable unique metric keys when same-label real windows lack limit ids", async () => {
+  it("ignores model-specific windows without producing React key warnings", async () => {
     const bootstrap = readyTwoWindowFixture();
     bootstrap.usageByProfile.personal!.additionalWindows = [
       {
@@ -158,8 +200,8 @@ describe("TaskbarStatus", () => {
     render(<TaskbarStatus />);
 
     const visible = await screen.findByTestId("taskbar-status-visible");
-    await waitFor(() => expect(within(visible).getAllByText(/Burst (80|70)%/)).toHaveLength(2));
-    expect(within(visible).getAllByText(/Burst (80|70)%/)).toHaveLength(2);
+    await within(visible).findByText(/周 61%|Wk 61%/);
+    expect(within(visible).queryByText(/Burst (80|70)%/)).not.toBeInTheDocument();
     expect(consoleError.mock.calls.flat().join(" ")).not.toContain("same key");
     consoleError.mockRestore();
   });
@@ -167,8 +209,10 @@ describe("TaskbarStatus", () => {
   it.each([[100,"high"],[67,"high"],[66,"medium"],[34,"medium"],[33,"low"],[0,"low"]] as const)(
     "renders %s remaining with the %s band", async (remaining, band) => {
       const bootstrap = bootstrapWithTwoProfiles();
-      bootstrap.usageByProfile.personal!.primary!.remainingPercent = remaining;
-      bootstrap.usageByProfile.personal!.primary!.usedPercent = 100 - remaining;
+      bootstrap.usageByProfile.personal = weeklyOnlyUsage({
+        remainingPercent: remaining,
+        usedPercent: 100 - remaining,
+      });
       invokeMock.mockResolvedValue(bootstrap);
       render(<TaskbarStatus />);
       const visible = await screen.findByTestId("taskbar-status-visible");
@@ -178,6 +222,10 @@ describe("TaskbarStatus", () => {
 
   it("announces cached data and its update time while rendering colored metric bands", async () => {
     const bootstrap = staleOfflineFixture();
+    bootstrap.usageByProfile.personal!.secondary = weeklyOnlyUsage({
+      remainingPercent: 42,
+      usedPercent: 58,
+    }).primary;
     bootstrap.usageByProfile.personal!.fetchedAt = new Date().toISOString();
     invokeMock.mockResolvedValue(bootstrap);
     render(<TaskbarStatus />);
@@ -198,7 +246,7 @@ describe("TaskbarStatus", () => {
       render(<TaskbarStatus />);
 
       const visible = await screen.findByTestId("taskbar-status-visible");
-      await within(visible).findByText("5H 42%");
+      await within(visible).findByText(/周 61%|Wk 61%/);
       expect(visible.style.getPropertyValue("--surface-bg-alpha")).toBe(expectedAlpha);
       expect(visible.parentElement?.style.getPropertyValue("--surface-bg-alpha")).toBe("");
       expect(visible.style.opacity).toBe("");
@@ -212,7 +260,7 @@ describe("TaskbarStatus", () => {
     render(<TaskbarStatus />);
 
     const visible = await screen.findByTestId("taskbar-status-visible");
-    await within(visible).findByText("5H 42%");
+    await within(visible).findByText(/周 61%|Wk 61%/);
     await waitFor(() =>
       expect(eventHarness.listeners.get(events.settingsChanged)?.size).toBeGreaterThan(0),
     );

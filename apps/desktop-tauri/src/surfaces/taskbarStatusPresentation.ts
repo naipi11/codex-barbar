@@ -18,21 +18,6 @@ export function compactTaskbarMetric(metric: StatusQuotaMetric): string {
   return `${metric.shortLabel} ${metric.displayedPercent}%`;
 }
 
-function nearestReset(
-  metrics: readonly StatusQuotaMetric[],
-): StatusQuotaMetric | null {
-  return metrics.reduce<StatusQuotaMetric | null>((nearest, metric) => {
-    const time = metric.resetsAt ? Date.parse(metric.resetsAt) : Number.NaN;
-    const nearestTime = nearest?.resetsAt
-      ? Date.parse(nearest.resetsAt)
-      : Number.NaN;
-    if (!Number.isFinite(time)) return nearest;
-    return !Number.isFinite(nearestTime) || time < nearestTime
-      ? metric
-      : nearest;
-  }, null);
-}
-
 function surfaceAlpha(opacity: number | undefined): string {
   return String(Math.max(0, Math.min(100, opacity ?? 20)) / 100);
 }
@@ -40,9 +25,10 @@ function surfaceAlpha(opacity: number | undefined): string {
 export function buildTaskbarStatusPresentation(
   surface: UseStatusSurfaceResult,
 ): TaskbarStatusPresentation {
-  const reset = nearestReset(surface.metrics);
+  const metrics = surface.universalMetric ? [surface.universalMetric] : [];
+  const reset = surface.universalMetric;
   const metricsText =
-    surface.metrics.map(compactTaskbarMetric).join("，") || "无可用额度";
+    metrics.map(compactTaskbarMetric).join("，") || "无可用额度";
   const trustText =
     surface.trustState === "cached" ? "缓存数据" : surface.refreshStatus;
   const ariaLabel = [
@@ -59,7 +45,7 @@ export function buildTaskbarStatusPresentation(
   return {
     displayName: surface.displayName,
     compactIdentity: surface.compactIdentity,
-    metrics: surface.metrics,
+    metrics,
     reset,
     trustState: surface.trustState,
     ariaLabel,

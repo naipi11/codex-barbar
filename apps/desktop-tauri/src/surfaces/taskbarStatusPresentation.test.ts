@@ -59,7 +59,7 @@ describe("buildTaskbarStatusPresentation", () => {
     );
   });
 
-  it("keeps every real window in backend order and selects the nearest reset", () => {
+  it("keeps only the universal weekly window and its reset", () => {
     const bootstrap = readyTwoWindowFixture();
     bootstrap.usageByProfile.personal!.primary!.resetsAt =
       "2026-08-21T00:00:00Z";
@@ -80,12 +80,12 @@ describe("buildTaskbarStatusPresentation", () => {
     const presentation = buildTaskbarStatusPresentation(surfaceFrom(bootstrap));
 
     expect(presentation.metrics.map((metric) => metric.limitId)).toEqual([
-      "five-hour",
       "weekly",
-      "spark",
     ]);
-    expect(presentation.reset?.limitId).toBe("spark");
-    expect(presentation.ariaLabel).toContain("5H 42%，Wk 61%，Spark 88%");
+    expect(presentation.reset?.limitId).toBe("weekly");
+    expect(presentation.ariaLabel).toContain("Wk 61%");
+    expect(presentation.ariaLabel).not.toContain("5H");
+    expect(presentation.ariaLabel).not.toContain("Spark");
   });
 
   it.each([
@@ -105,9 +105,12 @@ describe("buildTaskbarStatusPresentation", () => {
   );
 
   it("announces cached data and update age from the shared model", () => {
-    const presentation = buildTaskbarStatusPresentation(
-      surfaceFrom(staleOfflineFixture()),
-    );
+    const bootstrap = staleOfflineFixture();
+    bootstrap.usageByProfile.personal!.secondary = weeklyOnlyUsage({
+      remainingPercent: 42,
+      usedPercent: 58,
+    }).primary;
+    const presentation = buildTaskbarStatusPresentation(surfaceFrom(bootstrap));
 
     expect(presentation.trustState).toBe("cached");
     expect(presentation.ariaLabel).toContain("缓存数据");

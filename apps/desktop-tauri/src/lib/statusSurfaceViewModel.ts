@@ -43,6 +43,7 @@ export interface StatusSurfaceViewModel {
   primaryMetric: StatusQuotaMetric | null;
   secondaryMetric: StatusQuotaMetric | null;
   urgentMetric: StatusQuotaMetric | null;
+  universalMetric: StatusQuotaMetric | null;
   trustState: TrustState;
   freshness: "fresh" | "stale" | "missing";
   refreshStatus: string;
@@ -236,6 +237,17 @@ function urgentMetric(metrics: readonly StatusQuotaMetric[]): StatusQuotaMetric 
   );
 }
 
+function universalWeeklyWindow(
+  state: ProfileUsageStateDto,
+): UsageWindowDto | null {
+  return (
+    [state.primary, state.secondary].find(
+      (window): window is UsageWindowDto =>
+        window?.windowDurationMinutes === WEEKLY_MINUTES,
+    ) ?? null
+  );
+}
+
 function deriveStatus(
   state: ProfileUsageStateDto,
   urgent: StatusQuotaMetric | null,
@@ -277,11 +289,18 @@ export function buildStatusSurfaceViewModel({
   nowMs,
 }: StatusSurfaceViewModelInput): StatusSurfaceViewModel {
   const windows = metricWindows(state);
-  const trustState = trustStateFor(state, windows);
+  const universalWindow = universalWeeklyWindow(state);
+  const trustState = trustStateFor(
+    state,
+    universalWindow ? [universalWindow] : [],
+  );
   const metrics = windows.map((window) =>
     toMetric(window, displayMode, nowMs, trustState, language),
   );
   const urgent = urgentMetric(metrics);
+  const universal = universalWindow
+    ? toMetric(universalWindow, displayMode, nowMs, trustState, language)
+    : null;
   const displayName = profileDisplayName(profile);
 
   return {
@@ -292,10 +311,11 @@ export function buildStatusSurfaceViewModel({
     primaryMetric: metrics.find((metric) => metric.kind === "fiveHour") ?? null,
     secondaryMetric: metrics.find((metric) => metric.kind === "weekly") ?? null,
     urgentMetric: urgent,
+    universalMetric: universal,
     trustState,
     freshness: state.freshness,
     refreshStatus: refreshStatusText(state),
     updatedText: formatUpdatedText(state.fetchedAt, nowMs),
-    status: deriveStatus(state, urgent, trustState),
+    status: deriveStatus(state, universal, trustState),
   };
 }

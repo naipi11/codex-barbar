@@ -1,6 +1,6 @@
 [package]
 name = "codex-barbar-desktop"
-version = "1.0.15"
+version = "1.0.16"
 edition = "2024"
 publish = false
 description = "Windows tray app for Codex usage and account management"

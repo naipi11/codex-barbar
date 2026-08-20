@@ -3,7 +3,8 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { invokeMock } from "../test/setup";
 import {
   bootstrapWithTwoProfiles,
-  profileUsageFixture,
+  readyTwoWindowFixture,
+  weeklyOnlyUsage,
 } from "../test/profileUsageFixtures";
 import { events } from "../lib/tauri";
 
@@ -44,7 +45,10 @@ describe("useStatusSurface", () => {
   it("derives the selected account identity and remaining percentage", async () => {
     const bootstrap = bootstrapWithTwoProfiles();
     bootstrap.profiles[0]!.accountDisplayName = "Ming Zhao";
-    bootstrap.usageByProfile.personal = profileUsageFixture("personal", 42);
+    bootstrap.usageByProfile.personal = weeklyOnlyUsage({
+      remainingPercent: 42,
+      usedPercent: 58,
+    });
     invokeMock.mockResolvedValue(bootstrap);
 
     const { result } = renderHook(() => useStatusSurface());
@@ -93,8 +97,9 @@ describe("useStatusSurface", () => {
     [90, "critical"],
   ])("uses exact used-percent threshold %s", async (usedPercent, expected) => {
     const bootstrap = bootstrapWithTwoProfiles();
-    bootstrap.usageByProfile.personal.primary!.usedPercent = usedPercent;
-    bootstrap.usageByProfile.personal.primary!.remainingPercent = 100 - usedPercent;
+    bootstrap.usageByProfile.personal = readyTwoWindowFixture().usageByProfile.personal;
+    bootstrap.usageByProfile.personal!.secondary!.usedPercent = usedPercent;
+    bootstrap.usageByProfile.personal!.secondary!.remainingPercent = 100 - usedPercent;
     invokeMock.mockResolvedValue(bootstrap);
 
     const { result } = renderHook(() => useStatusSurface());
@@ -105,7 +110,7 @@ describe("useStatusSurface", () => {
   it("prioritizes refreshing, stale, error, and missing states", async () => {
     const bootstrap = bootstrapWithTwoProfiles();
     bootstrap.usageByProfile.personal = {
-      ...bootstrap.usageByProfile.personal,
+      ...weeklyOnlyUsage({ remainingPercent: 42, usedPercent: 58 }),
       refreshStatus: "refreshing",
     };
     invokeMock.mockResolvedValue(bootstrap);

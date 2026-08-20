@@ -60,6 +60,10 @@ describe("FloatBall", () => {
   it("spins a blossom instead of showing a numeric quota", async () => {
     const bootstrap = bootstrapWithTwoProfiles();
     bootstrap.profiles[0]!.accountDisplayName = "Ming Zhao";
+    bootstrap.usageByProfile.personal = weeklyOnlyUsage({
+      remainingPercent: 42,
+      usedPercent: 58,
+    });
     invokeMock.mockImplementation(async (command: string) => {
       if (command === "get_float_ball_motion") return { thinking: false, fast: false };
       return bootstrap;
@@ -82,6 +86,10 @@ describe("FloatBall", () => {
   it("renders a circular percent indicator with an identity title", async () => {
     const bootstrap = bootstrapWithTwoProfiles();
     bootstrap.profiles[0]!.accountDisplayName = "Ming Zhao";
+    bootstrap.usageByProfile.personal = weeklyOnlyUsage({
+      remainingPercent: 42,
+      usedPercent: 58,
+    });
     invokeMock.mockResolvedValue(bootstrap);
 
     render(<FloatBall />);
@@ -96,6 +104,10 @@ describe("FloatBall", () => {
   it("announces the used percentage in used display mode", async () => {
     const bootstrap = bootstrapWithTwoProfiles();
     bootstrap.settings.displayMode = "used";
+    bootstrap.usageByProfile.personal = weeklyOnlyUsage({
+      usedPercent: 58,
+      remainingPercent: 42,
+    });
     invokeMock.mockResolvedValue(bootstrap);
 
     render(<FloatBall />);
@@ -119,6 +131,48 @@ describe("FloatBall", () => {
     expect(screen.queryByText("98")).toBeNull();
     expect(screen.queryByText(/5H/)).not.toBeInTheDocument();
     expect(ball).toHaveAccessibleName(expect.stringContaining("98%"));
+  });
+
+  it("uses the universal weekly quota instead of a model-specific five-hour limit", async () => {
+    const bootstrap = bootstrapWithTwoProfiles();
+    bootstrap.usageByProfile.personal = weeklyOnlyUsage({
+      limitId: "codex:primary",
+      remainingPercent: 99,
+      usedPercent: 1,
+    });
+    bootstrap.usageByProfile.personal.additionalWindows = [
+      {
+        limitId: "codex-spark:primary",
+        label: "GPT-5.3-Codex-Spark",
+        usedPercent: 100,
+        remainingPercent: 0,
+        windowDurationMinutes: 300,
+        resetsAt: "2026-08-20T10:46:00Z",
+        reachedType: null,
+      },
+    ];
+    invokeMock.mockResolvedValue(bootstrap);
+
+    render(<FloatBall />);
+
+    const ball = await screen.findByRole("button", {
+      name: /(打开完整面板|Open panel).*99%/,
+    });
+    expect(ball).toHaveAttribute("data-band", "high");
+    expect(ball).not.toHaveAccessibleName(expect.stringContaining("0%"));
+  });
+
+  it("marks a five-hour-only payload as missing instead of ready", async () => {
+    const bootstrap = bootstrapWithTwoProfiles();
+    invokeMock.mockResolvedValue(bootstrap);
+
+    render(<FloatBall />);
+
+    const ball = await screen.findByRole("button", {
+      name: /(额度不可用|quota unavailable)/,
+    });
+    expect(ball).toHaveAttribute("data-status", "missing");
+    expect(ball).toHaveAttribute("data-band", "unknown");
   });
 
   it("does not open the panel after a pointer drag", async () => {
@@ -200,10 +254,12 @@ describe("FloatBall", () => {
     [99, "high"],
     [66, "medium"],
     [0, "low"],
-  ])("renders an urgent %s remaining metric with the %s ring band", async (remaining, band) => {
+  ])("renders a universal %s remaining metric with the %s ring band", async (remaining, band) => {
     const bootstrap = bootstrapWithTwoProfiles();
-    bootstrap.usageByProfile.personal.primary!.remainingPercent = remaining;
-    bootstrap.usageByProfile.personal.primary!.usedPercent = 100 - remaining;
+    bootstrap.usageByProfile.personal = weeklyOnlyUsage({
+      remainingPercent: remaining,
+      usedPercent: 100 - remaining,
+    });
     invokeMock.mockResolvedValue(bootstrap);
 
     render(<FloatBall />);
@@ -216,7 +272,12 @@ describe("FloatBall", () => {
   it("colors cached data by remaining percent on the ring", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-08-13T00:00:00Z"));
-    invokeMock.mockResolvedValue(staleOfflineFixture());
+    const bootstrap = staleOfflineFixture();
+    bootstrap.usageByProfile.personal!.secondary = weeklyOnlyUsage({
+      remainingPercent: 42,
+      usedPercent: 58,
+    }).primary;
+    invokeMock.mockResolvedValue(bootstrap);
     render(<FloatBall />);
     await act(async () => {
       await Promise.resolve();
