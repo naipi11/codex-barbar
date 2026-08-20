@@ -225,7 +225,9 @@ mod tests {
         let color_for = |state| {
             render_tray_icon_rgba(state)
                 .0
-                .chunks_exact(4)
+                .as_chunks::<4>()
+                .0
+                .iter()
                 .find(|pixel| pixel[3] > 0 && pixel[..3] != GRAPHITE_RGBA[..3])
                 .map(|pixel| [pixel[0], pixel[1], pixel[2], 255])
                 .expect("knot contains visible pixels")
