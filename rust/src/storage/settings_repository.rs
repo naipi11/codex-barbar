@@ -156,9 +156,13 @@ impl SettingsPatch {
                 "refresh interval is not supported",
             ));
         }
-        for value in [self.taskbar_status_opacity, self.float_ball_opacity, self.float_ball_glow]
-            .into_iter()
-            .flatten()
+        for value in [
+            self.taskbar_status_opacity,
+            self.float_ball_opacity,
+            self.float_ball_glow,
+        ]
+        .into_iter()
+        .flatten()
         {
             if value > MAX_SURFACE_OPACITY {
                 return Err(StorageError::new(

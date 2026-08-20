@@ -75,7 +75,6 @@ pub fn place_flyout_sized(work_area: Rect, width: i32, height: i32) -> Rect {
     }
 }
 
-
 /// Keep a window on-screen, but allow it to overlap the taskbar so the user
 /// can drag anywhere on the monitor.
 pub fn clamp_to_monitor(monitor: Rect, x: i32, y: i32, width: i32, height: i32) -> Rect {
@@ -167,8 +166,18 @@ mod tests {
 
     #[test]
     fn subtract_taskbar_lifts_a_bottom_bar_out_of_the_work_area() {
-        let work = Rect { x: 0, y: 0, width: 1920, height: 1080 };
-        let bar = Rect { x: 0, y: 1032, width: 1920, height: 48 };
+        let work = Rect {
+            x: 0,
+            y: 0,
+            width: 1920,
+            height: 1080,
+        };
+        let bar = Rect {
+            x: 0,
+            y: 1032,
+            width: 1920,
+            height: 48,
+        };
         let usable = subtract_taskbar(work, bar);
         assert_eq!(usable.height, 1032);
         let rect = place_flyout_sized(usable, 400, 520);

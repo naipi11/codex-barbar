@@ -95,7 +95,14 @@ unsafe extern "system" {
 unsafe extern "system" {
     fn CreateSolidBrush(color: u32) -> isize;
     fn CreateEllipticRgn(left: i32, top: i32, right: i32, bottom: i32) -> isize;
-    fn CreateRoundRectRgn(left: i32, top: i32, right: i32, bottom: i32, width: i32, height: i32) -> isize;
+    fn CreateRoundRectRgn(
+        left: i32,
+        top: i32,
+        right: i32,
+        bottom: i32,
+        width: i32,
+        height: i32,
+    ) -> isize;
 }
 
 #[cfg(windows)]
@@ -183,7 +190,6 @@ unsafe extern "system" fn borderless_subclass_proc(
         _ => unsafe { DefSubclassProc(hwnd, msg, wparam, lparam) },
     }
 }
-
 
 /// Eliminate the DWM caption bar by subclassing the window to zero the
 /// non-client area.  Safe to call on multiple windows — each gets its
@@ -366,7 +372,6 @@ pub fn shape_round_window(win: &tauri::WebviewWindow) -> Result<(), String> {
         Ok(())
     }
 }
-
 
 #[cfg(windows)]
 pub fn shape_rounded_rect_window(win: &tauri::WebviewWindow, radius: i32) -> Result<(), String> {

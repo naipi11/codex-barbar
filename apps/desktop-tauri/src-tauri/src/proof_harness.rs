@@ -845,7 +845,11 @@ mod tests {
         assert!(!float.taskbar_status_enabled);
         assert!(float.float_ball_enabled);
         assert_eq!(
-            (float.taskbar_status_opacity, float.float_ball_opacity, float.float_ball_glow),
+            (
+                float.taskbar_status_opacity,
+                float.float_ball_opacity,
+                float.float_ball_glow
+            ),
             (20, 20, 20)
         );
         assert!(status_proof_projection(ProofScenario::SettingsGeneral).is_none());

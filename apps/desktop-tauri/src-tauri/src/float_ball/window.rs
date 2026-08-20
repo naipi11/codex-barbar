@@ -46,7 +46,10 @@ pub fn get_or_create(app: &tauri::AppHandle) -> Result<tauri::WebviewWindow, Str
 
     crate::shell::dwm::apply_no_activate_tool_window(&window)?;
     if let Err(_error) = crate::shell::dwm::shape_round_window(&window) {
-        tracing::warn!(code = "FLOAT_BALL_REGION_FAILED", "float ball window region shape failed");
+        tracing::warn!(
+            code = "FLOAT_BALL_REGION_FAILED",
+            "float ball window region shape failed"
+        );
     }
     Ok(window)
 }

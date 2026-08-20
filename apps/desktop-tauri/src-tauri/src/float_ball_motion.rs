@@ -88,12 +88,19 @@ fn query_process_names() -> Vec<String> {
             continue;
         }
         let mut buf = [0u16; 260];
-        let written = unsafe { K32GetModuleBaseNameW(handle, 0, buf.as_mut_ptr(), buf.len() as u32) };
-        unsafe { CloseHandle(handle); }
+        let written =
+            unsafe { K32GetModuleBaseNameW(handle, 0, buf.as_mut_ptr(), buf.len() as u32) };
+        unsafe {
+            CloseHandle(handle);
+        }
         if written == 0 {
             continue;
         }
-        names.push(std::ffi::OsString::from_wide(&buf[..written as usize]).to_string_lossy().into_owned());
+        names.push(
+            std::ffi::OsString::from_wide(&buf[..written as usize])
+                .to_string_lossy()
+                .into_owned(),
+        );
     }
     names
 }
@@ -118,13 +125,20 @@ mod tests {
 
     #[test]
     fn fast_tier_is_detected_from_config() {
-        assert!(config_looks_fast("service_tier = \"fast\"\nmodel = \"gpt-5.6-terra\""));
-        assert!(!config_looks_fast("service_tier = \"standard\"\nmodel = \"gpt-5.6-terra\""));
+        assert!(config_looks_fast(
+            "service_tier = \"fast\"\nmodel = \"gpt-5.6-terra\""
+        ));
+        assert!(!config_looks_fast(
+            "service_tier = \"standard\"\nmodel = \"gpt-5.6-terra\""
+        ));
     }
 
     #[test]
     fn chatgpt_process_counts_as_thinking() {
-        assert!(snapshot_looks_active(&["codex-barbar.exe".into(), "ChatGPT.exe".into()]));
+        assert!(snapshot_looks_active(&[
+            "codex-barbar.exe".into(),
+            "ChatGPT.exe".into()
+        ]));
         assert!(!snapshot_looks_active(&["codex-barbar.exe".into()]));
     }
 }

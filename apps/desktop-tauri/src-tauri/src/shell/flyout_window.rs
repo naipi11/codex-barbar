@@ -32,8 +32,6 @@ fn stored_logical_size() -> (u32, u32) {
     crate::window_positioner::FLYOUT_LOGICAL_SIZE
 }
 
-
-
 /// Resize the visible flyout to hug content, then re-anchor it above the taskbar.
 pub fn apply_content_size(app: &AppHandle, width: u32, height: u32) -> Result<(), String> {
     let width = width.clamp(MIN_LOGICAL_WIDTH, 720);
@@ -90,7 +88,6 @@ fn monitor_rect(monitor: &tauri::Monitor) -> Rect {
     }
 }
 fn work_rect(monitor: &tauri::Monitor) -> Rect {
-
     let work_area = monitor.work_area();
     Rect {
         x: work_area.position.x,
@@ -119,7 +116,10 @@ fn physical_size_for(monitor: &tauri::Monitor, logical: (u32, u32)) -> (i32, i32
 
 fn apply_rect(window: &tauri::WebviewWindow, rect: Rect) -> Result<(), String> {
     window
-        .set_size(PhysicalSize::new(rect.width.max(1) as u32, rect.height.max(1) as u32))
+        .set_size(PhysicalSize::new(
+            rect.width.max(1) as u32,
+            rect.height.max(1) as u32,
+        ))
         .map_err(|e| e.to_string())?;
     window
         .set_position(PhysicalPosition::new(rect.x, rect.y))
@@ -231,7 +231,7 @@ pub fn hide(app: &AppHandle) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::FLYOUT_LABEL;
-    use crate::window_positioner::{WORK_AREA_INSET, place_flyout_sized, Rect};
+    use crate::window_positioner::{Rect, WORK_AREA_INSET, place_flyout_sized};
 
     #[test]
     fn tray_panel_window_label_matches_frontend_route() {

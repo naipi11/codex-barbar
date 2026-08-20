@@ -37,11 +37,7 @@ pub fn open_tray_panel(app: tauri::AppHandle) -> Result<(), String> {
 /// Persist a user-chosen size for the tray flyout window. Only the size is
 /// stored; the flyout is always re-anchored above the tray on open.
 #[tauri::command]
-pub fn set_flyout_size(
-    app: tauri::AppHandle,
-    width: f64,
-    height: f64,
-) -> Result<(), String> {
+pub fn set_flyout_size(app: tauri::AppHandle, width: f64, height: f64) -> Result<(), String> {
     let width = (width.round() as i64).clamp(1, i64::from(u32::MAX)) as u32;
     let height = (height.round() as i64).clamp(1, i64::from(u32::MAX)) as u32;
     crate::shell::flyout_window::apply_content_size(&app, width, height)

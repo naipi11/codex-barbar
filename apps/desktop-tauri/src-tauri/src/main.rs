@@ -349,7 +349,7 @@ mod tests {
         assert_eq!(config["app"]["windows"][0]["title"], "codex-barbar");
         assert_eq!(config["bundle"]["targets"], serde_json::json!(["nsis"]));
         assert_eq!(config["version"], env!("CARGO_PKG_VERSION"));
-            }
+    }
 
     #[test]
     fn nsis_is_current_user_and_only_bundle_target() {
