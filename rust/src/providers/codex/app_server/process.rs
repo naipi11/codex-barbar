@@ -564,6 +564,13 @@ mod tests {
         assert!(env.get("PATH").is_none());
     }
 
+    #[cfg(windows)]
+    #[test]
+    fn fixture_environment_preserves_powershell_module_path() {
+        let env = ChildEnvironment::test_fixture();
+        assert_eq!(env.get("PSModulePath"), std::env::var_os("PSModulePath").as_deref());
+    }
+
     #[test]
     fn environment_lookup_is_case_insensitive() {
         let dir = tempfile::TempDir::new().unwrap();
