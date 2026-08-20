@@ -12,6 +12,11 @@ on:
         required: false
         default: false
         type: boolean
+      allow_unreadable_dependabot:
+        description: Allow a manual release when the Dependabot API is unavailable (requires external alert review)
+        required: false
+        default: false
+        type: boolean
   push:
     tags:
       - 'v*'
@@ -104,16 +109,24 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
+          $allowUnreadable = $false
+          if ($env:GITHUB_EVENT_NAME -eq 'workflow_dispatch') {
+            $allowUnreadable = [bool]::Parse("${{ inputs.allow_unreadable_dependabot }}")
+          }
           $alerts = gh api "/repos/$env:GITHUB_REPOSITORY/dependabot/alerts" --paginate 2>$null
           if ($LASTEXITCODE -ne 0) {
-            throw "Dependabot alerts API is not readable. Enable Dependabot alerts / security-events read access before publishing."
-          }
-          $critical = @($alerts | ConvertFrom-Json | Where-Object {
-            $_.state -eq 'open' -and $_.security_advisory.severity -in @('high', 'critical')
-          })
-          if ($critical.Count -gt 0) {
-            $names = $critical | ForEach-Object { $_.dependency.package.ecosystem + ':' + $_.dependency.package.name } | Sort-Object -Unique
-            throw "Open high/critical Dependabot alerts block release: $($names -join ', ')"
+            if (-not $allowUnreadable) {
+              throw "Dependabot alerts API is not readable. Enable Dependabot alerts / security-events read access before publishing."
+            }
+            Write-Warning "Dependabot alerts API is unavailable; manual override was explicitly supplied after external alert review."
+          } else {
+            $critical = @($alerts | ConvertFrom-Json | Where-Object {
+              $_.state -eq 'open' -and $_.security_advisory.severity -in @('high', 'critical')
+            })
+            if ($critical.Count -gt 0) {
+              $names = $critical | ForEach-Object { $_.dependency.package.ecosystem + ':' + $_.dependency.package.name } | Sort-Object -Unique
+              throw "Open high/critical Dependabot alerts block release: $($names -join ', ')"
+            }
           }
 
       - name: Build release artifacts
