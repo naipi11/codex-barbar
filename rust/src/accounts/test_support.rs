@@ -101,11 +101,7 @@ impl AppServerFactory for FakeAppServerFactory {
     }
 }
 
-fn fake_session_error(error: AppError) -> AppError {
-    eprintln!(
-        "FAKE_SESSION_FAILURE kind={:?} diagnostic={}",
-        error.kind, error.diagnostic_code
-    );
+fn fake_session_error(_error: AppError) -> AppError {
     AppError::new(
         crate::core::AppErrorKind::ProtocolMismatch,
         "errors.fakeSession",
