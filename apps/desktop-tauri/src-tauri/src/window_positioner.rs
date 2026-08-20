@@ -92,6 +92,7 @@ pub fn clamp_to_monitor(monitor: Rect, x: i32, y: i32, width: i32, height: i32) 
     }
 }
 /// Keep an existing flyout fully inside the work area after a move or resize.
+#[cfg(test)]
 pub fn clamp_flyout(work_area: Rect, x: i32, y: i32, width: i32, height: i32) -> Rect {
     let width = width.max(1).min(work_area.width.max(1));
     let height = height.max(1).min(work_area.height.max(1));
@@ -108,6 +109,7 @@ pub fn clamp_flyout(work_area: Rect, x: i32, y: i32, width: i32, height: i32) ->
 }
 
 /// Place the default-sized flyout inside `work_area`.
+#[cfg(test)]
 pub fn place_flyout(work_area: Rect, scale: f64) -> Rect {
     let width = (f64::from(FLYOUT_LOGICAL_SIZE.0) * scale).round() as i32;
     let height = (f64::from(FLYOUT_LOGICAL_SIZE.1) * scale).round() as i32;

@@ -61,6 +61,9 @@ jobs:
       - name: Shared Rust clippy
         run: cargo clippy --manifest-path rust/Cargo.toml --all-targets -- -D warnings
 
+      - name: Frontend type check / build
+        run: pnpm --dir apps/desktop-tauri run build
+
       - name: Tauri Rust clippy
         run: cargo clippy --manifest-path apps/desktop-tauri/src-tauri/Cargo.toml --all-targets -- -D warnings
 
@@ -72,9 +75,6 @@ jobs:
 
       - name: Frontend tests
         run: pnpm --dir apps/desktop-tauri test
-
-      - name: Frontend type check / build
-        run: pnpm --dir apps/desktop-tauri run build
 
       - name: V1 boundary scan
         shell: pwsh

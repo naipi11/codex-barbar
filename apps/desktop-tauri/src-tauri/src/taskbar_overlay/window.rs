@@ -88,12 +88,6 @@ pub fn position_and_show(window: &tauri::WebviewWindow, slot: Rect) -> Result<()
     crate::shell::dwm::set_no_activate_bounds(window, slot.x, slot.y, slot.width, slot.height, true)
 }
 
-pub fn hide(window: &tauri::WebviewWindow) -> Result<(), String> {
-    window
-        .hide()
-        .map_err(|_| "TASKBAR_WINDOW_HIDE_FAILED".to_string())
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
