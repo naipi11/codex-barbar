@@ -15,7 +15,7 @@ try {
     'rename_managed_profile','remove_managed_profile','validate_codex_executable',
     'get_diagnostics_summary','export_diagnostics','check_for_updates','open_release_page',
     'open_codex_usage_page','open_settings_window','close_settings_window','dismiss_tray_panel',
-    'set_flyout_size','get_current_surface_state','open_tray_panel','quit_app',
+    'set_flyout_interacting','set_flyout_size','get_current_surface_state','open_tray_panel','quit_app',
     'set_status_surface_enabled','set_float_ball_expanded','set_taskbar_status_width'
   ) | Sort-Object
 
