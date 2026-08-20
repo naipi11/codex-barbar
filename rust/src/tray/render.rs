@@ -146,7 +146,12 @@ mod tests {
             "the knot center must retain visible negative space"
         );
 
-        let visible_pixels = rgba.chunks_exact(4).filter(|pixel| pixel[3] > 0).count();
+        let visible_pixels = rgba
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .filter(|pixel| pixel[3] > 0)
+            .count();
         assert!(
             (220..=650).contains(&visible_pixels),
             "the mark must not become an opaque tile: {visible_pixels} pixels"
@@ -175,7 +180,9 @@ mod tests {
 
         let rendered = states.map(|state| render_tray_icon_rgba(state).0);
         let alpha_mask = |rgba: &[u8]| {
-            rgba.chunks_exact(4)
+            rgba.as_chunks::<4>()
+                .0
+                .iter()
                 .map(|pixel| pixel[3])
                 .collect::<Vec<_>>()
         };
@@ -184,7 +191,9 @@ mod tests {
         for rgba in &rendered {
             assert_eq!(alpha_mask(rgba), expected_mask);
             let visible_colors = rgba
-                .chunks_exact(4)
+                .as_chunks::<4>()
+                .0
+                .iter()
                 .filter(|pixel| pixel[3] > 0)
                 .map(|pixel| [pixel[0], pixel[1], pixel[2]])
                 .collect::<std::collections::BTreeSet<_>>();
@@ -203,7 +212,9 @@ mod tests {
     }
 
     fn state_color_for_test(rgba: &[u8]) -> Option<[u8; 3]> {
-        rgba.chunks_exact(4)
+        rgba.as_chunks::<4>()
+            .0
+            .iter()
             .filter(|pixel| pixel[3] > 0)
             .map(|pixel| [pixel[0], pixel[1], pixel[2]])
             .find(|color| *color != [16, 19, 26])
@@ -255,9 +266,9 @@ mod tests {
         let (normal, _, _) = render_tray_icon_rgba(TrayVisualState::from_remaining(67.0, false));
         let (warning, _, _) = render_tray_icon_rgba(TrayVisualState::from_remaining(66.0, false));
         let (danger, _, _) = render_tray_icon_rgba(TrayVisualState::from_remaining(33.0, false));
-        assert!(normal.chunks_exact(4).any(|pixel| pixel == NORMAL_RGBA));
-        assert!(warning.chunks_exact(4).any(|pixel| pixel == WARNING_RGBA));
-        assert!(danger.chunks_exact(4).any(|pixel| pixel == DANGER_RGBA));
+        assert!(normal.as_chunks::<4>().0.contains(&NORMAL_RGBA));
+        assert!(warning.as_chunks::<4>().0.contains(&WARNING_RGBA));
+        assert!(danger.as_chunks::<4>().0.contains(&DANGER_RGBA));
     }
 
     #[test]
@@ -267,7 +278,7 @@ mod tests {
         let unavailable = render_tray_icon_rgba(TrayVisualState::Unavailable).0;
         assert_eq!(stale, api);
         assert_eq!(api, unavailable);
-        assert!(stale.chunks_exact(4).any(|pixel| pixel == STALE_RGBA));
+        assert!(stale.as_chunks::<4>().0.contains(&STALE_RGBA));
     }
 
     #[test]

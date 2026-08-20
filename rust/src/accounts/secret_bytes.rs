@@ -36,9 +36,7 @@ impl fmt::Debug for SensitiveBytes {
 impl Drop for SensitiveBytes {
     fn drop(&mut self) {
         // Volatile-ish overwrite so an optimizer cannot elide the wipe.
-        for byte in &mut self.bytes {
-            *byte = 0;
-        }
+        self.bytes.fill(0);
         std::hint::black_box(&self.bytes);
     }
 }
