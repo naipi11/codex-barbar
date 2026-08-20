@@ -119,6 +119,7 @@ jobs:
               throw "Dependabot alerts API is not readable. Enable Dependabot alerts / security-events read access before publishing."
             }
             Write-Warning "Dependabot alerts API is unavailable; manual override was explicitly supplied after external alert review."
+            $global:LASTEXITCODE = 0
           } else {
             $critical = @($alerts | ConvertFrom-Json | Where-Object {
               $_.state -eq 'open' -and $_.security_advisory.severity -in @('high', 'critical')
