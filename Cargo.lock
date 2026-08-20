@@ -504,7 +504,7 @@ dependencies = [
 
 [[package]]
 name = "codex-barbar-desktop"
-version = "1.0.17"
+version = "1.0.18"
 dependencies = [
  "chrono",
  "codexbar",
@@ -522,7 +522,7 @@ dependencies = [
 
 [[package]]
 name = "codexbar"
-version = "1.0.17"
+version = "1.0.18"
 dependencies = [
  "anyhow",
  "async-trait",
