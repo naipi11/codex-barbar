@@ -156,7 +156,7 @@ impl ChildEnvironment {
     #[doc(hidden)]
     pub fn test_fixture() -> Self {
         let mut env = Self::default();
-        for name in ["SystemRoot", "WINDIR", "TEMP", "TMP"] {
+        for name in ["SystemRoot", "WINDIR", "TEMP", "TMP", "PSModulePath"] {
             env.inherit_if_present(name);
         }
         for name in AUTH_OVERRIDE_ENV_NAMES {
