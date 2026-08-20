@@ -12,7 +12,7 @@ codex-barbar is a Windows 11 x64 tray application for tracking your
 talks to the official Codex App Server protocol, keeps credentials local,
 and shows live quota in your tray, taskbar, and a floating ball.
 
-![codex-barbar overview](docs/images/showcase/hero.png)
+![codex-barbar overview](docs/images/showcase/hero-en.png)
 
 _Rendered from the current React/CSS components. Every account name, date,
 and quota value in the showcase is synthetic demo data._
@@ -21,7 +21,7 @@ and quota value in the showcase is synthetic demo data._
 
 ### Quota color states
 
-![Green, yellow, and red floating-ball quota states](docs/images/showcase/float-ball-colors.png)
+![Green, yellow, and red floating-ball quota states](docs/images/showcase/float-ball-colors-en.png)
 
 - Green: 67–100% remaining
 - Yellow: 34–66% remaining
@@ -29,14 +29,14 @@ and quota value in the showcase is synthetic demo data._
 
 ### Activity motion
 
-![Idle, Thinking, and Fast floating-ball rotation speeds](docs/images/showcase/float-ball-motion.gif)
+![Idle, Thinking, and Fast floating-ball rotation speeds](docs/images/showcase/float-ball-motion-en.gif)
 
 Color and speed are independent. Color shows remaining quota; clockwise
 rotation shows activity: **Idle 1×**, **Thinking 2×**, **Fast 3×**.
 
 ### Resident taskbar status
 
-![Compact taskbar status showing account, weekly quota, and reset date](docs/images/showcase/taskbar-status.png)
+![Compact taskbar status showing account, weekly quota, and reset date](docs/images/showcase/taskbar-status-en.png)
 
 ## Features
 

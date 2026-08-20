@@ -11,7 +11,7 @@ codex-barbar 是一款 Windows 11 x64 托盘应用，用于随时查看你的
 [Codex](https://developers.openai.com/codex/) 用量与额度。它通过官方
 Codex App Server 协议读取数据，凭据保存在本地，并在托盘、任务栏和悬浮球中实时展示额度。
 
-![codex-barbar 界面总览](docs/images/showcase/hero.png)
+![codex-barbar 界面总览](docs/images/showcase/hero-zh-CN.png)
 
 _展示图由当前 React/CSS 真实组件渲染；其中的账号名、日期和额度均为合成演示数据。_
 
@@ -19,7 +19,7 @@ _展示图由当前 React/CSS 真实组件渲染；其中的账号名、日期�
 
 ### 三色额度状态
 
-![悬浮球绿色、黄色和红色额度状态](docs/images/showcase/float-ball-colors.png)
+![悬浮球绿色、黄色和红色额度状态](docs/images/showcase/float-ball-colors-zh-CN.png)
 
 - 绿色：剩余 67–100%
 - 黄色：剩余 34–66%
@@ -27,14 +27,14 @@ _展示图由当前 React/CSS 真实组件渲染；其中的账号名、日期�
 
 ### 运行状态动画
 
-![悬浮球空闲、思考和 Fast 旋转速度](docs/images/showcase/float-ball-motion.gif)
+![悬浮球空闲、思考和 Fast 旋转速度](docs/images/showcase/float-ball-motion-zh-CN.gif)
 
 颜色与转速相互独立：颜色表示剩余额度；顺时针转速表示运行状态：
 **空闲 1×**、**思考 2×**、**Fast 3×**。
 
 ### 任务栏常驻状态
 
-![显示账号、每周额度和重置日期的紧凑任务栏状态](docs/images/showcase/taskbar-status.png)
+![显示账号、每周额度和重置日期的紧凑任务栏状态](docs/images/showcase/taskbar-status-zh-CN.png)
 
 ## 功能特性
 
