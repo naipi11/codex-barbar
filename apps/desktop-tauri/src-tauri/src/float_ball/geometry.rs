@@ -243,7 +243,7 @@ pub fn restore_position(saved_logical: Option<Point>, monitors: &[MonitorGeometr
             if contains_point(monitor.monitor, physical) {
                 let size = scaled_i32(FLOAT_BALL_LOGICAL_SIZE as i32, monitor.scale);
                 let margin = scaled_i32(FLOAT_BALL_LOGICAL_MARGIN, monitor.scale);
-                return clamp_position(physical, monitor.monitor, monitor.work_area, size, margin);
+                return clamp_position(physical, monitor.monitor, monitor.monitor, size, margin);
             }
         }
     }
@@ -493,6 +493,43 @@ mod tests {
         assert_eq!(
             restore_position(Some(Point { x: 1630, y: 843 }), &[monitor]),
             Point { x: 2445, y: 1265 }
+        );
+    }
+
+    #[test]
+    fn restored_saved_position_can_overlap_the_taskbar() {
+        let monitor = MonitorGeometry {
+            monitor: Rect {
+                x: 0,
+                y: 0,
+                width: 1920,
+                height: 1080,
+            },
+            work_area: Rect {
+                x: 0,
+                y: 0,
+                width: 1920,
+                height: 1032,
+            },
+            scale: 1.0,
+            primary: true,
+        };
+
+        let restored = restore_position(Some(Point { x: 900, y: 1060 }), &[monitor]);
+        assert_eq!(restored, Point { x: 900, y: 1032 });
+        assert_eq!(
+            presentation_rect(
+                restored,
+                monitor.monitor,
+                1.0,
+                FloatBallPresentation::Collapsed
+            ),
+            Rect {
+                x: 900,
+                y: 1032,
+                width: FLOAT_BALL_COLLAPSED_WIDTH,
+                height: FLOAT_BALL_COLLAPSED_HEIGHT,
+            }
         );
     }
 }

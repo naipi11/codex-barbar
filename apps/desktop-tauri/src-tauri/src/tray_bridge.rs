@@ -122,7 +122,10 @@ fn build_tooltip(
     if let Some(snapshot) = usage.and_then(|state| state.snapshot.as_ref()) {
         lines.push(format!(
             "Updated {}",
-            snapshot.fetched_at.format("%Y-%m-%d %H:%M")
+            snapshot
+                .fetched_at
+                .with_timezone(&chrono::Local)
+                .format("%Y-%m-%d %H:%M")
         ));
     }
 
@@ -529,9 +532,15 @@ mod tests {
             "en-US",
         );
 
+        let updated = usage.snapshot.as_ref().unwrap().fetched_at;
         assert_eq!(
             presentation.tooltip,
-            "codex-barbar — CLI\nWeekly 66% Fresh\nUpdated 2026-08-06 01:02"
+            format!(
+                "codex-barbar — CLI\nWeekly 66% Fresh\nUpdated {}",
+                updated
+                    .with_timezone(&chrono::Local)
+                    .format("%Y-%m-%d %H:%M")
+            )
         );
         assert!(presentation.tooltip.len() <= 64);
     }

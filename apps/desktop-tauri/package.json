@@ -1,14 +1,8 @@
 {
   "name": "codex-barbar-desktop",
   "private": true,
-  "version": "1.0.19",
+  "version": "1.0.20",
   "packageManager": "pnpm@10.18.1",
-  "pnpm": {
-    "overrides": {
-      "form-data": "4.0.6",
-      "ws": "8.21.0"
-    }
-  },
   "type": "module",
   "scripts": {
     "dev": "vite",

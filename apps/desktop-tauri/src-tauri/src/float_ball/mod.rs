@@ -103,7 +103,7 @@ impl FloatBall {
         let monitor = monitor_for_point(physical, &monitors).unwrap_or_else(|| &monitors[0]);
         let rect = presentation_rect(
             physical,
-            monitor.work_area,
+            monitor.monitor,
             monitor.scale,
             self.state.presentation(),
         );
