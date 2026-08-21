@@ -425,6 +425,32 @@ pub fn set_no_activate_bounds(
     }
 }
 
+#[cfg(windows)]
+pub fn reassert_topmost(win: &tauri::WebviewWindow) -> Result<(), String> {
+    let hwnd = root_hwnd(win).map_err(str::to_string)?;
+    const HWND_TOPMOST: isize = -1;
+    const SWP_NOSIZE: u32 = 0x0001;
+    const SWP_NOMOVE: u32 = 0x0002;
+    const SWP_NOACTIVATE: u32 = 0x0010;
+    const SWP_SHOWWINDOW: u32 = 0x0040;
+    let ok = unsafe {
+        SetWindowPos(
+            hwnd,
+            HWND_TOPMOST,
+            0,
+            0,
+            0,
+            0,
+            SWP_NOSIZE | SWP_NOMOVE | SWP_NOACTIVATE | SWP_SHOWWINDOW,
+        )
+    };
+    if ok == 0 {
+        Err("OVERLAY_ZORDER_FAILED".to_string())
+    } else {
+        Ok(())
+    }
+}
+
 #[cfg(not(windows))]
 pub fn force_dark_caption(_win: &tauri::WebviewWindow) {}
 
@@ -460,5 +486,10 @@ pub fn set_no_activate_bounds(
     if show {
         win.show().map_err(|_| "OVERLAY_SHOW_FAILED".to_string())?;
     }
+    Ok(())
+}
+
+#[cfg(not(windows))]
+pub fn reassert_topmost(_win: &tauri::WebviewWindow) -> Result<(), String> {
     Ok(())
 }

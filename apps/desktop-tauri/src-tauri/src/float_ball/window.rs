@@ -74,6 +74,10 @@ pub fn position_and_show(window: &tauri::WebviewWindow, bounds: Rect) -> Result<
     Ok(())
 }
 
+pub fn reassert_topmost(window: &tauri::WebviewWindow) -> Result<(), String> {
+    crate::shell::dwm::reassert_topmost(window)
+}
+
 #[allow(dead_code)]
 pub fn hide(window: &tauri::WebviewWindow) -> Result<(), String> {
     window

@@ -88,6 +88,10 @@ pub fn position_and_show(window: &tauri::WebviewWindow, slot: Rect) -> Result<()
     crate::shell::dwm::set_no_activate_bounds(window, slot.x, slot.y, slot.width, slot.height, true)
 }
 
+pub fn reassert_topmost(window: &tauri::WebviewWindow) -> Result<(), String> {
+    crate::shell::dwm::reassert_topmost(window)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

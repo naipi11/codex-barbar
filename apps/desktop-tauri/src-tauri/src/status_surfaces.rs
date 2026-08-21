@@ -1,5 +1,5 @@
 use std::sync::Mutex;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use codexbar::storage::AppSettings;
 use tauri::Manager;
@@ -11,6 +11,24 @@ pub(crate) mod window_lifecycle;
 pub(crate) enum ReconciliationAction {
     Reposition,
     Cleanup,
+}
+
+const STATUS_SURFACE_REASSERT_INTERVAL_MS: u64 = 250;
+const STATUS_SURFACE_RECONCILE_INTERVAL: Duration = Duration::from_secs(2);
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum FullscreenTransition {
+    Suspend,
+    Resume,
+    Stable,
+}
+
+fn fullscreen_transition(was_suspended: bool, is_fullscreen: bool) -> FullscreenTransition {
+    match (was_suspended, is_fullscreen) {
+        (false, true) => FullscreenTransition::Suspend,
+        (true, false) => FullscreenTransition::Resume,
+        _ => FullscreenTransition::Stable,
+    }
 }
 
 pub(crate) fn reconciliation_action(enabled: bool) -> ReconciliationAction {
@@ -53,6 +71,7 @@ pub struct StatusSurfaceState {
     pub taskbar: crate::taskbar_overlay::TaskbarOverlay,
     pub float_ball: crate::float_ball::FloatBall,
     pub feedback: controller::StatusSurfaceFeedbackState,
+    fullscreen_suspended: bool,
 }
 
 pub fn run_non_fatal<F>(operation: F)
@@ -88,6 +107,15 @@ pub fn apply_status_surface_settings(
         && first_error.is_none()
     {
         first_error = Some(error);
+    }
+    if crate::shell::fullscreen_guard::is_fullscreen_active() {
+        state.fullscreen_suspended = true;
+        if let Err(error) = state.taskbar.hide_for_fullscreen() {
+            first_error.get_or_insert(error);
+        }
+        if let Err(error) = state.float_ball.hide_for_fullscreen() {
+            first_error.get_or_insert(error);
+        }
     }
     first_error.map_or(Ok(()), Err)
 }
@@ -146,23 +174,54 @@ fn reconcile_deferred_measurement_state<T, W>(
 
 pub fn start_monitor(app: tauri::AppHandle) {
     tauri::async_runtime::spawn(async move {
-        let mut interval = tokio::time::interval(Duration::from_secs(2));
+        let mut interval =
+            tokio::time::interval(Duration::from_millis(STATUS_SURFACE_REASSERT_INTERVAL_MS));
         interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+        let mut last_reconcile = Instant::now() - STATUS_SURFACE_RECONCILE_INTERVAL;
         loop {
             interval.tick().await;
+            let fullscreen = crate::shell::fullscreen_guard::is_fullscreen_active();
             let result = app
                 .state::<Mutex<StatusSurfaceState>>()
                 .lock()
                 .map_err(|_| "STATUS_SURFACE_STATE_UNAVAILABLE".to_string())
                 .and_then(|mut state| {
+                    let transition = fullscreen_transition(state.fullscreen_suspended, fullscreen);
+                    state.fullscreen_suspended = fullscreen;
+                    if fullscreen {
+                        let mut first_error = None;
+                        if let Err(error) = state.taskbar.hide_for_fullscreen() {
+                            first_error = Some(error);
+                        }
+                        if let Err(error) = state.float_ball.hide_for_fullscreen()
+                            && first_error.is_none()
+                        {
+                            first_error = Some(error);
+                        }
+                        return first_error.map_or(Ok(()), Err);
+                    }
+
                     let mut first_error = None;
-                    if let Err(error) = state.taskbar.handle_shell_change(&app) {
+                    if let Err(error) = state.taskbar.reassert_topmost() {
                         first_error = Some(error);
                     }
-                    if let Err(error) = state.float_ball.handle_shell_change(&app)
+                    if let Err(error) = state.float_ball.reassert_topmost()
                         && first_error.is_none()
                     {
                         first_error = Some(error);
+                    }
+                    if transition == FullscreenTransition::Resume
+                        || last_reconcile.elapsed() >= STATUS_SURFACE_RECONCILE_INTERVAL
+                    {
+                        if let Err(error) = state.taskbar.handle_shell_change(&app) {
+                            first_error = Some(error);
+                        }
+                        if let Err(error) = state.float_ball.handle_shell_change(&app)
+                            && first_error.is_none()
+                        {
+                            first_error = Some(error);
+                        }
+                        last_reconcile = Instant::now();
                     }
                     first_error.map_or(Ok(()), Err)
                 });
@@ -290,6 +349,11 @@ pub fn schedule_status_reposition(app: tauri::AppHandle) {
             .lock()
             .map_err(|_| "STATUS_SURFACE_STATE_UNAVAILABLE".to_string())
             .and_then(|mut state| {
+                if state.fullscreen_suspended
+                    || crate::shell::fullscreen_guard::is_fullscreen_active()
+                {
+                    return Ok(());
+                }
                 let mut first_error = None;
                 if let Err(error) = state.taskbar.handle_shell_change(&app) {
                     first_error = Some(error);
@@ -315,6 +379,31 @@ mod tests {
     use super::*;
     use std::sync::{Arc, mpsc};
     use std::time::Duration;
+
+    #[test]
+    fn fullscreen_transition_only_changes_on_edges() {
+        assert_eq!(
+            fullscreen_transition(false, true),
+            FullscreenTransition::Suspend
+        );
+        assert_eq!(
+            fullscreen_transition(true, false),
+            FullscreenTransition::Resume
+        );
+        assert_eq!(
+            fullscreen_transition(true, true),
+            FullscreenTransition::Stable
+        );
+        assert_eq!(
+            fullscreen_transition(false, false),
+            FullscreenTransition::Stable
+        );
+    }
+
+    #[test]
+    fn overlay_reassertion_runs_faster_than_shell_blink_window() {
+        const { assert!(STATUS_SURFACE_REASSERT_INTERVAL_MS <= 500) };
+    }
 
     #[test]
     fn auxiliary_labels_map_to_permanent_disable_intents() {

@@ -7,4 +7,5 @@
 
 pub(crate) mod dwm;
 pub mod flyout_window;
+pub(crate) mod fullscreen_guard;
 pub mod settings_window;

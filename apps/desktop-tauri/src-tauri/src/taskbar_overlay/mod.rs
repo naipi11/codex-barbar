@@ -255,6 +255,25 @@ impl TaskbarOverlay {
         }
     }
 
+    pub fn hide_for_fullscreen(&self) -> Result<(), String> {
+        if let Some(window) = self.window.as_ref() {
+            window
+                .hide()
+                .map_err(|_| "TASKBAR_STATUS_FULLSCREEN_HIDE_FAILED".to_string())?;
+        }
+        Ok(())
+    }
+
+    pub fn reassert_topmost(&self) -> Result<(), String> {
+        if !self.enabled {
+            return Ok(());
+        }
+        if let Some(window) = self.window.as_ref() {
+            window::reassert_topmost(window)?;
+        }
+        Ok(())
+    }
+
     pub fn handle_window_destroyed(&mut self) {
         self.window = None;
         self.last_slot = None;

@@ -141,6 +141,25 @@ impl FloatBall {
         }
     }
 
+    pub fn hide_for_fullscreen(&self) -> Result<(), String> {
+        if let Some(window) = self.window.as_ref() {
+            window
+                .hide()
+                .map_err(|_| "FLOAT_BALL_FULLSCREEN_HIDE_FAILED".to_string())?;
+        }
+        Ok(())
+    }
+
+    pub fn reassert_topmost(&self) -> Result<(), String> {
+        if !self.state.enabled {
+            return Ok(());
+        }
+        if let Some(window) = self.window.as_ref() {
+            window::reassert_topmost(window)?;
+        }
+        Ok(())
+    }
+
     pub fn handle_moved(&mut self, window: &tauri::WebviewWindow, position: PhysicalPosition<i32>) {
         if !self.state.enabled || !self.state.should_persist_moved_event() {
             return;
