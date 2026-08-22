@@ -1,4 +1,4 @@
-import { render, screen, within } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 // @ts-ignore Vitest executes tests in Node; the browser build does not include test modules.
 import { readFileSync } from "node:fs";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -56,7 +56,9 @@ describe("TaskbarStatusMeasure", () => {
     render(<TaskbarStatusMeasure />);
 
     const measurement = await screen.findByTestId("taskbar-status-measurement");
-    expect(measurement.style.getPropertyValue("--surface-bg-alpha")).toBe("0.8");
+    await waitFor(() =>
+      expect(measurement.style.getPropertyValue("--surface-bg-alpha")).toBe("0.8"),
+    );
   });
 
   it("keeps the rendered root alpha from being shadowed by a descendant fallback", async () => {
@@ -66,7 +68,9 @@ describe("TaskbarStatusMeasure", () => {
     render(<TaskbarStatusMeasure />);
 
     const measurement = await screen.findByTestId("taskbar-status-measurement");
-    expect(measurement.style.getPropertyValue("--surface-bg-alpha")).toBe("0.8");
+    await waitFor(() =>
+      expect(measurement.style.getPropertyValue("--surface-bg-alpha")).toBe("0.8"),
+    );
     for (const descendant of measurement.querySelectorAll<HTMLElement>("*")) {
       expect(descendant.style.getPropertyValue("--surface-bg-alpha")).toBe("");
     }
