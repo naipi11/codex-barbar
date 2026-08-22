@@ -169,7 +169,7 @@ export default function Settings() {
         />
       ) : null}
       {tab === "advanced" ? <AdvancedTab settings={settings} copy={copy} /> : null}
-      {tab === "about" ? <AboutTab copy={copy} /> : null}
+      {tab === "about" ? <AboutTab version={bootstrap?.version ?? "—"} copy={copy} /> : null}
       {tab !== "general" &&
       tab !== "providers" &&
       tab !== "advanced" &&

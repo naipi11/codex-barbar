@@ -27,7 +27,7 @@ function renderSettings(language: "system" | "zh-CN" | "en-US" = "system") {
     if (command === "get_bootstrap_state") {
       return {
         productName: "codex-barbar",
-        version: "1.0.0",
+        version: "9.8.7",
         settings: { ...defaultSettings, language },
         profiles: [],
         selectedProfileId: "",
@@ -68,7 +68,7 @@ describe("Settings surface", () => {
       await screen.findByRole("heading", { name: "codex-barbar Settings" }),
     ).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "About" }));
-    expect(await screen.findByText(/1\.0\.0/)).toBeInTheDocument();
+    expect(await screen.findByText("Version 9.8.7")).toBeInTheDocument();
   });
 
   it("uses Chinese sidebar labels and changes the visible pane", async () => {
@@ -157,6 +157,7 @@ describe("Settings surface", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "关于" }));
     expect(screen.getByText("适用于 Codex 用量的 Windows 11 托盘伴侣。", { exact: false })).toBeInTheDocument();
+    expect(screen.getByText("当前版本 9.8.7")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "检查更新" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Check for updates" })).not.toBeInTheDocument();
   });
