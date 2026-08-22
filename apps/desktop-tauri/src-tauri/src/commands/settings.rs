@@ -8,9 +8,12 @@ use codexbar::storage::SettingsPatch;
 use tauri::Emitter;
 
 use super::bridge::{AppSettingsDto, CodexCompatibilityDto, SettingsPatchDto};
-use crate::state::AppState;
+use crate::{
+    notification_controller::{NotificationController, WindowsToastSink},
+    state::AppState,
+};
 
-fn settings_repository(
+pub(crate) fn settings_repository(
     state: &tauri::State<'_, Mutex<AppState>>,
 ) -> Result<codexbar::storage::SettingsRepository, String> {
     let guard = state
@@ -47,7 +50,9 @@ fn split_surface_patch(
 
 fn storage_error_code(error: codexbar::storage::StorageError) -> String {
     match error.code() {
-        "SETTINGS_SURFACE_OPACITY_INVALID" => error.code().to_string(),
+        "SETTINGS_SURFACE_OPACITY_INVALID" | "SETTINGS_NOTIFICATION_THRESHOLDS_INVALID" => {
+            error.code().to_string()
+        }
         _ => "SETTINGS_SAVE_FAILED".to_string(),
     }
 }
@@ -113,6 +118,23 @@ pub async fn update_settings(
         );
     }
     Ok(dto)
+}
+
+#[tauri::command]
+pub fn send_test_notification(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, Mutex<AppState>>,
+    controller: tauri::State<'_, Mutex<NotificationController<WindowsToastSink>>>,
+) -> Result<(), String> {
+    if crate::proof_harness::is_proof_mode(&app) {
+        return Ok(());
+    }
+    let repository = settings_repository(&state)?;
+    controller
+        .lock()
+        .map_err(|_| "NOTIFICATION_TEST_FAILED".to_string())?
+        .send_test(&repository)
+        .map_err(|_| "NOTIFICATION_TEST_FAILED".to_string())
 }
 
 #[tauri::command]
@@ -341,6 +363,22 @@ mod tests {
         assert_eq!(
             patch.into_patch().unwrap_err(),
             "notification threshold must be between 0 and 100"
+        );
+    }
+
+    #[test]
+    fn notification_threshold_error_code_is_preserved_for_inline_feedback() {
+        let patch = SettingsPatch {
+            notifications: Some(NotificationPreferencesPatch {
+                warning_remaining_percent: Some(101),
+                ..NotificationPreferencesPatch::default()
+            }),
+            ..SettingsPatch::default()
+        };
+
+        assert_eq!(
+            prepare_settings_update(patch).unwrap_err(),
+            "SETTINGS_NOTIFICATION_THRESHOLDS_INVALID"
         );
     }
 }

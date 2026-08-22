@@ -52,6 +52,7 @@ describe("V1 bridge contract", () => {
       getBootstrapState: "get_bootstrap_state",
       getSettingsSnapshot: "get_settings_snapshot",
       updateSettings: "update_settings",
+      sendTestNotification: "send_test_notification",
       setStatusSurfaceEnabled: "set_status_surface_enabled",
       setFloatBallExpanded: "set_float_ball_expanded",
       setTaskbarStatusWidth: "set_taskbar_status_width",

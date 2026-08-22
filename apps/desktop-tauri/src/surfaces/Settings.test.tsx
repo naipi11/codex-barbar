@@ -20,6 +20,18 @@ const defaultSettings = {
   taskbarStatusOpacity: 20,
   floatBallOpacity: 20,
   floatBallGlow: 20,
+  notifications: {
+    enabled: false,
+    playSound: true,
+    warningEnabled: true,
+    dangerEnabled: true,
+    weeklyResetEnabled: true,
+    resetCreditIncreaseEnabled: true,
+    refreshFailureEnabled: true,
+    updateAvailableEnabled: true,
+    warningRemainingPercent: 66,
+    dangerRemainingPercent: 33,
+  },
 };
 
 function renderSettings(language: "system" | "zh-CN" | "en-US" = "system") {
@@ -91,6 +103,7 @@ describe("Settings surface", () => {
     expect(
       screen.getByRole("heading", { name: "通知" }),
     ).toBeInTheDocument();
+    expect(screen.getByRole("checkbox", { name: "启用通知" })).toBeInTheDocument();
   });
 
   it("retains English sidebar labels for en-US", async () => {

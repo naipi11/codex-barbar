@@ -1,10 +1,35 @@
 //! User-triggered, manual-only update checking.
 
+use std::sync::Mutex;
+
 use codexbar::update_check::{ManualUpdateChecker, ManualUpdateResult};
 
+use crate::{
+    notification_controller::{NotificationController, WindowsToastSink},
+    state::AppState,
+};
+
 #[tauri::command]
-pub async fn check_for_updates() -> Result<ManualUpdateResult, String> {
-    ManualUpdateChecker::new().check().await
+pub async fn check_for_updates(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, Mutex<AppState>>,
+    controller: tauri::State<'_, Mutex<NotificationController<WindowsToastSink>>>,
+) -> Result<ManualUpdateResult, String> {
+    let result = ManualUpdateChecker::new().check().await?;
+    if let ManualUpdateResult::Available { latest_version, .. } = &result
+        && !crate::proof_harness::is_proof_mode(&app)
+        && let Ok(repository) = super::settings::settings_repository(&state)
+        && let Ok(mut controller) = controller.lock()
+        && controller
+            .observe_update_available(&repository, latest_version)
+            .is_err()
+    {
+        tracing::warn!(
+            code = "NOTIFICATION_UPDATE_DISPATCH_FAILED",
+            "manual update notification was not delivered"
+        );
+    }
+    Ok(result)
 }
 
 #[cfg(test)]
