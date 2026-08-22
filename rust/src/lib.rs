@@ -9,6 +9,7 @@ pub mod core;
 pub mod diagnostics;
 pub mod locale;
 pub mod logging;
+pub mod notifications;
 pub mod platform;
 pub mod providers;
 pub mod refresh;
