@@ -75,6 +75,7 @@ unsafe extern "system" {
     fn DefSubclassProc(hwnd: isize, msg: u32, wparam: usize, lparam: isize) -> isize;
     fn GetClientRect(hwnd: isize, rect: *mut WinRect) -> i32;
     fn SetWindowRgn(hwnd: isize, rgn: isize, redraw: i32) -> i32;
+    fn ShowWindow(hwnd: isize, command: i32) -> i32;
     fn MonitorFromWindow(hwnd: isize, flags: u32) -> isize;
     fn GetMonitorInfoW(hmonitor: isize, info: *mut MonitorInfo) -> i32;
 }
@@ -451,6 +452,16 @@ pub fn reassert_topmost(win: &tauri::WebviewWindow) -> Result<(), String> {
     }
 }
 
+#[cfg(windows)]
+pub fn hide_window(win: &tauri::WebviewWindow) -> Result<(), String> {
+    let hwnd = root_hwnd(win).map_err(str::to_string)?;
+    const SW_HIDE: i32 = 0;
+    unsafe {
+        ShowWindow(hwnd, SW_HIDE);
+    }
+    Ok(())
+}
+
 #[cfg(not(windows))]
 pub fn force_dark_caption(_win: &tauri::WebviewWindow) {}
 
@@ -492,4 +503,9 @@ pub fn set_no_activate_bounds(
 #[cfg(not(windows))]
 pub fn reassert_topmost(_win: &tauri::WebviewWindow) -> Result<(), String> {
     Ok(())
+}
+
+#[cfg(not(windows))]
+pub fn hide_window(win: &tauri::WebviewWindow) -> Result<(), String> {
+    win.hide().map_err(|_| "OVERLAY_HIDE_FAILED".to_string())
 }

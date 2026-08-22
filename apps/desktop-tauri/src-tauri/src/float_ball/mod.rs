@@ -143,8 +143,7 @@ impl FloatBall {
 
     pub fn hide_for_fullscreen(&self) -> Result<(), String> {
         if let Some(window) = self.window.as_ref() {
-            window
-                .hide()
+            crate::shell::dwm::hide_window(window)
                 .map_err(|_| "FLOAT_BALL_FULLSCREEN_HIDE_FAILED".to_string())?;
         }
         Ok(())

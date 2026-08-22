@@ -36,6 +36,14 @@ pub(crate) fn window_matches_fullscreen(
         || (style & WS_CAPTION == 0 && window_covers_monitor(window, work_area, tolerance))
 }
 
+pub(crate) fn child_window_matches_fullscreen(
+    window: ScreenRect,
+    monitor: ScreenRect,
+    tolerance: i32,
+) -> bool {
+    window_covers_monitor(window, monitor, tolerance)
+}
+
 #[cfg(windows)]
 #[repr(C)]
 #[derive(Clone, Copy, Default)]
@@ -67,13 +75,152 @@ unsafe extern "system" {
     fn MonitorFromWindow(hwnd: isize, flags: u32) -> isize;
     fn IsWindowVisible(hwnd: isize) -> i32;
     fn IsIconic(hwnd: isize) -> i32;
+    fn EnumWindows(
+        callback: Option<unsafe extern "system" fn(isize, isize) -> i32>,
+        parameter: isize,
+    ) -> i32;
+    fn EnumChildWindows(
+        parent: isize,
+        callback: Option<unsafe extern "system" fn(isize, isize) -> i32>,
+        parameter: isize,
+    ) -> i32;
 }
 
 #[cfg(windows)]
-pub(crate) fn is_fullscreen_active() -> bool {
+struct FullscreenScanContext {
+    process_id: u32,
+    monitor: ScreenRect,
+    work_area: ScreenRect,
+    found: bool,
+}
+
+#[cfg(windows)]
+fn monitor_rects(hwnd: isize) -> Option<(ScreenRect, ScreenRect)> {
     const MONITOR_DEFAULTTONEAREST: u32 = 2;
 
+    let monitor = unsafe { MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST) };
+    if monitor == 0 {
+        return None;
+    }
+
+    let mut info = MonitorInfo {
+        cb_size: std::mem::size_of::<MonitorInfo>() as u32,
+        rc_monitor: WinRect::default(),
+        rc_work: WinRect::default(),
+        dw_flags: 0,
+    };
+    if unsafe { GetMonitorInfoW(monitor, &mut info) } == 0 {
+        return None;
+    }
+
+    Some((
+        ScreenRect {
+            left: info.rc_monitor.left,
+            top: info.rc_monitor.top,
+            right: info.rc_monitor.right,
+            bottom: info.rc_monitor.bottom,
+        },
+        ScreenRect {
+            left: info.rc_work.left,
+            top: info.rc_work.top,
+            right: info.rc_work.right,
+            bottom: info.rc_work.bottom,
+        },
+    ))
+}
+
+#[cfg(windows)]
+fn window_rect(hwnd: isize) -> Option<ScreenRect> {
+    let mut rect = WinRect::default();
+    (unsafe { GetWindowRect(hwnd, &mut rect) } != 0).then_some(ScreenRect {
+        left: rect.left,
+        top: rect.top,
+        right: rect.right,
+        bottom: rect.bottom,
+    })
+}
+
+#[cfg(windows)]
+fn scan_candidate(hwnd: isize, context: &FullscreenScanContext, child: bool) -> bool {
+    if unsafe { IsWindowVisible(hwnd) } == 0 {
+        return false;
+    }
+    let Some(rect) = window_rect(hwnd) else {
+        return false;
+    };
+    if child {
+        child_window_matches_fullscreen(rect, context.monitor, FULLSCREEN_EDGE_TOLERANCE)
+    } else {
+        let style = unsafe { GetWindowLongPtrW(hwnd, -16) as usize };
+        window_matches_fullscreen(
+            rect,
+            context.monitor,
+            context.work_area,
+            style,
+            FULLSCREEN_EDGE_TOLERANCE,
+        )
+    }
+}
+
+#[cfg(windows)]
+unsafe extern "system" fn scan_child_window(hwnd: isize, parameter: isize) -> i32 {
+    let context = unsafe { &mut *(parameter as *mut FullscreenScanContext) };
+    if scan_candidate(hwnd, context, true) {
+        context.found = true;
+        0
+    } else {
+        1
+    }
+}
+
+#[cfg(windows)]
+unsafe extern "system" fn scan_top_level_window(hwnd: isize, parameter: isize) -> i32 {
+    let context = unsafe { &mut *(parameter as *mut FullscreenScanContext) };
+    if context.found {
+        return 0;
+    }
+
+    let mut process_id = 0;
+    if unsafe { GetWindowThreadProcessId(hwnd, &mut process_id) } == 0
+        || process_id != context.process_id
+    {
+        return 1;
+    }
+
+    if scan_candidate(hwnd, context, false) {
+        context.found = true;
+        return 0;
+    }
+
+    unsafe { EnumChildWindows(hwnd, Some(scan_child_window), parameter) };
+    if context.found { 0 } else { 1 }
+}
+
+#[cfg(windows)]
+fn process_has_fullscreen_window(
+    process_id: u32,
+    monitor: ScreenRect,
+    work_area: ScreenRect,
+) -> bool {
+    let mut context = FullscreenScanContext {
+        process_id,
+        monitor,
+        work_area,
+        found: false,
+    };
+    unsafe {
+        EnumWindows(
+            Some(scan_top_level_window),
+            (&mut context as *mut FullscreenScanContext) as isize,
+        );
+    }
+    context.found
+}
+
+#[cfg(windows)]
+fn detect_fullscreen() -> bool {
     let foreground = unsafe { GetForegroundWindow() };
+
     if foreground == 0 {
         return false;
     }
@@ -87,48 +234,23 @@ pub(crate) fn is_fullscreen_active() -> bool {
         return false;
     }
 
-    let mut window = WinRect::default();
-    if unsafe { GetWindowRect(foreground, &mut window) } == 0 {
+    let Some(window) = window_rect(foreground) else {
         return false;
-    }
-
-    let monitor = unsafe { MonitorFromWindow(foreground, MONITOR_DEFAULTTONEAREST) };
-    if monitor == 0 {
-        return false;
-    }
-
-    let mut info = MonitorInfo {
-        cb_size: std::mem::size_of::<MonitorInfo>() as u32,
-        rc_monitor: WinRect::default(),
-        rc_work: WinRect::default(),
-        dw_flags: 0,
     };
-    if unsafe { GetMonitorInfoW(monitor, &mut info) } == 0 {
+    let Some((monitor, work_area)) = monitor_rects(foreground) else {
         return false;
+    };
+    let style = unsafe { GetWindowLongPtrW(foreground, -16) as usize };
+    if window_matches_fullscreen(window, monitor, work_area, style, FULLSCREEN_EDGE_TOLERANCE) {
+        return true;
     }
 
-    window_matches_fullscreen(
-        ScreenRect {
-            left: window.left,
-            top: window.top,
-            right: window.right,
-            bottom: window.bottom,
-        },
-        ScreenRect {
-            left: info.rc_monitor.left,
-            top: info.rc_monitor.top,
-            right: info.rc_monitor.right,
-            bottom: info.rc_monitor.bottom,
-        },
-        ScreenRect {
-            left: info.rc_work.left,
-            top: info.rc_work.top,
-            right: info.rc_work.right,
-            bottom: info.rc_work.bottom,
-        },
-        unsafe { GetWindowLongPtrW(foreground, -16) as usize },
-        FULLSCREEN_EDGE_TOLERANCE,
-    )
+    process_has_fullscreen_window(process_id, monitor, work_area)
+}
+
+#[cfg(windows)]
+pub(crate) fn is_fullscreen_active() -> bool {
+    detect_fullscreen()
 }
 
 #[cfg(not(windows))]
@@ -223,5 +345,39 @@ mod tests {
         assert!(!window_matches_fullscreen(
             work_area, monitor, work_area, WS_CAPTION, 8,
         ));
+    }
+
+    #[test]
+    fn normal_edge_renderer_work_area_child_is_not_fullscreen() {
+        let monitor = ScreenRect {
+            left: 0,
+            top: 0,
+            right: 1463,
+            bottom: 823,
+        };
+        let work_area_child = ScreenRect {
+            left: 0,
+            top: 0,
+            right: 1463,
+            bottom: 775,
+        };
+
+        assert!(!child_window_matches_fullscreen(
+            work_area_child,
+            monitor,
+            8
+        ));
+    }
+
+    #[test]
+    fn edge_video_renderer_covering_monitor_is_fullscreen() {
+        let monitor = ScreenRect {
+            left: 0,
+            top: 0,
+            right: 1463,
+            bottom: 823,
+        };
+
+        assert!(child_window_matches_fullscreen(monitor, monitor, 8));
     }
 }
