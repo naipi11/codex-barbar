@@ -9,6 +9,24 @@ pub(crate) struct ScreenRect {
 pub(crate) const WS_CAPTION: usize = 0x00c00000;
 const FULLSCREEN_EDGE_TOLERANCE: i32 = 8;
 
+pub(crate) fn is_shell_window_class(class_name: &str) -> bool {
+    matches!(
+        class_name,
+        "Progman"
+            | "WorkerW"
+            | "Shell_TrayWnd"
+            | "Shell_SecondaryTrayWnd"
+            | "ShellHandwritingCanvas"
+    ) || class_name.starts_with("ShellHandwritingCanvas ")
+}
+
+pub(crate) fn supports_renderer_scan(class_name: &str) -> bool {
+    matches!(
+        class_name,
+        "Chrome_WidgetWin_1" | "Chrome_WidgetWin_0" | "MozillaWindowClass" | "CefBrowserWindow"
+    )
+}
+
 pub(crate) fn window_covers_monitor(
     window: ScreenRect,
     monitor: ScreenRect,
@@ -71,6 +89,8 @@ unsafe extern "system" {
     fn GetWindowRect(hwnd: isize, rect: *mut WinRect) -> i32;
     fn GetWindowThreadProcessId(hwnd: isize, process_id: *mut u32) -> u32;
     fn GetWindowLongPtrW(hwnd: isize, index: i32) -> isize;
+    fn GetClassNameW(hwnd: isize, class_name: *mut u16, max_count: i32) -> i32;
+    fn GetWindowTextW(hwnd: isize, text: *mut u16, max_count: i32) -> i32;
     fn GetMonitorInfoW(monitor: isize, info: *mut MonitorInfo) -> i32;
     fn MonitorFromWindow(hwnd: isize, flags: u32) -> isize;
     fn IsWindowVisible(hwnd: isize) -> i32;
@@ -138,6 +158,41 @@ fn window_rect(hwnd: isize) -> Option<ScreenRect> {
         right: rect.right,
         bottom: rect.bottom,
     })
+}
+
+#[cfg(windows)]
+fn window_class(hwnd: isize) -> String {
+    let mut buffer = [0u16; 256];
+    let length = unsafe { GetClassNameW(hwnd, buffer.as_mut_ptr(), buffer.len() as i32) };
+    if length <= 0 {
+        String::new()
+    } else {
+        String::from_utf16_lossy(&buffer[..length as usize])
+    }
+}
+
+#[cfg(windows)]
+fn window_title(hwnd: isize) -> String {
+    let mut buffer = [0u16; 512];
+    let length = unsafe { GetWindowTextW(hwnd, buffer.as_mut_ptr(), buffer.len() as i32) };
+    if length <= 0 {
+        String::new()
+    } else {
+        String::from_utf16_lossy(&buffer[..length as usize])
+    }
+}
+
+#[cfg(windows)]
+fn is_shell_window(hwnd: isize) -> bool {
+    let class_name = window_class(hwnd);
+    if is_shell_window_class(&class_name) {
+        return true;
+    }
+    if class_name == "Windows.UI.Core.CoreWindow" {
+        let title = window_title(hwnd);
+        return matches!(title.trim(), "Start" | "开始" | "Search" | "搜索");
+    }
+    false
 }
 
 #[cfg(windows)]
@@ -230,6 +285,9 @@ fn detect_fullscreen() -> bool {
     if process_id == unsafe { GetCurrentProcessId() } {
         return false;
     }
+    if is_shell_window(foreground) {
+        return false;
+    }
     if unsafe { IsWindowVisible(foreground) } == 0 || unsafe { IsIconic(foreground) } != 0 {
         return false;
     }
@@ -245,7 +303,11 @@ fn detect_fullscreen() -> bool {
         return true;
     }
 
-    process_has_fullscreen_window(process_id, monitor, work_area)
+    if supports_renderer_scan(&window_class(foreground)) {
+        process_has_fullscreen_window(process_id, monitor, work_area)
+    } else {
+        false
+    }
 }
 
 #[cfg(windows)]
@@ -379,5 +441,31 @@ mod tests {
         };
 
         assert!(child_window_matches_fullscreen(monitor, monitor, 8));
+    }
+
+    #[test]
+    fn shell_windows_are_not_browser_renderer_hosts() {
+        for class_name in [
+            "Progman",
+            "WorkerW",
+            "Shell_TrayWnd",
+            "ShellHandwritingCanvas",
+        ] {
+            assert!(is_shell_window_class(class_name));
+            assert!(!supports_renderer_scan(class_name));
+        }
+    }
+
+    #[test]
+    fn browser_window_classes_allow_renderer_scan() {
+        for class_name in [
+            "Chrome_WidgetWin_1",
+            "Chrome_WidgetWin_0",
+            "MozillaWindowClass",
+            "CefBrowserWindow",
+        ] {
+            assert!(!is_shell_window_class(class_name));
+            assert!(supports_renderer_scan(class_name));
+        }
     }
 }
