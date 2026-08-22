@@ -38,13 +38,18 @@ impl<S: ToastSink> NotificationController<S> {
         &mut self,
         repository: &SettingsRepository,
         profile_id: ProfileId,
+        account_marker: Option<&str>,
         state: &ProfileUsageState,
         reset_credits: Option<u64>,
     ) -> Result<(), String> {
         let settings = load_settings(repository)?;
-        let events =
-            self.engine
-                .observe_usage(&settings.notifications, profile_id, state, reset_credits);
+        let events = self.engine.observe_usage_for_account(
+            &settings.notifications,
+            profile_id,
+            account_marker,
+            state,
+            reset_credits,
+        );
         self.dispatch(&settings, events)
     }
 
@@ -52,13 +57,34 @@ impl<S: ToastSink> NotificationController<S> {
         &mut self,
         repository: &SettingsRepository,
         profile_id: ProfileId,
+        account_marker: Option<&str>,
         success: bool,
     ) -> Result<(), String> {
         let settings = load_settings(repository)?;
-        let events = self
-            .engine
-            .observe_refresh(&settings.notifications, profile_id, success);
+        let events = self.engine.observe_refresh_for_account(
+            &settings.notifications,
+            profile_id,
+            account_marker,
+            success,
+        );
         self.dispatch(&settings, events)
+    }
+
+    pub fn observe_account_service_event(
+        &mut self,
+        repository: &SettingsRepository,
+        account_marker: Option<&str>,
+        event: &codexbar::accounts::model::AccountServiceEvent,
+    ) -> Result<bool, String> {
+        let codexbar::accounts::model::AccountServiceEvent::RefreshCompleted {
+            profile_id,
+            success,
+        } = event
+        else {
+            return Ok(false);
+        };
+        self.observe_refresh(repository, *profile_id, account_marker, *success)?;
+        Ok(true)
     }
 
     pub fn observe_update_available(
@@ -100,6 +126,23 @@ fn load_settings(repository: &SettingsRepository) -> Result<AppSettings, String>
     repository
         .load()
         .map_err(|_| "NOTIFICATION_SETTINGS_UNAVAILABLE".to_string())
+}
+
+fn account_marker_from_email(email: Option<&str>) -> Option<String> {
+    let normalized_email = email?.trim().to_ascii_lowercase();
+    if normalized_email.is_empty() {
+        None
+    } else {
+        Some(codexbar::core::sha256_hex(normalized_email.as_bytes()))
+    }
+}
+
+pub(crate) fn account_marker_for_profile(
+    service: &codexbar::accounts::service::AccountProfileService,
+    profile_id: ProfileId,
+) -> Option<String> {
+    let identity = service.identity_for(profile_id).ok().flatten()?;
+    account_marker_from_email(identity.email.as_deref())
 }
 
 fn use_chinese(settings: &AppSettings) -> bool {
@@ -349,7 +392,10 @@ mod tests {
     };
     use uuid::Uuid;
 
-    use super::{NotificationController, ToastSink, should_check_for_updates, xml_escape};
+    use super::{
+        NotificationController, ToastSink, account_marker_from_email, should_check_for_updates,
+        xml_escape,
+    };
 
     #[derive(Debug, Clone, PartialEq, Eq)]
     struct SentToast {
@@ -462,19 +508,43 @@ mod tests {
         let profile_id = Uuid::new_v4();
 
         controller
-            .observe_usage(&repository, profile_id, &weekly(profile_id, 20.0), None)
+            .observe_usage(
+                &repository,
+                profile_id,
+                None,
+                &weekly(profile_id, 20.0),
+                None,
+            )
             .unwrap();
         controller
-            .observe_usage(&repository, profile_id, &weekly(profile_id, 40.0), None)
+            .observe_usage(
+                &repository,
+                profile_id,
+                None,
+                &weekly(profile_id, 40.0),
+                None,
+            )
             .unwrap();
         assert!(sent.lock().unwrap().is_empty());
 
         enable_notifications(&repository);
         controller
-            .observe_usage(&repository, profile_id, &weekly(profile_id, 20.0), None)
+            .observe_usage(
+                &repository,
+                profile_id,
+                None,
+                &weekly(profile_id, 20.0),
+                None,
+            )
             .unwrap();
         controller
-            .observe_usage(&repository, profile_id, &weekly(profile_id, 40.0), None)
+            .observe_usage(
+                &repository,
+                profile_id,
+                None,
+                &weekly(profile_id, 40.0),
+                None,
+            )
             .unwrap();
 
         let sent = sent.lock().unwrap();
@@ -489,12 +559,24 @@ mod tests {
         enable_notifications(&repository);
         let profile_id = Uuid::new_v4();
         controller
-            .observe_usage(&repository, profile_id, &weekly(profile_id, 20.0), Some(3))
+            .observe_usage(
+                &repository,
+                profile_id,
+                None,
+                &weekly(profile_id, 20.0),
+                Some(3),
+            )
             .unwrap();
 
         controller.send_test(&repository).unwrap();
         controller
-            .observe_usage(&repository, profile_id, &weekly(profile_id, 20.0), Some(3))
+            .observe_usage(
+                &repository,
+                profile_id,
+                None,
+                &weekly(profile_id, 20.0),
+                Some(3),
+            )
             .unwrap();
 
         let sent = sent.lock().unwrap();
@@ -558,5 +640,138 @@ mod tests {
     #[test]
     fn toast_text_is_xml_escaped_before_transport() {
         assert_eq!(xml_escape("<&>\"'"), "&lt;&amp;&gt;&quot;&apos;");
+    }
+
+    #[test]
+    fn account_change_on_stable_profile_does_not_carry_controller_events() {
+        let (_temp, repository, mut controller, sent) = fixture();
+        enable_notifications(&repository);
+        let profile_id = Uuid::new_v4();
+
+        controller
+            .observe_usage(
+                &repository,
+                profile_id,
+                Some("account-hash-a"),
+                &weekly(profile_id, 20.0),
+                Some(1),
+            )
+            .unwrap();
+        controller
+            .observe_usage(
+                &repository,
+                profile_id,
+                Some("account-hash-a"),
+                &weekly(profile_id, 40.0),
+                Some(1),
+            )
+            .unwrap();
+        for _ in 0..3 {
+            controller
+                .observe_refresh(&repository, profile_id, Some("account-hash-a"), false)
+                .unwrap();
+        }
+        assert_eq!(sent.lock().unwrap().len(), 2);
+
+        controller
+            .observe_usage(
+                &repository,
+                profile_id,
+                Some("account-hash-b"),
+                &weekly(profile_id, 80.0),
+                Some(5),
+            )
+            .unwrap();
+        controller
+            .observe_refresh(&repository, profile_id, Some("account-hash-b"), true)
+            .unwrap();
+        assert_eq!(sent.lock().unwrap().len(), 2);
+    }
+
+    #[test]
+    fn unavailable_account_marker_preserves_controller_state() {
+        let (_temp, repository, mut controller, sent) = fixture();
+        enable_notifications(&repository);
+        let profile_id = Uuid::new_v4();
+
+        controller
+            .observe_usage(
+                &repository,
+                profile_id,
+                Some("account-hash-a"),
+                &weekly(profile_id, 20.0),
+                None,
+            )
+            .unwrap();
+        controller
+            .observe_usage(
+                &repository,
+                profile_id,
+                None,
+                &weekly(profile_id, 40.0),
+                None,
+            )
+            .unwrap();
+        controller
+            .observe_refresh(&repository, profile_id, Some("account-hash-a"), false)
+            .unwrap();
+        controller
+            .observe_refresh(&repository, profile_id, None, false)
+            .unwrap();
+        controller
+            .observe_refresh(&repository, profile_id, None, false)
+            .unwrap();
+
+        assert_eq!(sent.lock().unwrap().len(), 2);
+    }
+
+    #[test]
+    fn account_marker_normalizes_email_and_never_returns_raw_identity() {
+        let expected = codexbar::core::sha256_hex(b"user@example.invalid");
+        let marker = account_marker_from_email(Some(" User@Example.Invalid ")).unwrap();
+
+        assert_eq!(marker, expected);
+        assert!(!marker.contains("example"));
+        assert_eq!(account_marker_from_email(Some("   ")), None);
+        assert_eq!(account_marker_from_email(None), None);
+    }
+
+    #[test]
+    fn typed_terminal_refresh_events_drive_failure_and_recovery() {
+        let (_temp, repository, mut controller, sent) = fixture();
+        enable_notifications(&repository);
+        let profile_id = Uuid::new_v4();
+
+        for _ in 0..3 {
+            assert!(
+                controller
+                    .observe_account_service_event(
+                        &repository,
+                        Some("account-hash-a"),
+                        &codexbar::accounts::model::AccountServiceEvent::RefreshCompleted {
+                            profile_id,
+                            success: false,
+                        },
+                    )
+                    .unwrap()
+            );
+        }
+        assert!(
+            controller
+                .observe_account_service_event(
+                    &repository,
+                    Some("account-hash-a"),
+                    &codexbar::accounts::model::AccountServiceEvent::RefreshCompleted {
+                        profile_id,
+                        success: true,
+                    },
+                )
+                .unwrap()
+        );
+
+        let sent = sent.lock().unwrap();
+        assert_eq!(sent.len(), 2);
+        assert!(sent[0].title.contains("failed"));
+        assert!(sent[1].title.contains("recovered"));
     }
 }

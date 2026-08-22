@@ -1,6 +1,7 @@
 //! Core data models and traits
 
 mod app_error;
+mod aws_signing;
 mod profile_usage;
 mod provider;
 mod provider_factory;
@@ -10,6 +11,7 @@ mod usage_pace;
 mod usage_snapshot;
 
 pub use app_error::*;
+pub use aws_signing::{hex, hmac_sha256, sanitized_body, sha256_hex};
 pub use profile_usage::*;
 pub use provider::*;
 pub use provider_factory::{instantiate_shipping_provider, shipping_provider_ids};

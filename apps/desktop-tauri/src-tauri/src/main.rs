@@ -206,35 +206,34 @@ fn main() {
                             codexbar::accounts::model::AccountServiceEvent::UsageStateChanged(
                                 state,
                             ) => {
-                                if !crate::proof_harness::is_proof_mode(&handle) {
-                                    let success = state.current_error.is_none();
+                                if !crate::proof_harness::is_proof_mode(&handle)
+                                    && state.current_error.is_none()
+                                {
+                                    let account_marker =
+                                        notification_controller::account_marker_for_profile(
+                                            &service,
+                                            state.profile_id,
+                                        );
                                     let controller = handle.state::<Mutex<
                                         notification_controller::NotificationController<
                                             notification_controller::WindowsToastSink,
                                         >,
                                     >>();
-                                    if let Ok(mut controller) = controller.lock() {
-                                        let refresh_result = controller.observe_refresh(
-                                            &settings_repository,
-                                            state.profile_id,
-                                            success,
-                                        );
-                                        let usage_result = if success {
-                                            controller.observe_usage(
+                                    if let Ok(mut controller) = controller.lock()
+                                        && controller
+                                            .observe_usage(
                                                 &settings_repository,
                                                 state.profile_id,
+                                                account_marker.as_deref(),
                                                 &state,
                                                 None,
                                             )
-                                        } else {
-                                            Ok(())
-                                        };
-                                        if refresh_result.is_err() || usage_result.is_err() {
-                                            tracing::warn!(
-                                                code = "NOTIFICATION_USAGE_DISPATCH_FAILED",
-                                                "usage notification was not delivered"
-                                            );
-                                        }
+                                            .is_err()
+                                    {
+                                        tracing::warn!(
+                                            code = "NOTIFICATION_USAGE_DISPATCH_FAILED",
+                                            "usage notification was not delivered"
+                                        );
                                     }
                                 }
                                 let _ = handle.emit(
@@ -253,6 +252,41 @@ fn main() {
                                         "status": commands::refresh_status_name(status),
                                     }),
                                 );
+                            }
+                            codexbar::accounts::model::AccountServiceEvent::RefreshCompleted {
+                                profile_id,
+                                success,
+                            } => {
+                                if !crate::proof_harness::is_proof_mode(&handle) {
+                                    let account_marker =
+                                        notification_controller::account_marker_for_profile(
+                                            &service, profile_id,
+                                        );
+                                    let controller = handle.state::<Mutex<
+                                        notification_controller::NotificationController<
+                                            notification_controller::WindowsToastSink,
+                                        >,
+                                    >>();
+                                    if let Ok(mut controller) = controller.lock() {
+                                        let event = codexbar::accounts::model::AccountServiceEvent::RefreshCompleted {
+                                            profile_id,
+                                            success,
+                                        };
+                                        if controller
+                                            .observe_account_service_event(
+                                                &settings_repository,
+                                                account_marker.as_deref(),
+                                                &event,
+                                            )
+                                            .is_err()
+                                        {
+                                            tracing::warn!(
+                                                code = "NOTIFICATION_REFRESH_DISPATCH_FAILED",
+                                                "refresh notification was not delivered"
+                                            );
+                                        }
+                                    }
+                                }
                             }
                         }
                     }

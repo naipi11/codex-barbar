@@ -40,6 +40,8 @@ struct NotificationState {
 #[derive(Debug, Default, Clone, Serialize, Deserialize)]
 #[serde(default, rename_all = "camelCase")]
 struct ProfileNotificationState {
+    /// SHA-256 hex of the normalized account email; never raw identity.
+    account_marker_hash: Option<String>,
     weekly_reset_at: Option<DateTime<Utc>>,
     armed_band: Option<QuotaBand>,
     known_reset_credits: Option<u64>,
@@ -75,6 +77,7 @@ impl V1NotificationEngine {
         Self { state_path, state }
     }
 
+    #[cfg(test)]
     pub fn observe_usage(
         &mut self,
         preferences: &NotificationPreferences,
@@ -82,7 +85,20 @@ impl V1NotificationEngine {
         state: &ProfileUsageState,
         reset_credits: Option<u64>,
     ) -> Vec<V1NotificationEvent> {
+        self.observe_usage_for_account(preferences, profile_id, None, state, reset_credits)
+    }
+
+    pub fn observe_usage_for_account(
+        &mut self,
+        preferences: &NotificationPreferences,
+        profile_id: ProfileId,
+        account_marker: Option<&str>,
+        state: &ProfileUsageState,
+        reset_credits: Option<u64>,
+    ) -> Vec<V1NotificationEvent> {
+        self.prepare_profile_for_account(profile_id, account_marker);
         let Some(window) = universal_weekly_window(state) else {
+            self.persist();
             return Vec::new();
         };
         let remaining_percent = rounded_percent(window.remaining_percent);
@@ -134,34 +150,63 @@ impl V1NotificationEngine {
         events
     }
 
+    #[cfg(test)]
     pub fn observe_refresh(
         &mut self,
         preferences: &NotificationPreferences,
         profile_id: ProfileId,
         success: bool,
     ) -> Vec<V1NotificationEvent> {
+        self.observe_refresh_for_account(preferences, profile_id, None, success)
+    }
+
+    pub fn observe_refresh_for_account(
+        &mut self,
+        preferences: &NotificationPreferences,
+        profile_id: ProfileId,
+        account_marker: Option<&str>,
+        success: bool,
+    ) -> Vec<V1NotificationEvent> {
+        self.prepare_profile_for_account(profile_id, account_marker);
         let profile = self.state.profiles.entry(profile_id).or_default();
+        if !preferences.enabled || !preferences.refresh_failure_enabled {
+            profile.consecutive_refresh_failures = 0;
+            profile.refresh_failure_notified = false;
+            self.persist();
+            return Vec::new();
+        }
         let mut events = Vec::new();
         if success {
             let had_reported_failure = profile.refresh_failure_notified;
             profile.consecutive_refresh_failures = 0;
             profile.refresh_failure_notified = false;
-            if preferences.enabled && preferences.refresh_failure_enabled && had_reported_failure {
+            if had_reported_failure {
                 events.push(V1NotificationEvent::RefreshRecovered);
             }
         } else {
             profile.consecutive_refresh_failures =
                 profile.consecutive_refresh_failures.saturating_add(1);
-            if preferences.enabled
-                && preferences.refresh_failure_enabled
-                && profile.consecutive_refresh_failures == 3
-            {
+            if profile.consecutive_refresh_failures == 3 {
                 profile.refresh_failure_notified = true;
                 events.push(V1NotificationEvent::RefreshFailed);
             }
         }
         self.persist();
         events
+    }
+
+    fn prepare_profile_for_account(&mut self, profile_id: ProfileId, account_marker: Option<&str>) {
+        let profile = self.state.profiles.entry(profile_id).or_default();
+        if let Some(account_marker) = account_marker {
+            if profile
+                .account_marker_hash
+                .as_deref()
+                .is_some_and(|previous| previous != account_marker)
+            {
+                *profile = ProfileNotificationState::default();
+            }
+            profile.account_marker_hash = Some(account_marker.to_string());
+        }
     }
 
     pub fn observe_update_available(
@@ -383,7 +428,7 @@ mod tests {
     }
 
     #[test]
-    fn disabled_refresh_failures_do_not_emit_a_recovery_after_enable() {
+    fn two_master_disabled_failures_do_not_count_toward_enabled_threshold() {
         let (_temp, paths) = state_path();
         let mut engine = V1NotificationEngine::load(&paths);
         let id = Uuid::new_v4();
@@ -391,8 +436,61 @@ mod tests {
 
         assert!(engine.observe_refresh(&disabled, id, false).is_empty());
         assert!(engine.observe_refresh(&disabled, id, false).is_empty());
-        assert!(engine.observe_refresh(&disabled, id, false).is_empty());
+        assert!(engine.observe_refresh(&enabled(), id, false).is_empty());
+        assert!(engine.observe_refresh(&enabled(), id, false).is_empty());
+        assert_eq!(
+            engine.observe_refresh(&enabled(), id, false),
+            vec![V1NotificationEvent::RefreshFailed]
+        );
+        assert_eq!(
+            engine.observe_refresh(&enabled(), id, true),
+            vec![V1NotificationEvent::RefreshRecovered]
+        );
         assert!(engine.observe_refresh(&enabled(), id, true).is_empty());
+    }
+
+    #[test]
+    fn three_master_disabled_failures_leave_one_enabled_failure_at_count_one() {
+        let (_temp, paths) = state_path();
+        let mut engine = V1NotificationEngine::load(&paths);
+        let id = Uuid::new_v4();
+        let disabled = NotificationPreferences::default();
+
+        for _ in 0..3 {
+            assert!(engine.observe_refresh(&disabled, id, false).is_empty());
+        }
+        assert!(engine.observe_refresh(&enabled(), id, false).is_empty());
+        assert!(engine.observe_refresh(&enabled(), id, true).is_empty());
+    }
+
+    #[test]
+    fn event_disabled_failures_do_not_count_after_event_is_reenabled() {
+        let (_temp, paths) = state_path();
+        let mut engine = V1NotificationEngine::load(&paths);
+        let id = Uuid::new_v4();
+        let event_disabled = NotificationPreferences {
+            enabled: true,
+            refresh_failure_enabled: false,
+            ..NotificationPreferences::default()
+        };
+
+        for _ in 0..3 {
+            assert!(
+                engine
+                    .observe_refresh(&event_disabled, id, false)
+                    .is_empty()
+            );
+        }
+        assert!(engine.observe_refresh(&enabled(), id, false).is_empty());
+        assert!(engine.observe_refresh(&enabled(), id, false).is_empty());
+        assert_eq!(
+            engine.observe_refresh(&enabled(), id, false),
+            vec![V1NotificationEvent::RefreshFailed]
+        );
+        assert_eq!(
+            engine.observe_refresh(&enabled(), id, true),
+            vec![V1NotificationEvent::RefreshRecovered]
+        );
     }
 
     #[test]
@@ -508,6 +606,144 @@ mod tests {
         assert!(
             reloaded
                 .observe_update_available(&enabled(), "v9.9.9")
+                .is_empty()
+        );
+    }
+
+    #[test]
+    fn known_account_change_clears_all_profile_notification_baselines() {
+        let (_temp, paths) = state_path();
+        let mut engine = V1NotificationEngine::load(&paths);
+        let id = Uuid::new_v4();
+        let reset_a = DateTime::from_timestamp(1_752_000_000, 0).unwrap();
+        let reset_b = DateTime::from_timestamp(1_752_604_800, 0).unwrap();
+
+        assert!(
+            engine
+                .observe_usage_for_account(
+                    &enabled(),
+                    id,
+                    Some("account-hash-a"),
+                    &weekly(20.0, reset_a),
+                    Some(1),
+                )
+                .is_empty()
+        );
+        assert_eq!(
+            engine.observe_usage_for_account(
+                &enabled(),
+                id,
+                Some("account-hash-a"),
+                &weekly(40.0, reset_a),
+                Some(1),
+            ),
+            vec![V1NotificationEvent::Warning {
+                remaining_percent: 60,
+            }]
+        );
+        for expected in [
+            Vec::new(),
+            Vec::new(),
+            vec![V1NotificationEvent::RefreshFailed],
+        ] {
+            assert_eq!(
+                engine.observe_refresh_for_account(&enabled(), id, Some("account-hash-a"), false,),
+                expected
+            );
+        }
+
+        assert!(
+            engine
+                .observe_usage_for_account(
+                    &enabled(),
+                    id,
+                    Some("account-hash-b"),
+                    &weekly(80.0, reset_b),
+                    Some(5),
+                )
+                .is_empty(),
+            "account change must not carry warning, danger, weekly-reset, or credit state"
+        );
+        assert!(
+            engine
+                .observe_refresh_for_account(&enabled(), id, Some("account-hash-b"), true)
+                .is_empty(),
+            "account change must not carry recovery state"
+        );
+    }
+
+    #[test]
+    fn unavailable_account_marker_preserves_current_profile_state() {
+        let (_temp, paths) = state_path();
+        let mut engine = V1NotificationEngine::load(&paths);
+        let id = Uuid::new_v4();
+        let reset = DateTime::from_timestamp(1_752_000_000, 0).unwrap();
+
+        assert!(
+            engine
+                .observe_usage_for_account(
+                    &enabled(),
+                    id,
+                    Some("account-hash-a"),
+                    &weekly(20.0, reset),
+                    None,
+                )
+                .is_empty()
+        );
+        assert_eq!(
+            engine.observe_usage_for_account(&enabled(), id, None, &weekly(40.0, reset), None,),
+            vec![V1NotificationEvent::Warning {
+                remaining_percent: 60,
+            }]
+        );
+        assert!(
+            engine
+                .observe_refresh_for_account(&enabled(), id, Some("account-hash-a"), false)
+                .is_empty()
+        );
+        assert!(
+            engine
+                .observe_refresh_for_account(&enabled(), id, None, false)
+                .is_empty()
+        );
+        assert_eq!(
+            engine.observe_refresh_for_account(&enabled(), id, None, false),
+            vec![V1NotificationEvent::RefreshFailed]
+        );
+    }
+
+    #[test]
+    fn known_account_change_without_usage_window_still_clears_and_persists_baseline() {
+        let (_temp, paths) = state_path();
+        let mut engine = V1NotificationEngine::load(&paths);
+        let id = Uuid::new_v4();
+
+        for expected in [
+            Vec::new(),
+            Vec::new(),
+            vec![V1NotificationEvent::RefreshFailed],
+        ] {
+            assert_eq!(
+                engine.observe_refresh_for_account(&enabled(), id, Some("account-hash-a"), false,),
+                expected
+            );
+        }
+        assert!(
+            engine
+                .observe_usage_for_account(
+                    &enabled(),
+                    id,
+                    Some("account-hash-b"),
+                    &ProfileUsageState::missing(id),
+                    None,
+                )
+                .is_empty()
+        );
+
+        let mut reloaded = V1NotificationEngine::load(&paths);
+        assert!(
+            reloaded
+                .observe_refresh_for_account(&enabled(), id, None, true)
                 .is_empty()
         );
     }

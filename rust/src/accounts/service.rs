@@ -255,21 +255,28 @@ impl AccountProfileService {
             .get(profile_id)
             .map_err(storage_error)?
             .ok_or(AccountServiceError::LoginOperationNotFound)?;
-        if profile.kind == crate::accounts::model::ProfileKind::CurrentCli {
-            self.refresh_current_cli(profile_id).await?;
-            Ok(RefreshDisposition::Started)
+        let result = if profile.kind == crate::accounts::model::ProfileKind::CurrentCli {
+            self.refresh_current_cli(profile_id).await
         } else {
-            self.refresh_managed(profile_id).await?;
-            Ok(RefreshDisposition::Started)
-        }
+            self.refresh_managed(profile_id).await
+        };
+        let success = result.as_ref().is_ok_and(|success| *success);
+        let _ = self.events.send(AccountServiceEvent::RefreshCompleted {
+            profile_id,
+            success,
+        });
+        result.map(|_| RefreshDisposition::Started)
     }
 
-    async fn refresh_current_cli(&self, profile_id: ProfileId) -> Result<(), AccountServiceError> {
+    async fn refresh_current_cli(
+        &self,
+        profile_id: ProfileId,
+    ) -> Result<bool, AccountServiceError> {
         let session = match self.app_server_factory.open_current_cli().await {
             Ok(session) => session,
             Err(error) => {
-                let _ = self.repositories.usage.save_error(profile_id, &error);
-                return Ok(());
+                self.record_refresh_error(profile_id, &error).await;
+                return Ok(false);
             }
         };
         let account = match session.account_read(false).await {
@@ -277,7 +284,7 @@ impl AccountProfileService {
             Err(error) => {
                 let _ = session.shutdown().await;
                 self.record_refresh_error(profile_id, &error).await;
-                return Ok(());
+                return Ok(false);
             }
         };
         if let Err(error) = self.cache_identity(profile_id, &account) {
@@ -290,7 +297,7 @@ impl AccountProfileService {
             Err(error) => {
                 let _ = session.shutdown().await;
                 self.record_refresh_error(profile_id, &error).await;
-                return Ok(());
+                return Ok(false);
             }
         };
         let shutdown = session.shutdown().await;
@@ -309,18 +316,18 @@ impl AccountProfileService {
         let _ = self
             .events
             .send(AccountServiceEvent::UsageStateChanged(Box::new(state)));
-        Ok(())
+        Ok(true)
     }
 
-    async fn refresh_managed(&self, profile_id: ProfileId) -> Result<(), AccountServiceError> {
+    async fn refresh_managed(&self, profile_id: ProfileId) -> Result<bool, AccountServiceError> {
         self.actor
             .try_begin_refresh()
             .map_err(AccountServiceError::from)?;
         let result = match self.refresh_managed_inner(profile_id).await {
-            Ok(()) => Ok(()),
+            Ok(()) => Ok(true),
             Err(AccountServiceError::App(error)) => {
                 self.record_refresh_error(profile_id, &error).await;
-                Ok(())
+                Ok(false)
             }
             Err(other) => Err(other),
         };
@@ -813,9 +820,31 @@ fn storage_error(error: crate::storage::StorageError) -> AccountServiceError {
 
 #[cfg(test)]
 mod tests {
-    use crate::accounts::model::StartManagedLogin;
+    use crate::accounts::model::{AccountServiceEvent, StartManagedLogin};
     use crate::accounts::test_support::{fixture, managed_id};
     use crate::core::RefreshTrigger;
+
+    fn terminal_refresh_results(
+        events: &mut tokio::sync::broadcast::Receiver<AccountServiceEvent>,
+        profile_id: crate::core::ProfileId,
+    ) -> Vec<bool> {
+        let mut results = Vec::new();
+        loop {
+            match events.try_recv() {
+                Ok(AccountServiceEvent::RefreshCompleted {
+                    profile_id: completed_profile,
+                    success,
+                }) if completed_profile == profile_id => results.push(success),
+                Ok(_) => {}
+                Err(tokio::sync::broadcast::error::TryRecvError::Empty) => break,
+                Err(tokio::sync::broadcast::error::TryRecvError::Closed) => break,
+                Err(tokio::sync::broadcast::error::TryRecvError::Lagged(count)) => {
+                    panic!("refresh event receiver lagged by {count}")
+                }
+            }
+        }
+        results
+    }
 
     #[tokio::test]
     async fn current_cli_never_uses_managed_or_login_methods() {
@@ -829,6 +858,59 @@ mod tests {
         assert_eq!(fixture.factory.open_current_cli_calls(), 1);
         assert_eq!(fixture.factory.open_managed_calls(), 0);
         assert_eq!(fixture.factory.login_start_calls(), 0);
+    }
+
+    #[tokio::test]
+    async fn current_cli_launch_failure_emits_one_terminal_failure() {
+        let fixture = fixture();
+        let mut events = fixture.service.subscribe();
+        fixture.factory.fail_next_current_open();
+
+        fixture
+            .service
+            .request_refresh(fixture.current_cli_id, RefreshTrigger::Manual)
+            .await
+            .unwrap();
+
+        assert_eq!(
+            terminal_refresh_results(&mut events, fixture.current_cli_id),
+            vec![false]
+        );
+    }
+
+    #[tokio::test]
+    async fn current_cli_protocol_failure_emits_one_terminal_failure() {
+        let fixture = fixture();
+        let mut events = fixture.service.subscribe();
+        fixture.factory.fail_next_current_protocol();
+
+        fixture
+            .service
+            .request_refresh(fixture.current_cli_id, RefreshTrigger::Manual)
+            .await
+            .unwrap();
+
+        assert_eq!(
+            terminal_refresh_results(&mut events, fixture.current_cli_id),
+            vec![false]
+        );
+    }
+
+    #[tokio::test]
+    async fn successful_current_cli_refresh_emits_one_terminal_success() {
+        let fixture = fixture();
+        let mut events = fixture.service.subscribe();
+
+        fixture
+            .service
+            .request_refresh(fixture.current_cli_id, RefreshTrigger::Manual)
+            .await
+            .unwrap();
+
+        assert_eq!(
+            terminal_refresh_results(&mut events, fixture.current_cli_id),
+            vec![true]
+        );
     }
 
     #[tokio::test]

@@ -7,7 +7,7 @@
 use std::path::Path;
 use std::sync::{
     Arc,
-    atomic::{AtomicUsize, Ordering},
+    atomic::{AtomicBool, AtomicUsize, Ordering},
 };
 use std::time::Duration;
 
@@ -46,6 +46,8 @@ pub struct FakeAppServerFactory {
     open_managed_calls: AtomicUsize,
     login_start_calls: AtomicUsize,
     next_mode: std::sync::Mutex<Option<FakeServerMode>>,
+    next_current_mode: std::sync::Mutex<Option<FakeServerMode>>,
+    fail_current_open: AtomicBool,
 }
 
 impl FakeAppServerFactory {
@@ -69,6 +71,14 @@ impl FakeAppServerFactory {
         *self.next_mode.lock().unwrap() = Some(FakeServerMode::Crash);
     }
 
+    pub fn fail_next_current_open(&self) {
+        self.fail_current_open.store(true, Ordering::Relaxed);
+    }
+
+    pub fn fail_next_current_protocol(&self) {
+        *self.next_current_mode.lock().unwrap() = Some(FakeServerMode::InvalidJson);
+    }
+
     fn take_mode(&self) -> FakeServerMode {
         self.next_mode
             .lock()
@@ -82,8 +92,21 @@ impl FakeAppServerFactory {
 impl AppServerFactory for FakeAppServerFactory {
     async fn open_current_cli(&self) -> Result<CurrentCliSession, AppError> {
         self.open_current_cli_calls.fetch_add(1, Ordering::Relaxed);
-        let spec =
-            AppServerSpawnSpec::test_fixture(FakeServerMode::Normal).map_err(fake_session_error)?;
+        if self.fail_current_open.swap(false, Ordering::Relaxed) {
+            return Err(fake_session_error(AppError::new(
+                crate::core::AppErrorKind::OfflineOrTimeout,
+                "errors.fakeSession",
+                crate::core::RecoveryAction::Retry,
+                "FAKE_CURRENT_OPEN",
+            )));
+        }
+        let mode = self
+            .next_current_mode
+            .lock()
+            .unwrap()
+            .take()
+            .unwrap_or(FakeServerMode::Normal);
+        let spec = AppServerSpawnSpec::test_fixture(mode).map_err(fake_session_error)?;
         let client = CodexAppServerClient::connect(spec)
             .await
             .map_err(fake_session_error)?;
