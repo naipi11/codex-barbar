@@ -1,6 +1,6 @@
 [package]
 name = "codexbar"
-version = "1.0.21"
+version = "1.0.22"
 edition = "2024"
 authors = ["CodexBar Contributors"]
 description = "Shared Codex usage services for codex-barbar"
