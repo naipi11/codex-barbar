@@ -1,6 +1,9 @@
-# codex-barbar
-
-> **English** | [中文](README.zh-CN.md)
+<div align="center">
+  <img src="rust/icons/codex-barbar.png" alt="codex-barbar icon" width="144">
+  <h1>codex-barbar</h1>
+  <p><strong>A Windows tray app that shows your Codex usage and limits at a glance.</strong></p>
+  <p><strong>English</strong> · <a href="README.zh-CN.md">中文</a></p>
+</div>
 
 <p align="center">
   <a href="https://github.com/naipi11/codex-barbar/releases/latest"><img src="https://img.shields.io/github/v/release/naipi11/codex-barbar?display_name=tag&sort=semver&style=flat-square&label=release&color=2563eb" alt="Latest release"></a>
@@ -16,8 +19,6 @@
   <img src="https://img.shields.io/badge/Rust-2024-000000?style=flat-square&logo=rust&logoColor=white" alt="Rust 2024">
   <img src="https://img.shields.io/badge/React-18-61DAFB?style=flat-square&logo=react&logoColor=111827" alt="React 18">
 </p>
-
-**A Windows tray app that shows your Codex usage and limits at a glance.**
 
 The floating ball stays icon-sized and clockwise. Color shows remaining quota
 (green / gold / red). Speed shows activity: idle, thinking ×2, Fast ×3.

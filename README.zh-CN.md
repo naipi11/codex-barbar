@@ -1,6 +1,9 @@
-# codex-barbar
-
-> [English](README.md) | **中文**
+<div align="center">
+  <img src="rust/icons/codex-barbar.png" alt="codex-barbar 图标" width="144">
+  <h1>codex-barbar</h1>
+  <p><strong>一款在 Windows 托盘显示 Codex 用量与额度的应用。</strong></p>
+  <p><a href="README.md">English</a> · <strong>中文</strong></p>
+</div>
 
 <p align="center">
   <a href="https://github.com/naipi11/codex-barbar/releases/latest"><img src="https://img.shields.io/github/v/release/naipi11/codex-barbar?display_name=tag&sort=semver&style=flat-square&label=release&color=2563eb" alt="最新版本"></a>
@@ -16,8 +19,6 @@
   <img src="https://img.shields.io/badge/Rust-2024-000000?style=flat-square&logo=rust&logoColor=white" alt="Rust 2024">
   <img src="https://img.shields.io/badge/React-18-61DAFB?style=flat-square&logo=react&logoColor=111827" alt="React 18">
 </p>
-
-**一款在 Windows 托盘显示 Codex 用量与额度的应用。**
 
 悬浮球保持和图标一样大，并顺时针旋转。颜色表示剩余额度（绿 / 金 / 红），
 转速表示状态：空闲、思考 ×2、Fast ×3。
