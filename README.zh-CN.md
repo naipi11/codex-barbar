@@ -2,6 +2,21 @@
 
 > [English](README.md) | **中文**
 
+<p align="center">
+  <a href="https://github.com/naipi11/codex-barbar/releases/latest"><img src="https://img.shields.io/github/v/release/naipi11/codex-barbar?display_name=tag&sort=semver&style=flat-square&label=release&color=2563eb" alt="最新版本"></a>
+  <a href="https://github.com/naipi11/codex-barbar/actions/workflows/pr-check.yml"><img src="https://img.shields.io/github/actions/workflow/status/naipi11/codex-barbar/pr-check.yml?branch=main&style=flat-square&label=CI&color=16a34a" alt="CI 状态"></a>
+  <a href="https://github.com/naipi11/codex-barbar/releases"><img src="https://img.shields.io/github/downloads/naipi11/codex-barbar/total?style=flat-square&label=downloads&color=7c3aed" alt="总下载量"></a>
+  <a href="https://github.com/naipi11/codex-barbar/stargazers"><img src="https://img.shields.io/github/stars/naipi11/codex-barbar?style=flat-square&label=stars&color=f59e0b" alt="GitHub stars"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/github/license/naipi11/codex-barbar?style=flat-square&color=64748b" alt="MIT 许可证"></a>
+</p>
+
+<p align="center">
+  <img src="https://img.shields.io/badge/Windows-11%20x64-0078D4?style=flat-square&logo=windows&logoColor=white" alt="Windows 11 x64">
+  <img src="https://img.shields.io/badge/Tauri-2-24C8DB?style=flat-square&logo=tauri&logoColor=white" alt="Tauri 2">
+  <img src="https://img.shields.io/badge/Rust-2024-000000?style=flat-square&logo=rust&logoColor=white" alt="Rust 2024">
+  <img src="https://img.shields.io/badge/React-18-61DAFB?style=flat-square&logo=react&logoColor=111827" alt="React 18">
+</p>
+
 **一款在 Windows 托盘显示 Codex 用量与额度的应用。**
 
 悬浮球保持和图标一样大，并顺时针旋转。颜色表示剩余额度（绿 / 金 / 红），
@@ -35,6 +50,10 @@ _展示图由当前 React/CSS 真实组件渲染；其中的账号名、日期�
 ### 任务栏常驻状态
 
 ![显示账号、每周额度和重置日期的紧凑任务栏状态](docs/images/showcase/taskbar-status-zh-CN.png)
+
+## Star History
+
+[![Star History 图表](https://api.star-history.com/svg?repos=naipi11/codex-barbar&type=Date)](https://star-history.com/#naipi11/codex-barbar&Date)
 
 ## 功能特性
 

@@ -2,6 +2,21 @@
 
 > **English** | [中文](README.zh-CN.md)
 
+<p align="center">
+  <a href="https://github.com/naipi11/codex-barbar/releases/latest"><img src="https://img.shields.io/github/v/release/naipi11/codex-barbar?display_name=tag&sort=semver&style=flat-square&label=release&color=2563eb" alt="Latest release"></a>
+  <a href="https://github.com/naipi11/codex-barbar/actions/workflows/pr-check.yml"><img src="https://img.shields.io/github/actions/workflow/status/naipi11/codex-barbar/pr-check.yml?branch=main&style=flat-square&label=CI&color=16a34a" alt="CI status"></a>
+  <a href="https://github.com/naipi11/codex-barbar/releases"><img src="https://img.shields.io/github/downloads/naipi11/codex-barbar/total?style=flat-square&label=downloads&color=7c3aed" alt="Total downloads"></a>
+  <a href="https://github.com/naipi11/codex-barbar/stargazers"><img src="https://img.shields.io/github/stars/naipi11/codex-barbar?style=flat-square&label=stars&color=f59e0b" alt="GitHub stars"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/github/license/naipi11/codex-barbar?style=flat-square&color=64748b" alt="MIT license"></a>
+</p>
+
+<p align="center">
+  <img src="https://img.shields.io/badge/Windows-11%20x64-0078D4?style=flat-square&logo=windows&logoColor=white" alt="Windows 11 x64">
+  <img src="https://img.shields.io/badge/Tauri-2-24C8DB?style=flat-square&logo=tauri&logoColor=white" alt="Tauri 2">
+  <img src="https://img.shields.io/badge/Rust-2024-000000?style=flat-square&logo=rust&logoColor=white" alt="Rust 2024">
+  <img src="https://img.shields.io/badge/React-18-61DAFB?style=flat-square&logo=react&logoColor=111827" alt="React 18">
+</p>
+
 **A Windows tray app that shows your Codex usage and limits at a glance.**
 
 The floating ball stays icon-sized and clockwise. Color shows remaining quota
@@ -37,6 +52,10 @@ rotation shows activity: **Idle 1×**, **Thinking 2×**, **Fast 3×**.
 ### Resident taskbar status
 
 ![Compact taskbar status showing account, weekly quota, and reset date](docs/images/showcase/taskbar-status-en.png)
+
+## Star History
+
+[![Star History Chart](https://api.star-history.com/svg?repos=naipi11/codex-barbar&type=Date)](https://star-history.com/#naipi11/codex-barbar&Date)
 
 ## Features
 
