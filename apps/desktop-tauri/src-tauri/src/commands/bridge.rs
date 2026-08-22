@@ -17,7 +17,8 @@ use codexbar::core::{
     AppError, AppErrorKind, AuthMode, Freshness, ProfileUsageState, RefreshStatus, UsageWindow,
 };
 use codexbar::storage::{
-    AppSettings, DisplayMode, LanguagePreference, SettingsPatch, ThemePreference,
+    AppSettings, DisplayMode, LanguagePreference, NotificationPreferences,
+    NotificationPreferencesPatch, SettingsPatch, ThemePreference,
 };
 
 use crate::state::AppState;
@@ -45,6 +46,45 @@ pub struct AppSettingsDto {
     pub taskbar_status_opacity: u8,
     pub float_ball_opacity: u8,
     pub float_ball_glow: u8,
+    pub notifications: NotificationPreferencesDto,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NotificationPreferencesDto {
+    pub enabled: bool,
+    pub play_sound: bool,
+    pub warning_enabled: bool,
+    pub danger_enabled: bool,
+    pub weekly_reset_enabled: bool,
+    pub reset_credit_increase_enabled: bool,
+    pub refresh_failure_enabled: bool,
+    pub update_available_enabled: bool,
+    pub warning_remaining_percent: u8,
+    pub danger_remaining_percent: u8,
+}
+
+impl NotificationPreferencesDto {
+    fn from_preferences(preferences: &NotificationPreferences) -> Self {
+        Self {
+            enabled: preferences.enabled,
+            play_sound: preferences.play_sound,
+            warning_enabled: preferences.warning_enabled,
+            danger_enabled: preferences.danger_enabled,
+            weekly_reset_enabled: preferences.weekly_reset_enabled,
+            reset_credit_increase_enabled: preferences.reset_credit_increase_enabled,
+            refresh_failure_enabled: preferences.refresh_failure_enabled,
+            update_available_enabled: preferences.update_available_enabled,
+            warning_remaining_percent: preferences.warning_remaining_percent,
+            danger_remaining_percent: preferences.danger_remaining_percent,
+        }
+    }
+}
+
+impl Default for NotificationPreferencesDto {
+    fn default() -> Self {
+        Self::from_preferences(&NotificationPreferences::default())
+    }
 }
 
 impl Default for AppSettingsDto {
@@ -61,6 +101,7 @@ impl Default for AppSettingsDto {
             taskbar_status_opacity: 20,
             float_ball_opacity: 20,
             float_ball_glow: 20,
+            notifications: NotificationPreferencesDto::default(),
         }
     }
 }
@@ -79,6 +120,22 @@ pub struct SettingsPatchDto {
     pub taskbar_status_opacity: Option<u8>,
     pub float_ball_opacity: Option<u8>,
     pub float_ball_glow: Option<u8>,
+    pub notifications: Option<NotificationPreferencesPatchDto>,
+}
+
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NotificationPreferencesPatchDto {
+    pub enabled: Option<bool>,
+    pub play_sound: Option<bool>,
+    pub warning_enabled: Option<bool>,
+    pub danger_enabled: Option<bool>,
+    pub weekly_reset_enabled: Option<bool>,
+    pub reset_credit_increase_enabled: Option<bool>,
+    pub refresh_failure_enabled: Option<bool>,
+    pub update_available_enabled: Option<bool>,
+    pub warning_remaining_percent: Option<u8>,
+    pub danger_remaining_percent: Option<u8>,
 }
 
 impl AppSettingsDto {
@@ -106,6 +163,7 @@ impl AppSettingsDto {
             taskbar_status_opacity: settings.taskbar_status_opacity,
             float_ball_opacity: settings.float_ball_opacity,
             float_ball_glow: settings.float_ball_glow,
+            notifications: NotificationPreferencesDto::from_preferences(&settings.notifications),
         }
     }
 }
@@ -138,6 +196,10 @@ impl SettingsPatchDto {
                 _ => Err("unsupported language".to_string()),
             })
             .transpose()?;
+        let notifications = self
+            .notifications
+            .map(NotificationPreferencesPatchDto::into_patch)
+            .transpose()?;
         Ok(SettingsPatch {
             start_at_login: self.autostart_enabled,
             refresh_interval_seconds: self.refresh_interval_seconds,
@@ -150,6 +212,35 @@ impl SettingsPatchDto {
             taskbar_status_opacity: self.taskbar_status_opacity,
             float_ball_opacity: self.float_ball_opacity,
             float_ball_glow: self.float_ball_glow,
+            notifications,
+        })
+    }
+}
+
+impl NotificationPreferencesPatchDto {
+    fn into_patch(self) -> Result<NotificationPreferencesPatch, String> {
+        for value in [
+            self.warning_remaining_percent,
+            self.danger_remaining_percent,
+        ]
+        .into_iter()
+        .flatten()
+        {
+            if value > 100 {
+                return Err("notification threshold must be between 0 and 100".to_string());
+            }
+        }
+        Ok(NotificationPreferencesPatch {
+            enabled: self.enabled,
+            play_sound: self.play_sound,
+            warning_enabled: self.warning_enabled,
+            danger_enabled: self.danger_enabled,
+            weekly_reset_enabled: self.weekly_reset_enabled,
+            reset_credit_increase_enabled: self.reset_credit_increase_enabled,
+            refresh_failure_enabled: self.refresh_failure_enabled,
+            update_available_enabled: self.update_available_enabled,
+            warning_remaining_percent: self.warning_remaining_percent,
+            danger_remaining_percent: self.danger_remaining_percent,
         })
     }
 }

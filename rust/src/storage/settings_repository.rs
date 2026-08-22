@@ -11,6 +11,7 @@ const SETTINGS_KEY: &str = "app_settings";
 const ALLOWED_REFRESH_INTERVALS: [u64; 5] = [0, 60, 300, 900, 1800];
 const DEFAULT_SURFACE_OPACITY: u8 = 20;
 const MAX_SURFACE_OPACITY: u8 = 80;
+const MAX_NOTIFICATION_PERCENT: u8 = 100;
 
 const fn default_surface_opacity() -> u8 {
     DEFAULT_SURFACE_OPACITY
@@ -53,6 +54,52 @@ impl LanguagePreference {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct NotificationPreferences {
+    pub enabled: bool,
+    pub play_sound: bool,
+    pub warning_enabled: bool,
+    pub danger_enabled: bool,
+    pub weekly_reset_enabled: bool,
+    pub reset_credit_increase_enabled: bool,
+    pub refresh_failure_enabled: bool,
+    pub update_available_enabled: bool,
+    pub warning_remaining_percent: u8,
+    pub danger_remaining_percent: u8,
+}
+
+impl Default for NotificationPreferences {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            play_sound: true,
+            warning_enabled: true,
+            danger_enabled: true,
+            weekly_reset_enabled: true,
+            reset_credit_increase_enabled: true,
+            refresh_failure_enabled: true,
+            update_available_enabled: true,
+            warning_remaining_percent: 66,
+            danger_remaining_percent: 33,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct NotificationPreferencesPatch {
+    pub enabled: Option<bool>,
+    pub play_sound: Option<bool>,
+    pub warning_enabled: Option<bool>,
+    pub danger_enabled: Option<bool>,
+    pub weekly_reset_enabled: Option<bool>,
+    pub reset_credit_increase_enabled: Option<bool>,
+    pub refresh_failure_enabled: Option<bool>,
+    pub update_available_enabled: Option<bool>,
+    pub warning_remaining_percent: Option<u8>,
+    pub danger_remaining_percent: Option<u8>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 #[serde(default)]
 pub struct AppSettings {
@@ -70,6 +117,7 @@ pub struct AppSettings {
     pub float_ball_opacity: u8,
     #[serde(default = "default_surface_opacity")]
     pub float_ball_glow: u8,
+    pub notifications: NotificationPreferences,
 }
 
 impl Default for AppSettings {
@@ -86,6 +134,7 @@ impl Default for AppSettings {
             taskbar_status_opacity: DEFAULT_SURFACE_OPACITY,
             float_ball_opacity: DEFAULT_SURFACE_OPACITY,
             float_ball_glow: DEFAULT_SURFACE_OPACITY,
+            notifications: NotificationPreferences::default(),
         }
     }
 }
@@ -103,6 +152,7 @@ pub struct SettingsPatch {
     pub taskbar_status_opacity: Option<u8>,
     pub float_ball_opacity: Option<u8>,
     pub float_ball_glow: Option<u8>,
+    pub notifications: Option<NotificationPreferencesPatch>,
 }
 
 #[derive(Clone)]
@@ -125,6 +175,7 @@ impl SettingsRepository {
             let mut settings = load_from_connection(&transaction)?;
             patch.validate()?;
             settings.apply(patch);
+            settings.validate()?;
             let encoded = serde_json::to_string(&settings).map_err(|error| {
                 StorageError::new(
                     crate::core::AppErrorKind::StorageFailure,
@@ -172,7 +223,60 @@ impl SettingsPatch {
                 ));
             }
         }
+        if let Some(notifications) = &self.notifications {
+            notifications.validate()?;
+        }
         Ok(())
+    }
+}
+
+impl NotificationPreferencesPatch {
+    fn validate(&self) -> Result<(), StorageError> {
+        for value in [
+            self.warning_remaining_percent,
+            self.danger_remaining_percent,
+        ]
+        .into_iter()
+        .flatten()
+        {
+            if value > MAX_NOTIFICATION_PERCENT {
+                return Err(notification_thresholds_error());
+            }
+        }
+        Ok(())
+    }
+
+    fn apply_to(self, preferences: &mut NotificationPreferences) {
+        if let Some(value) = self.enabled {
+            preferences.enabled = value;
+        }
+        if let Some(value) = self.play_sound {
+            preferences.play_sound = value;
+        }
+        if let Some(value) = self.warning_enabled {
+            preferences.warning_enabled = value;
+        }
+        if let Some(value) = self.danger_enabled {
+            preferences.danger_enabled = value;
+        }
+        if let Some(value) = self.weekly_reset_enabled {
+            preferences.weekly_reset_enabled = value;
+        }
+        if let Some(value) = self.reset_credit_increase_enabled {
+            preferences.reset_credit_increase_enabled = value;
+        }
+        if let Some(value) = self.refresh_failure_enabled {
+            preferences.refresh_failure_enabled = value;
+        }
+        if let Some(value) = self.update_available_enabled {
+            preferences.update_available_enabled = value;
+        }
+        if let Some(value) = self.warning_remaining_percent {
+            preferences.warning_remaining_percent = value;
+        }
+        if let Some(value) = self.danger_remaining_percent {
+            preferences.danger_remaining_percent = value;
+        }
     }
 }
 
@@ -211,7 +315,28 @@ impl AppSettings {
         if let Some(value) = patch.float_ball_glow {
             self.float_ball_glow = value;
         }
+        if let Some(notifications) = patch.notifications {
+            notifications.apply_to(&mut self.notifications);
+        }
     }
+
+    fn validate(&self) -> Result<(), StorageError> {
+        if self.notifications.danger_remaining_percent
+            >= self.notifications.warning_remaining_percent
+            || self.notifications.warning_remaining_percent > MAX_NOTIFICATION_PERCENT
+        {
+            return Err(notification_thresholds_error());
+        }
+        Ok(())
+    }
+}
+
+fn notification_thresholds_error() -> StorageError {
+    StorageError::new(
+        crate::core::AppErrorKind::StorageFailure,
+        "SETTINGS_NOTIFICATION_THRESHOLDS_INVALID",
+        "notification danger threshold must be lower than warning threshold",
+    )
 }
 
 fn load_from_connection(connection: &rusqlite::Connection) -> Result<AppSettings, StorageError> {
@@ -261,6 +386,60 @@ mod tests {
         assert_eq!(settings.taskbar_status_opacity, 20);
         assert_eq!(settings.float_ball_opacity, 20);
         assert_eq!(settings.float_ball_glow, 20);
+        assert!(!settings.notifications.enabled);
+        assert_eq!(settings.notifications.warning_remaining_percent, 66);
+        assert_eq!(settings.notifications.danger_remaining_percent, 33);
+    }
+
+    #[test]
+    fn old_settings_json_without_notifications_loads_disabled_event_defaults() {
+        let (repository, database) = settings_fixture();
+        database
+            .with_connection(|connection| {
+                connection
+                    .execute(
+                        "INSERT INTO app_settings(key, value_json) VALUES (?1, ?2)",
+                        params![
+                            SETTINGS_KEY,
+                            r#"{"startAtLogin":true,"refreshIntervalSeconds":300,"displayMode":"remaining","theme":"system","language":"en-US"}"#
+                        ],
+                    )
+                    .map_err(storage_error)?;
+                Ok(())
+            })
+            .unwrap();
+
+        let notifications = repository.load().unwrap().notifications;
+        assert!(!notifications.enabled);
+        assert!(notifications.play_sound);
+        assert!(notifications.warning_enabled);
+        assert!(notifications.danger_enabled);
+        assert!(notifications.weekly_reset_enabled);
+        assert!(notifications.reset_credit_increase_enabled);
+        assert!(notifications.refresh_failure_enabled);
+        assert!(notifications.update_available_enabled);
+        assert_eq!(notifications.warning_remaining_percent, 66);
+        assert_eq!(notifications.danger_remaining_percent, 33);
+    }
+
+    #[test]
+    fn partial_notification_threshold_patch_validates_against_persisted_peer_atomically() {
+        let (repository, _) = settings_fixture();
+        let before = repository.load().unwrap();
+
+        let error = repository
+            .update(SettingsPatch {
+                notifications: Some(NotificationPreferencesPatch {
+                    warning_remaining_percent: Some(20),
+                    danger_remaining_percent: Some(33),
+                    ..Default::default()
+                }),
+                ..Default::default()
+            })
+            .unwrap_err();
+
+        assert_eq!(error.code(), "SETTINGS_NOTIFICATION_THRESHOLDS_INVALID");
+        assert_eq!(repository.load().unwrap(), before);
     }
 
     #[test]

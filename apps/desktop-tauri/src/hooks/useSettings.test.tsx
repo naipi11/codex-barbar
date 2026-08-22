@@ -36,7 +36,7 @@ describe("useSettings", () => {
     eventHarness.reset();
   });
 
-  it("defaults taskbar disabled and float ball enabled when loading fails", async () => {
+  it("defaults taskbar disabled, float ball enabled, and notifications disabled when loading fails", async () => {
     invokeMock.mockRejectedValue(new Error("settings unavailable"));
 
     const { result } = renderHook(() => useSettings());
@@ -49,6 +49,18 @@ describe("useSettings", () => {
     expect(result.current.settings.autostartEnabled).toBe(true);
     expect(result.current.settings.taskbarStatusOpacity).toBe(20);
     expect(result.current.settings.floatBallOpacity).toBe(20);
+    expect(result.current.settings.notifications).toEqual({
+      enabled: false,
+      playSound: true,
+      warningEnabled: true,
+      dangerEnabled: true,
+      weeklyResetEnabled: true,
+      resetCreditIncreaseEnabled: true,
+      refreshFailureEnabled: true,
+      updateAvailableEnabled: true,
+      warningRemainingPercent: 66,
+      dangerRemainingPercent: 33,
+    });
   });
 
   it("refreshes both flags and opacities from the settings-changed event", async () => {

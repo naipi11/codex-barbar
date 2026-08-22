@@ -14,8 +14,8 @@ use crate::core::ProfileId;
 pub use account_repository::AccountRepository;
 pub use database::{AppDatabase, StorageError};
 pub use settings_repository::{
-    AppSettings, DisplayMode, LanguagePreference, SettingsPatch, SettingsRepository,
-    ThemePreference,
+    AppSettings, DisplayMode, LanguagePreference, NotificationPreferences,
+    NotificationPreferencesPatch, SettingsPatch, SettingsRepository, ThemePreference,
 };
 pub use usage_repository::{SqliteUsageRepository, UsageCacheKey, UsageRepository};
 

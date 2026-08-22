@@ -175,7 +175,10 @@ pub fn validate_codex_executable(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use codexbar::storage::{DisplayMode, LanguagePreference, ThemePreference};
+    use crate::commands::bridge::NotificationPreferencesPatchDto;
+    use codexbar::storage::{
+        DisplayMode, LanguagePreference, NotificationPreferencesPatch, ThemePreference,
+    };
 
     #[test]
     fn surface_fields_are_removed_before_generic_repository_update() {
@@ -250,6 +253,18 @@ mod tests {
             taskbar_status_opacity: Some(0),
             float_ball_opacity: Some(80),
             float_ball_glow: Some(40),
+            notifications: Some(NotificationPreferencesPatchDto {
+                enabled: Some(true),
+                play_sound: Some(false),
+                warning_enabled: Some(false),
+                danger_enabled: Some(true),
+                weekly_reset_enabled: Some(false),
+                reset_credit_increase_enabled: Some(true),
+                refresh_failure_enabled: Some(false),
+                update_available_enabled: Some(true),
+                warning_remaining_percent: Some(66),
+                danger_remaining_percent: Some(33),
+            }),
         };
         let settings = patch.into_patch().unwrap();
         assert_eq!(settings.start_at_login, Some(true));
@@ -266,6 +281,21 @@ mod tests {
         assert_eq!(settings.taskbar_status_opacity, Some(0));
         assert_eq!(settings.float_ball_opacity, Some(80));
         assert_eq!(settings.float_ball_glow, Some(40));
+        assert_eq!(
+            settings.notifications,
+            Some(NotificationPreferencesPatch {
+                enabled: Some(true),
+                play_sound: Some(false),
+                warning_enabled: Some(false),
+                danger_enabled: Some(true),
+                weekly_reset_enabled: Some(false),
+                reset_credit_increase_enabled: Some(true),
+                refresh_failure_enabled: Some(false),
+                update_available_enabled: Some(true),
+                warning_remaining_percent: Some(66),
+                danger_remaining_percent: Some(33),
+            })
+        );
     }
 
     #[test]
@@ -292,5 +322,25 @@ mod tests {
         assert_eq!(dto.taskbar_status_opacity, 20);
         assert_eq!(dto.float_ball_opacity, 20);
         assert_eq!(dto.float_ball_glow, 20);
+        assert!(!dto.notifications.enabled);
+        assert!(dto.notifications.play_sound);
+        assert_eq!(dto.notifications.warning_remaining_percent, 66);
+        assert_eq!(dto.notifications.danger_remaining_percent, 33);
+    }
+
+    #[test]
+    fn notification_patch_rejects_out_of_range_threshold_before_storage() {
+        let patch = SettingsPatchDto {
+            notifications: Some(NotificationPreferencesPatchDto {
+                warning_remaining_percent: Some(101),
+                ..Default::default()
+            }),
+            ..SettingsPatchDto::default()
+        };
+
+        assert_eq!(
+            patch.into_patch().unwrap_err(),
+            "notification threshold must be between 0 and 100"
+        );
     }
 }
