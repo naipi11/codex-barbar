@@ -16,6 +16,7 @@ pub mod refresh;
 pub mod rolling_log;
 pub mod secure_file;
 pub mod settings;
+pub mod sound;
 pub mod storage;
 pub mod tray;
 pub mod update_check;

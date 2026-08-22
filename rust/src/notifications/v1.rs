@@ -43,6 +43,7 @@ struct ProfileNotificationState {
     armed_band: Option<QuotaBand>,
     known_reset_credits: Option<u64>,
     consecutive_refresh_failures: u8,
+    refresh_failure_notified: bool,
 }
 
 /// Pure V1 notification decision engine with small, non-secret persisted state.
@@ -103,6 +104,8 @@ impl V1NotificationEngine {
             if new_cycle && preferences.weekly_reset_enabled {
                 events.push(V1NotificationEvent::WeeklyReset);
             } else if !new_cycle {
+                // A healthier observation re-arms a later descent, as required
+                // by the V1 lifecycle (for example Warning -> Normal -> Warning).
                 match (previous_band, current_band) {
                     (Some(QuotaBand::Normal), QuotaBand::Warning)
                         if preferences.warning_enabled =>
@@ -139,8 +142,9 @@ impl V1NotificationEngine {
         let profile = self.state.profiles.entry(profile_id).or_default();
         let mut events = Vec::new();
         if success {
-            let had_reported_failure = profile.consecutive_refresh_failures >= 3;
+            let had_reported_failure = profile.refresh_failure_notified;
             profile.consecutive_refresh_failures = 0;
+            profile.refresh_failure_notified = false;
             if preferences.enabled && preferences.refresh_failure_enabled && had_reported_failure {
                 events.push(V1NotificationEvent::RefreshRecovered);
             }
@@ -151,6 +155,7 @@ impl V1NotificationEngine {
                 && preferences.refresh_failure_enabled
                 && profile.consecutive_refresh_failures == 3
             {
+                profile.refresh_failure_notified = true;
                 events.push(V1NotificationEvent::RefreshFailed);
             }
         }
@@ -356,6 +361,87 @@ mod tests {
             vec![V1NotificationEvent::RefreshRecovered]
         );
         assert!(engine.observe_refresh(&enabled(), id, true).is_empty());
+    }
+
+    #[test]
+    fn disabled_refresh_failures_do_not_emit_a_recovery_after_enable() {
+        let (_temp, paths) = state_path();
+        let mut engine = V1NotificationEngine::load(&paths);
+        let id = Uuid::new_v4();
+        let disabled = NotificationPreferences::default();
+
+        assert!(engine.observe_refresh(&disabled, id, false).is_empty());
+        assert!(engine.observe_refresh(&disabled, id, false).is_empty());
+        assert!(engine.observe_refresh(&disabled, id, false).is_empty());
+        assert!(engine.observe_refresh(&enabled(), id, true).is_empty());
+    }
+
+    #[test]
+    fn reported_refresh_failure_remains_recoverable_after_restart() {
+        let (_temp, paths) = state_path();
+        let id = Uuid::new_v4();
+        let mut engine = V1NotificationEngine::load(&paths);
+
+        assert!(engine.observe_refresh(&enabled(), id, false).is_empty());
+        assert!(engine.observe_refresh(&enabled(), id, false).is_empty());
+        assert_eq!(
+            engine.observe_refresh(&enabled(), id, false),
+            vec![V1NotificationEvent::RefreshFailed]
+        );
+
+        let mut reloaded = V1NotificationEngine::load(&paths);
+        assert_eq!(
+            reloaded.observe_refresh(&enabled(), id, true),
+            vec![V1NotificationEvent::RefreshRecovered]
+        );
+    }
+
+    #[test]
+    fn returning_to_a_healthier_band_rearms_warning_and_danger() {
+        let (_temp, paths) = state_path();
+        let mut engine = V1NotificationEngine::load(&paths);
+        let id = Uuid::new_v4();
+        let reset = DateTime::from_timestamp(1_752_000_000, 0).unwrap();
+
+        assert!(
+            engine
+                .observe_usage(&enabled(), id, &weekly(20.0, reset), None)
+                .is_empty()
+        );
+        assert_eq!(
+            engine.observe_usage(&enabled(), id, &weekly(40.0, reset), None),
+            vec![V1NotificationEvent::Warning {
+                remaining_percent: 60
+            }]
+        );
+        assert!(
+            engine
+                .observe_usage(&enabled(), id, &weekly(20.0, reset), None)
+                .is_empty()
+        );
+        assert_eq!(
+            engine.observe_usage(&enabled(), id, &weekly(40.0, reset), None),
+            vec![V1NotificationEvent::Warning {
+                remaining_percent: 60
+            }]
+        );
+        assert_eq!(
+            engine.observe_usage(&enabled(), id, &weekly(80.0, reset), None),
+            vec![V1NotificationEvent::Danger {
+                remaining_percent: 20
+            }]
+        );
+        assert!(
+            engine
+                .observe_usage(&enabled(), id, &weekly(40.0, reset), None)
+                .is_empty()
+        );
+        assert_eq!(
+            engine.observe_usage(&enabled(), id, &weekly(80.0, reset), None),
+            vec![V1NotificationEvent::Danger {
+                remaining_percent: 20
+            }]
+        );
     }
 
     #[test]
