@@ -6,6 +6,9 @@ pub(crate) struct ScreenRect {
     pub(crate) bottom: i32,
 }
 
+pub(crate) const WS_CAPTION: usize = 0x00c00000;
+const FULLSCREEN_EDGE_TOLERANCE: i32 = 8;
+
 pub(crate) fn window_covers_monitor(
     window: ScreenRect,
     monitor: ScreenRect,
@@ -20,6 +23,17 @@ pub(crate) fn window_covers_monitor(
         && window.top <= monitor.top.saturating_add(tolerance)
         && window.right >= monitor.right.saturating_sub(tolerance)
         && window.bottom >= monitor.bottom.saturating_sub(tolerance)
+}
+
+pub(crate) fn window_matches_fullscreen(
+    window: ScreenRect,
+    monitor: ScreenRect,
+    work_area: ScreenRect,
+    style: usize,
+    tolerance: i32,
+) -> bool {
+    window_covers_monitor(window, monitor, tolerance)
+        || (style & WS_CAPTION == 0 && window_covers_monitor(window, work_area, tolerance))
 }
 
 #[cfg(windows)]
@@ -48,8 +62,11 @@ unsafe extern "system" {
     fn GetForegroundWindow() -> isize;
     fn GetWindowRect(hwnd: isize, rect: *mut WinRect) -> i32;
     fn GetWindowThreadProcessId(hwnd: isize, process_id: *mut u32) -> u32;
+    fn GetWindowLongPtrW(hwnd: isize, index: i32) -> isize;
     fn GetMonitorInfoW(monitor: isize, info: *mut MonitorInfo) -> i32;
     fn MonitorFromWindow(hwnd: isize, flags: u32) -> isize;
+    fn IsWindowVisible(hwnd: isize) -> i32;
+    fn IsIconic(hwnd: isize) -> i32;
 }
 
 #[cfg(windows)]
@@ -64,6 +81,9 @@ pub(crate) fn is_fullscreen_active() -> bool {
     let mut process_id = 0;
     unsafe { GetWindowThreadProcessId(foreground, &mut process_id) };
     if process_id == unsafe { GetCurrentProcessId() } {
+        return false;
+    }
+    if unsafe { IsWindowVisible(foreground) } == 0 || unsafe { IsIconic(foreground) } != 0 {
         return false;
     }
 
@@ -87,7 +107,7 @@ pub(crate) fn is_fullscreen_active() -> bool {
         return false;
     }
 
-    window_covers_monitor(
+    window_matches_fullscreen(
         ScreenRect {
             left: window.left,
             top: window.top,
@@ -100,7 +120,14 @@ pub(crate) fn is_fullscreen_active() -> bool {
             right: info.rc_monitor.right,
             bottom: info.rc_monitor.bottom,
         },
-        2,
+        ScreenRect {
+            left: info.rc_work.left,
+            top: info.rc_work.top,
+            right: info.rc_work.right,
+            bottom: info.rc_work.bottom,
+        },
+        unsafe { GetWindowLongPtrW(foreground, -16) as usize },
+        FULLSCREEN_EDGE_TOLERANCE,
     )
 }
 
@@ -151,6 +178,50 @@ mod tests {
             },
             monitor,
             2,
+        ));
+    }
+
+    #[test]
+    fn borderless_window_covering_work_area_is_detected_as_fullscreen() {
+        let monitor = ScreenRect {
+            left: 0,
+            top: 0,
+            right: 1463,
+            bottom: 823,
+        };
+        let work_area = ScreenRect {
+            left: 0,
+            top: 0,
+            right: 1463,
+            bottom: 775,
+        };
+        let window = ScreenRect {
+            left: -7,
+            top: -7,
+            right: 1470,
+            bottom: 782,
+        };
+
+        assert!(window_matches_fullscreen(window, monitor, work_area, 0, 8,));
+    }
+
+    #[test]
+    fn decorated_maximized_window_covering_work_area_is_not_fullscreen() {
+        let monitor = ScreenRect {
+            left: 0,
+            top: 0,
+            right: 1463,
+            bottom: 823,
+        };
+        let work_area = ScreenRect {
+            left: 0,
+            top: 0,
+            right: 1463,
+            bottom: 775,
+        };
+
+        assert!(!window_matches_fullscreen(
+            work_area, monitor, work_area, WS_CAPTION, 8,
         ));
     }
 }
