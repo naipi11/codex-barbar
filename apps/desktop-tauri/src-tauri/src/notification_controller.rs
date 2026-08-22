@@ -27,16 +27,11 @@ impl ToastSink for WindowsToastSink {
 pub struct NotificationController<S: ToastSink> {
     engine: V1NotificationEngine,
     sink: S,
-    last_observed_update_version: Option<String>,
 }
 
 impl<S: ToastSink> NotificationController<S> {
     pub fn new(engine: V1NotificationEngine, sink: S) -> Self {
-        Self {
-            engine,
-            sink,
-            last_observed_update_version: None,
-        }
+        Self { engine, sink }
     }
 
     pub fn observe_usage(
@@ -72,20 +67,10 @@ impl<S: ToastSink> NotificationController<S> {
         version: &str,
     ) -> Result<(), String> {
         let settings = load_settings(repository)?;
-        let is_new = self.last_observed_update_version.as_deref() != Some(version);
-        self.last_observed_update_version = Some(version.to_string());
-        if !is_new
-            || !settings.notifications.enabled
-            || !settings.notifications.update_available_enabled
-        {
-            return Ok(());
-        }
-        self.dispatch(
-            &settings,
-            vec![V1NotificationEvent::UpdateAvailable {
-                version: version.to_string(),
-            }],
-        )
+        let events = self
+            .engine
+            .observe_update_available(&settings.notifications, version);
+        self.dispatch(&settings, events)
     }
 
     pub fn send_test(&mut self, repository: &SettingsRepository) -> Result<(), String> {
@@ -519,13 +504,22 @@ mod tests {
 
     #[test]
     fn newly_observed_update_version_dispatches_exactly_once() {
-        let (_temp, repository, mut controller, sent) = fixture();
+        let (temp, repository, mut controller, sent) = fixture();
         enable_notifications(&repository);
 
         controller
             .observe_update_available(&repository, "v9.9.9")
             .unwrap();
-        controller
+        drop(controller);
+
+        let paths = AppPaths::from_local_app_data(&temp.0);
+        let mut reloaded = NotificationController::new(
+            V1NotificationEngine::load(&paths),
+            FakeToastSink {
+                sent: Arc::clone(&sent),
+            },
+        );
+        reloaded
             .observe_update_available(&repository, "v9.9.9")
             .unwrap();
 

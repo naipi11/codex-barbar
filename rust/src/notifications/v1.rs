@@ -34,6 +34,7 @@ enum QuotaBand {
 #[serde(default, rename_all = "camelCase")]
 struct NotificationState {
     profiles: BTreeMap<ProfileId, ProfileNotificationState>,
+    last_update_version: Option<String>,
 }
 
 #[derive(Debug, Default, Clone, Serialize, Deserialize)]
@@ -159,6 +160,24 @@ impl V1NotificationEngine {
                 events.push(V1NotificationEvent::RefreshFailed);
             }
         }
+        self.persist();
+        events
+    }
+
+    pub fn observe_update_available(
+        &mut self,
+        preferences: &NotificationPreferences,
+        version: &str,
+    ) -> Vec<V1NotificationEvent> {
+        let is_new = self.state.last_update_version.as_deref() != Some(version);
+        self.state.last_update_version = Some(version.to_string());
+        let events = if is_new && preferences.enabled && preferences.update_available_enabled {
+            vec![V1NotificationEvent::UpdateAvailable {
+                version: version.to_string(),
+            }]
+        } else {
+            Vec::new()
+        };
         self.persist();
         events
     }
@@ -471,5 +490,25 @@ mod tests {
         let encoded = std::fs::read_to_string(&paths.notification_state).unwrap();
         assert!(!encoded.contains("email"));
         assert!(!encoded.contains("credential"));
+    }
+
+    #[test]
+    fn update_available_version_is_deduplicated_after_restart() {
+        let (_temp, paths) = state_path();
+        let mut engine = V1NotificationEngine::load(&paths);
+
+        assert_eq!(
+            engine.observe_update_available(&enabled(), "v9.9.9"),
+            vec![V1NotificationEvent::UpdateAvailable {
+                version: "v9.9.9".to_string(),
+            }]
+        );
+
+        let mut reloaded = V1NotificationEngine::load(&paths);
+        assert!(
+            reloaded
+                .observe_update_available(&enabled(), "v9.9.9")
+                .is_empty()
+        );
     }
 }

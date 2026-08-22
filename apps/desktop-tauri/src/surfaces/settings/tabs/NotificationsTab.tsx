@@ -9,7 +9,6 @@ type NotificationBooleanField =
   | "warningEnabled"
   | "dangerEnabled"
   | "weeklyResetEnabled"
-  | "resetCreditIncreaseEnabled"
   | "refreshFailureEnabled"
   | "updateAvailableEnabled";
 
@@ -67,8 +66,12 @@ export default function NotificationsTab({
   ) => {
     setError(null);
     setTestSent(false);
-    void update({ notifications: { [field]: value } }).catch(() => {
-      setError(copy.notifications.thresholdInvalid);
+    void update({ notifications: { [field]: value } }).catch((reason: unknown) => {
+      setError(
+        reason === "SETTINGS_NOTIFICATION_THRESHOLDS_INVALID"
+          ? copy.notifications.thresholdInvalid
+          : copy.notifications.saveFailed,
+      );
     });
   };
 
@@ -121,12 +124,10 @@ export default function NotificationsTab({
           disabled={!notifications.enabled}
           onChange={(value) => saveBoolean("weeklyResetEnabled", value)}
         />
-        <NotificationSwitch
-          label={copy.notifications.resetCreditIncrease}
-          checked={notifications.resetCreditIncreaseEnabled}
-          disabled={!notifications.enabled}
-          onChange={(value) => saveBoolean("resetCreditIncreaseEnabled", value)}
-        />
+        <div className="settings-field">
+          <strong>{copy.notifications.resetCreditIncrease}</strong>
+          <p>{copy.notifications.resetCreditUnavailable}</p>
+        </div>
         <NotificationSwitch
           label={copy.notifications.refreshFailure}
           checked={notifications.refreshFailureEnabled}

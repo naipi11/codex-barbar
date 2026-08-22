@@ -51,6 +51,7 @@ export interface SettingsCopy {
     danger: string;
     weeklyReset: string;
     resetCreditIncrease: string;
+    resetCreditUnavailable: string;
     refreshFailure: string;
     updateAvailable: string;
     thresholdsTitle: string;
@@ -140,6 +141,7 @@ const english: SettingsCopy = {
     danger: "Remaining quota enters the danger band",
     weeklyReset: "Universal weekly allowance resets",
     resetCreditIncrease: "Available reset credits increase",
+    resetCreditUnavailable: "Reset-credit notifications are not available yet. Usage history support will enable them later.",
     refreshFailure: "Refresh fails three times or recovers",
     updateAvailable: "A new release is available",
     thresholdsTitle: "Remaining quota thresholds",
@@ -178,6 +180,7 @@ const chinese: SettingsCopy = {
     danger: "剩余额度进入危险区间",
     weeklyReset: "通用每周额度完成重置",
     resetCreditIncrease: "可用重置额度增加",
+    resetCreditUnavailable: "重置额度通知暂不可用，后续用量历史功能将启用此选项。",
     refreshFailure: "刷新连续失败三次或恢复",
     updateAvailable: "有新版本可用",
     thresholdsTitle: "剩余额度阈值",
