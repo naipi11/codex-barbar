@@ -5,8 +5,9 @@ pub mod render;
 
 pub use icon::{LoadingPattern, TrayLevel, TrayVisualState, minimum_remaining};
 pub use render::{
-    DANGER_RGBA, NORMAL_RGBA, STALE_RGBA, TRAY_ICON_SIZE, WARNING_RGBA, render_bar_icon_rgba,
-    render_percent_icon_rgba, render_tray_icon_rgba,
+    DANGER_RGBA, NORMAL_RGBA, STALE_RGBA, TRAY_ICON_SIZE, TrayIconPalette, WARNING_RGBA,
+    render_bar_icon_rgba, render_percent_icon_rgba, render_tray_icon_rgba,
+    render_tray_icon_rgba_with_palette,
 };
 
 pub const CODEX_USAGE_PAGE_URL: &str = "https://chatgpt.com/codex/settings/usage";

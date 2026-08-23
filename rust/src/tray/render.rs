@@ -13,13 +13,26 @@ const GRAPHITE_RGBA: [u8; 4] = [16, 19, 26, 255];
 const KNOT_ALPHA: &[u8; (TRAY_ICON_SIZE * TRAY_ICON_SIZE) as usize] =
     include_bytes!("knot_alpha_32.bin");
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TrayIconPalette {
+    Dynamic,
+    Monochrome,
+}
+
 /// Render one visual state as a transparent, anti-aliased knot.
 pub fn render_tray_icon_rgba(state: TrayVisualState) -> (Vec<u8>, u32, u32) {
-    let color = match state {
-        TrayVisualState::Remaining { level, .. } => level_color(level),
-        TrayVisualState::Stale { .. } | TrayVisualState::Api | TrayVisualState::Unavailable => {
-            STALE_RGBA
-        }
+    render_tray_icon_rgba_with_palette(state, TrayIconPalette::Dynamic)
+}
+
+/// Render one visual state with either the approved quota-band colors or the
+/// neutral monochrome tint. The knot silhouette and keyline are identical.
+pub fn render_tray_icon_rgba_with_palette(
+    state: TrayVisualState,
+    palette: TrayIconPalette,
+) -> (Vec<u8>, u32, u32) {
+    let color = match palette {
+        TrayIconPalette::Dynamic => dynamic_color(state),
+        TrayIconPalette::Monochrome => STALE_RGBA,
     };
     let mut pixels = Vec::with_capacity((TRAY_ICON_SIZE * TRAY_ICON_SIZE * 4) as usize);
     for y in 0..TRAY_ICON_SIZE {
@@ -45,6 +58,15 @@ pub fn render_tray_icon_rgba(state: TrayVisualState) -> (Vec<u8>, u32, u32) {
     }
 
     (pixels, TRAY_ICON_SIZE, TRAY_ICON_SIZE)
+}
+
+fn dynamic_color(state: TrayVisualState) -> [u8; 4] {
+    match state {
+        TrayVisualState::Remaining { level, .. } => level_color(level),
+        TrayVisualState::Stale { .. } | TrayVisualState::Api | TrayVisualState::Unavailable => {
+            STALE_RGBA
+        }
+    }
 }
 
 fn neighboring_alpha(x: u32, y: u32) -> u8 {
@@ -288,5 +310,44 @@ mod tests {
         let expected = render_tray_icon_rgba(TrayVisualState::from_remaining(20.0, false)).0;
         let actual = render_bar_icon_rgba(10.0, Some(80.0), false).0;
         assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn monochrome_palette_uses_neutral_slate_for_every_quota_band() {
+        for state in [
+            TrayVisualState::from_remaining(67.0, false),
+            TrayVisualState::from_remaining(66.0, false),
+            TrayVisualState::from_remaining(33.0, false),
+            TrayVisualState::Stale { percent: 42 },
+            TrayVisualState::Api,
+            TrayVisualState::Unavailable,
+        ] {
+            let (rgba, width, height) =
+                render_tray_icon_rgba_with_palette(state, TrayIconPalette::Monochrome);
+            assert_eq!((width, height), (TRAY_ICON_SIZE, TRAY_ICON_SIZE));
+            let mut saw_slate_fill = false;
+            for pixel in rgba.as_chunks::<4>().0 {
+                if pixel[3] > 0 {
+                    assert!(
+                        pixel[..3] == GRAPHITE_RGBA[..3] || pixel[..3] == STALE_RGBA[..3],
+                        "monochrome pixels may only be graphite keyline or neutral slate"
+                    );
+                    saw_slate_fill |= pixel[..3] == STALE_RGBA[..3];
+                }
+            }
+            assert!(
+                saw_slate_fill,
+                "monochrome knot must contain neutral slate fill"
+            );
+        }
+    }
+
+    #[test]
+    fn dynamic_wrapper_matches_explicit_dynamic_palette() {
+        let state = TrayVisualState::from_remaining(48.0, false);
+        assert_eq!(
+            render_tray_icon_rgba(state),
+            render_tray_icon_rgba_with_palette(state, TrayIconPalette::Dynamic)
+        );
     }
 }

@@ -31,6 +31,10 @@ fn fullscreen_transition(was_suspended: bool, is_fullscreen: bool) -> Fullscreen
     }
 }
 
+fn should_hide_for_fullscreen(settings: &AppSettings, is_fullscreen: bool) -> bool {
+    is_fullscreen && settings.taskbar_tray.hide_status_surfaces_in_fullscreen
+}
+
 pub(crate) fn reconciliation_action(enabled: bool) -> ReconciliationAction {
     if enabled {
         ReconciliationAction::Reposition
@@ -108,7 +112,10 @@ pub fn apply_status_surface_settings(
     {
         first_error = Some(error);
     }
-    if crate::shell::fullscreen_guard::is_fullscreen_active() {
+    if should_hide_for_fullscreen(
+        settings,
+        crate::shell::fullscreen_guard::is_fullscreen_active(),
+    ) {
         state.fullscreen_suspended = true;
         if let Err(error) = state.taskbar.hide_for_fullscreen() {
             first_error.get_or_insert(error);
@@ -181,14 +188,23 @@ pub fn start_monitor(app: tauri::AppHandle) {
         loop {
             interval.tick().await;
             let fullscreen = crate::shell::fullscreen_guard::is_fullscreen_active();
+            let hide_fullscreen = app
+                .state::<Mutex<crate::state::AppState>>()
+                .lock()
+                .ok()
+                .and_then(|state| state.account_service.clone())
+                .and_then(|service| service.repositories().settings.load().ok())
+                .map(|settings| settings.taskbar_tray.hide_status_surfaces_in_fullscreen)
+                .unwrap_or(true);
+            let should_hide = fullscreen && hide_fullscreen;
             let result = app
                 .state::<Mutex<StatusSurfaceState>>()
                 .lock()
                 .map_err(|_| "STATUS_SURFACE_STATE_UNAVAILABLE".to_string())
                 .and_then(|mut state| {
-                    let transition = fullscreen_transition(state.fullscreen_suspended, fullscreen);
-                    state.fullscreen_suspended = fullscreen;
-                    if fullscreen {
+                    let transition = fullscreen_transition(state.fullscreen_suspended, should_hide);
+                    state.fullscreen_suspended = should_hide;
+                    if should_hide {
                         let mut first_error = None;
                         if let Err(error) = state.taskbar.hide_for_fullscreen() {
                             first_error = Some(error);
@@ -470,6 +486,18 @@ mod tests {
             Err("TASKBAR_UNAVAILABLE".to_string())
         });
         assert!(attempted);
+    }
+
+    #[test]
+    fn fullscreen_hide_respects_the_user_preference() {
+        let mut settings = AppSettings::default();
+        settings.taskbar_tray.hide_status_surfaces_in_fullscreen = true;
+        assert!(should_hide_for_fullscreen(&settings, true));
+        assert!(!should_hide_for_fullscreen(&settings, false));
+
+        settings.taskbar_tray.hide_status_surfaces_in_fullscreen = false;
+        assert!(!should_hide_for_fullscreen(&settings, true));
+        assert!(!should_hide_for_fullscreen(&settings, false));
     }
 
     #[test]

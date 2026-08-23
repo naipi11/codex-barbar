@@ -7,7 +7,8 @@ use codexbar::core::{
     AppErrorKind, AuthMode, Freshness, ProfileUsageSnapshot, ProfileUsageState, RefreshStatus,
     RefreshTrigger, UsageWindow,
 };
-use codexbar::tray::{TrayVisualState, render_tray_icon_rgba};
+use codexbar::storage::{TaskbarTrayPreferences, TrayIconMode};
+use codexbar::tray::{TrayIconPalette, TrayVisualState, render_tray_icon_rgba_with_palette};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
 use tauri::{App, AppHandle, Listener, Manager};
 
@@ -20,6 +21,7 @@ const UNIVERSAL_WEEKLY_MINUTES: u64 = 10_080;
 #[derive(Debug, Clone, PartialEq)]
 pub struct TrayPresentation {
     pub visual: TrayVisualState,
+    pub icon_palette: TrayIconPalette,
     pub tooltip: String,
     pub profiles: Vec<TrayProfileMenuItem>,
     pub language: String,
@@ -29,6 +31,7 @@ impl TrayPresentation {
     fn unavailable(language: impl Into<String>) -> Self {
         Self {
             visual: TrayVisualState::Unavailable,
+            icon_palette: TrayIconPalette::Dynamic,
             tooltip: "codex-barbar\nState: Unavailable".to_string(),
             profiles: Vec::new(),
             language: language.into(),
@@ -41,6 +44,7 @@ pub fn presentation_from(
     profiles: &[AccountProfile],
     usage: Option<&ProfileUsageState>,
     language: &str,
+    prefs: &TaskbarTrayPreferences,
 ) -> TrayPresentation {
     let selected_profile_id = selected_profile
         .map(|profile| profile.id)
@@ -53,9 +57,15 @@ pub fn presentation_from(
         selected_profile_id,
     );
     let visual = visual_state(selected_profile, usage);
-    let tooltip = build_tooltip(selected_profile, usage, visual);
+    let tooltip = build_tooltip(selected_profile, usage, visual, prefs);
+    let icon_palette = if prefs.tray_icon_mode == TrayIconMode::Monochrome {
+        TrayIconPalette::Monochrome
+    } else {
+        TrayIconPalette::Dynamic
+    };
     TrayPresentation {
         visual,
+        icon_palette,
         tooltip,
         profiles,
         language: language.to_string(),
@@ -105,28 +115,46 @@ fn build_tooltip(
     selected_profile: Option<&AccountProfile>,
     usage: Option<&ProfileUsageState>,
     visual: TrayVisualState,
+    prefs: &TaskbarTrayPreferences,
 ) -> String {
     let profile_label = selected_profile
         .map(|profile| sanitize_label(&profile.label))
         .filter(|label| !label.is_empty())
         .unwrap_or_else(|| "No account".to_string());
-    let mut lines = vec![format!("codex-barbar — {profile_label}")];
-
-    let status = compact_tooltip_status(tooltip_status(usage, visual));
-    if let Some(percent) = visual.percent() {
-        lines.push(format!("Weekly {percent}% {status}"));
+    let mut lines = vec![if prefs.tooltip_account && !profile_label.is_empty() {
+        format!("codex-barbar — {profile_label}")
     } else {
-        lines.push(format!("State: {status}"));
+        "codex-barbar".to_string()
+    }];
+
+    if prefs.tooltip_weekly {
+        let status = compact_tooltip_status(tooltip_status(usage, visual));
+        if let Some(percent) = visual.percent() {
+            lines.push(format!("Weekly {percent}% {status}"));
+        } else {
+            lines.push(format!("State: {status}"));
+        }
     }
 
     if let Some(snapshot) = usage.and_then(|state| state.snapshot.as_ref()) {
-        lines.push(format!(
-            "Updated {}",
-            snapshot
-                .fetched_at
-                .with_timezone(&chrono::Local)
-                .format("%Y-%m-%d %H:%M")
-        ));
+        if prefs.tooltip_reset_date
+            && let Some(window) = universal_weekly_window(snapshot)
+            && let Some(resets_at) = window.resets_at
+        {
+            lines.push(format!(
+                "Resets {}",
+                resets_at.with_timezone(&chrono::Local).format("%m/%d")
+            ));
+        }
+        if prefs.tooltip_updated_at {
+            lines.push(format!(
+                "Updated {}",
+                snapshot
+                    .fetched_at
+                    .with_timezone(&chrono::Local)
+                    .format("%Y-%m-%d %H:%M")
+            ));
+        }
     }
 
     lines.join("\n")
@@ -198,7 +226,13 @@ fn load_presentation(app: &AppHandle) -> TrayPresentation {
         let (profiles, selected, usage) =
             crate::proof_harness::synthetic_account_data(proof.scenario);
         let selected_profile = profiles.iter().find(|p| p.id == selected);
-        return presentation_from(selected_profile, &profiles, usage.as_ref(), "en-US");
+        return presentation_from(
+            selected_profile,
+            &profiles,
+            usage.as_ref(),
+            "en-US",
+            &TaskbarTrayPreferences::default(),
+        );
     }
 
     let service = app
@@ -209,11 +243,10 @@ fn load_presentation(app: &AppHandle) -> TrayPresentation {
     let Some(service) = service else {
         return TrayPresentation::unavailable("en-US");
     };
-    let language = service
-        .repositories()
-        .settings
-        .load()
-        .map(|settings| crate::commands::AppSettingsDto::from_settings(&settings).language)
+    let loaded_settings = service.repositories().settings.load().ok();
+    let language = loaded_settings
+        .as_ref()
+        .map(|settings| crate::commands::AppSettingsDto::from_settings(settings).language)
         .unwrap_or("en-US")
         .to_string();
     let language = if language == "system" {
@@ -233,16 +266,21 @@ fn load_presentation(app: &AppHandle) -> TrayPresentation {
         .usage
         .load_state(snapshot.selected_profile_id)
         .ok();
+    let prefs = loaded_settings
+        .as_ref()
+        .map(|settings| settings.taskbar_tray.clone())
+        .unwrap_or_default();
     presentation_from(
         selected_profile,
         &snapshot.profiles,
         usage.as_ref(),
         &language,
+        &prefs,
     )
 }
 
-fn tray_image(visual: TrayVisualState) -> tauri::image::Image<'static> {
-    let (rgba, width, height) = render_tray_icon_rgba(visual);
+fn tray_image(visual: TrayVisualState, palette: TrayIconPalette) -> tauri::image::Image<'static> {
+    let (rgba, width, height) = render_tray_icon_rgba_with_palette(visual, palette);
     tauri::image::Image::new_owned(rgba, width, height)
 }
 
@@ -252,7 +290,7 @@ pub fn setup(app: &mut App) -> tauri::Result<()> {
         tray_menu::build_native_menu(app.handle(), &presentation.profiles, &presentation.language)?;
 
     TrayIconBuilder::with_id(TRAY_ID)
-        .icon(tray_image(presentation.visual))
+        .icon(tray_image(presentation.visual, presentation.icon_palette))
         .tooltip(presentation.tooltip)
         .menu(&menu)
         .show_menu_on_left_click(false)
@@ -280,7 +318,10 @@ pub fn rebuild(app: &AppHandle) -> tauri::Result<()> {
         return Ok(());
     };
     let menu = tray_menu::build_native_menu(app, &presentation.profiles, &presentation.language)?;
-    tray.set_icon(Some(tray_image(presentation.visual)))?;
+    tray.set_icon(Some(tray_image(
+        presentation.visual,
+        presentation.icon_palette,
+    )))?;
     tray.set_tooltip(Some(presentation.tooltip))?;
     tray.set_menu(Some(menu))?;
     Ok(())
@@ -385,6 +426,7 @@ mod tests {
         AppError, AppErrorKind, AuthMode, Freshness, ProfileUsageSnapshot, ProfileUsageState,
         RecoveryAction, RefreshStatus, UsageSource, UsageWindow,
     };
+    use codexbar::storage::{TaskbarTrayPreferences, TrayIconMode};
     use tauri::tray::{MouseButton, MouseButtonState};
     use uuid::Uuid;
 
@@ -473,6 +515,7 @@ mod tests {
             std::slice::from_ref(&profile),
             Some(&usage),
             "en-US",
+            &TaskbarTrayPreferences::default(),
         );
         assert_eq!(
             presentation.visual,
@@ -492,6 +535,7 @@ mod tests {
             std::slice::from_ref(&profile),
             Some(&usage),
             "en-US",
+            &TaskbarTrayPreferences::default(),
         );
         assert_eq!(presentation.visual, codexbar::tray::TrayVisualState::Api);
         assert!(!presentation.tooltip.contains("Weekly remaining"));
@@ -507,6 +551,7 @@ mod tests {
             std::slice::from_ref(&profile),
             Some(&usage),
             "en-US",
+            &TaskbarTrayPreferences::default(),
         );
 
         assert_eq!(
@@ -530,6 +575,7 @@ mod tests {
             std::slice::from_ref(&profile),
             Some(&usage),
             "en-US",
+            &TaskbarTrayPreferences::default(),
         );
 
         let updated = usage.snapshot.as_ref().unwrap().fetched_at;
@@ -554,6 +600,7 @@ mod tests {
             std::slice::from_ref(&profile),
             Some(&usage),
             "en-US",
+            &TaskbarTrayPreferences::default(),
         );
         assert!(presentation.tooltip.contains("Work"));
         assert!(presentation.tooltip.contains("Weekly 61%"));
@@ -593,6 +640,70 @@ mod tests {
         assert_eq!(
             tray_click_action(MouseButton::Left, MouseButtonState::Down),
             TrayClickAction::Ignore
+        );
+    }
+
+    #[test]
+    fn tooltip_honors_account_and_updated_preferences() {
+        let profile = profile(AuthMode::ChatGpt);
+        let usage = usage(99.0, 34.0, false);
+        let prefs = TaskbarTrayPreferences {
+            tooltip_account: false,
+            tooltip_updated_at: false,
+            ..TaskbarTrayPreferences::default()
+        };
+        let presentation = presentation_from(
+            Some(&profile),
+            std::slice::from_ref(&profile),
+            Some(&usage),
+            "en-US",
+            &prefs,
+        );
+        assert!(!presentation.tooltip.contains("Work"));
+        assert!(!presentation.tooltip.contains("Updated"));
+        assert!(presentation.tooltip.contains("Weekly 66%"));
+    }
+
+    #[test]
+    fn tooltip_includes_reset_date_when_enabled_and_known() {
+        let profile = profile(AuthMode::ChatGpt);
+        let mut usage = usage(99.0, 34.0, false);
+        usage
+            .snapshot
+            .as_mut()
+            .unwrap()
+            .secondary
+            .as_mut()
+            .unwrap()
+            .resets_at = Some(Utc.with_ymd_and_hms(2026, 8, 13, 0, 0, 0).unwrap());
+        let presentation = presentation_from(
+            Some(&profile),
+            std::slice::from_ref(&profile),
+            Some(&usage),
+            "en-US",
+            &TaskbarTrayPreferences::default(),
+        );
+        assert!(presentation.tooltip.contains("Resets"));
+    }
+
+    #[test]
+    fn monochrome_preference_selects_neutral_icon_palette() {
+        let profile = profile(AuthMode::ChatGpt);
+        let usage = usage(99.0, 34.0, false);
+        let prefs = TaskbarTrayPreferences {
+            tray_icon_mode: TrayIconMode::Monochrome,
+            ..TaskbarTrayPreferences::default()
+        };
+        let presentation = presentation_from(
+            Some(&profile),
+            std::slice::from_ref(&profile),
+            Some(&usage),
+            "en-US",
+            &prefs,
+        );
+        assert_eq!(
+            presentation.icon_palette,
+            codexbar::tray::TrayIconPalette::Monochrome
         );
     }
 }
