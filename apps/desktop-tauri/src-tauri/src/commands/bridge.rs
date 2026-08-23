@@ -873,6 +873,7 @@ mod tests {
                 fetched_at: DateTime::from_timestamp(1_754_000_000, 0).unwrap(),
                 source: codexbar::core::UsageSource::AppServer,
                 protocol_anomaly: true,
+                reset_credits: None,
             }),
             current_error: Some(AppError::bare(
                 AppErrorKind::OfflineOrTimeout,

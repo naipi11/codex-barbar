@@ -535,6 +535,7 @@ mod tests {
                 fetched_at: Utc.with_ymd_and_hms(2026, 8, 6, 1, 2, 3).unwrap(),
                 source: UsageSource::AppServer,
                 protocol_anomaly: false,
+                reset_credits: None,
             }),
             current_error: stale.then(|| {
                 AppError::new(

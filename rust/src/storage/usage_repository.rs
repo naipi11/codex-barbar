@@ -243,6 +243,7 @@ mod tests {
             fetched_at: DateTime::from_timestamp(1_750_000_000, 0).unwrap(),
             source: UsageSource::AppServer,
             protocol_anomaly: false,
+            reset_credits: None,
         }
     }
 

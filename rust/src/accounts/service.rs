@@ -1071,6 +1071,7 @@ mod tests {
             fetched_at: chrono::Utc::now(),
             source: crate::core::UsageSource::AppServer,
             protocol_anomaly: false,
+            reset_credits: None,
         };
         fixture
             .service
