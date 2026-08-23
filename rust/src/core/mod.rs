@@ -2,6 +2,10 @@
 
 mod app_error;
 mod aws_signing;
+mod cost_pricing;
+mod http_proxy;
+mod jsonl_scanner;
+mod models_dev_pricing;
 mod profile_usage;
 mod provider;
 mod provider_factory;
@@ -12,6 +16,9 @@ mod usage_snapshot;
 
 pub use app_error::*;
 pub use aws_signing::{hex, hmac_sha256, sanitized_body, sha256_hex};
+pub use cost_pricing::*;
+pub use http_proxy::*;
+pub use jsonl_scanner::*;
 pub use profile_usage::*;
 pub use provider::*;
 pub use provider_factory::{instantiate_shipping_provider, shipping_provider_ids};

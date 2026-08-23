@@ -268,6 +268,55 @@ pub struct CostScanStats {
     pub used_cache_debounce: bool,
 }
 
+/// Inclusive local calendar range for a read-only usage/spend scan.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct CodexUsageRange {
+    pub start: NaiveDate,
+    pub end: NaiveDate,
+}
+
+/// One local calendar day of Codex token totals.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct DailyCodexUsage {
+    pub date: NaiveDate,
+    pub input_tokens: u64,
+    pub cached_input_tokens: u64,
+    pub output_tokens: u64,
+}
+
+/// One local calendar day and model of Codex token totals.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DailyModelCodexUsage {
+    pub date: NaiveDate,
+    pub model: String,
+    pub input_tokens: u64,
+    pub cached_input_tokens: u64,
+    pub output_tokens: u64,
+}
+
+impl DailyCodexUsage {
+    pub fn total_tokens(&self) -> u64 {
+        self.input_tokens + self.cached_input_tokens + self.output_tokens
+    }
+}
+
+/// Outcome of a read-only Codex usage range scan.
+#[derive(Debug, Clone)]
+pub struct CodexUsageScanReport {
+    pub summary: CostSummary,
+    pub daily: Vec<DailyCodexUsage>,
+    pub daily_models: Vec<DailyModelCodexUsage>,
+    pub sessions_count: u32,
+    pub malformed_records_skipped: u64,
+    pub used_cache_debounce: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CodexRangeScanError {
+    InvalidRange,
+    Cancelled,
+}
+
 /// Cost usage scanner
 pub struct CostScanner {
     days: u32,
@@ -633,6 +682,210 @@ impl CostScanner {
         stats.files_parsed += 1;
     }
 
+    /// Scan local Codex logs for an explicit inclusive local date range.
+    ///
+    /// Returns a sanitized report; raw paths, raw JSONL lines, and fallback
+    /// scanner estimates never cross this boundary. Cancellation is a
+    /// distinct error outcome.
+    pub fn scan_codex_range_detailed(
+        &self,
+        range: &CodexUsageRange,
+        cancel: Option<&AtomicBool>,
+    ) -> Result<CodexUsageScanReport, CodexRangeScanError> {
+        if range.start > range.end {
+            return Err(CodexRangeScanError::InvalidRange);
+        }
+        let day_range = CostUsageDayRange::new(range.start, range.end);
+        let now_ms = unix_now_ms();
+        let cache_root = self.cache_root.as_deref();
+        let mut cache = JsonlScanner::load_cache(ProviderId::Codex, cache_root);
+        let mut summary = CostSummary::default();
+        let mut stats = CostScanStats::default();
+        let mut malformed_records_skipped = 0u64;
+
+        if JsonlScanner::should_skip_cached_scan(&cache, self.options, now_ms)
+            && JsonlScanner::cache_covers_range(&cache, &day_range)
+            && (!cache.days.is_empty() || !cache.files.is_empty())
+        {
+            stats.used_cache_debounce = true;
+        } else {
+            for sessions_dir in self.get_codex_sessions_dirs() {
+                if is_cancelled(cancel) {
+                    return Err(CodexRangeScanError::Cancelled);
+                }
+                if sessions_dir.exists()
+                    && self.scan_codex_sessions_dir_range(
+                        &sessions_dir,
+                        &day_range,
+                        &mut cache,
+                        cancel,
+                        &mut stats,
+                        &mut malformed_records_skipped,
+                    )
+                {
+                    return Err(CodexRangeScanError::Cancelled);
+                }
+            }
+            if !is_cancelled(cancel) {
+                rebuild_cache_days(&mut cache);
+                cache.last_scan_unix_ms = now_ms;
+                cache.scan_since_key = Some(day_range.since_key.clone());
+                cache.scan_until_key = Some(day_range.until_key.clone());
+                JsonlScanner::save_cache(ProviderId::Codex, &cache, cache_root);
+            }
+        }
+
+        let _ = add_codex_days_map_to_summary(&mut summary, &cache.days, &day_range);
+
+        let sessions_count = cache
+            .files
+            .values()
+            .filter(|usage| {
+                usage.days.keys().any(|day| {
+                    CostUsageDayRange::is_in_range(day, &day_range.since_key, &day_range.until_key)
+                })
+            })
+            .count() as u32;
+        let (daily, daily_models) = build_daily_codex_usage(&cache, &day_range);
+        summary.period_start = Some(range.start);
+        summary.period_end = Some(range.end);
+        Ok(CodexUsageScanReport {
+            summary,
+            daily,
+            daily_models,
+            sessions_count,
+            malformed_records_skipped,
+            used_cache_debounce: stats.used_cache_debounce,
+        })
+    }
+
+    fn scan_codex_sessions_dir_range(
+        &self,
+        sessions_dir: &Path,
+        range: &CostUsageDayRange,
+        cache: &mut CostUsageCache,
+        cancel: Option<&AtomicBool>,
+        stats: &mut CostScanStats,
+        malformed: &mut u64,
+    ) -> bool {
+        for date in codex_scan_dates(range) {
+            if is_cancelled(cancel) {
+                return true;
+            }
+            let year = date.format("%Y").to_string();
+            let month = date.format("%m").to_string();
+            let day = date.format("%d").to_string();
+            let day_dir = sessions_dir.join(&year).join(&month).join(&day);
+            if !day_dir.exists() {
+                continue;
+            }
+            if let Ok(entries) = fs::read_dir(&day_dir) {
+                for entry in entries.flatten() {
+                    if is_cancelled(cancel) {
+                        return true;
+                    }
+                    let path = entry.path();
+                    if path.extension().is_some_and(|e| e == "jsonl") {
+                        self.parse_codex_file_range(&path, range, cache, cancel, stats, malformed);
+                    }
+                }
+            }
+        }
+        false
+    }
+
+    fn parse_codex_file_range(
+        &self,
+        path: &Path,
+        range: &CostUsageDayRange,
+        cache: &mut CostUsageCache,
+        cancel: Option<&AtomicBool>,
+        stats: &mut CostScanStats,
+        malformed: &mut u64,
+    ) {
+        if is_cancelled(cancel) {
+            return;
+        }
+        stats.files_seen += 1;
+        let metadata = match fs::metadata(path) {
+            Ok(m) => m,
+            Err(_) => return,
+        };
+        let size = metadata.len() as i64;
+        let mtime_ms = system_time_to_unix_ms(metadata.modified().ok());
+        let path_key = path.to_string_lossy().to_string();
+        let cached = cache.files.get(&path_key).cloned();
+
+        if let Some(entry) = &cached
+            && entry.mtime_unix_ms == mtime_ms
+            && entry.size == size
+            && entry.parsed_bytes.unwrap_or(0) >= size
+            && size > 0
+        {
+            stats.files_skipped += 1;
+            return;
+        }
+
+        if let Some(entry) = &cached {
+            let start_offset = entry.parsed_bytes.unwrap_or(0);
+            if size > entry.size
+                && start_offset > 0
+                && start_offset <= size
+                && entry.last_totals.is_some()
+            {
+                let parse_result = match JsonlScanner::parse_codex_file_detailed(
+                    path,
+                    range,
+                    start_offset,
+                    entry.last_model.clone(),
+                    entry.last_totals.clone(),
+                ) {
+                    Ok(result) => result,
+                    Err(_) => return,
+                };
+                *malformed = malformed.saturating_add(parse_result.malformed_lines);
+                let mut days = entry.days.clone();
+                merge_codex_records_into_days(&mut days, &parse_result.records);
+                cache.files.insert(
+                    path_key,
+                    CostUsageFileUsage {
+                        mtime_unix_ms: mtime_ms,
+                        size,
+                        days,
+                        parsed_bytes: Some(parse_result.parsed_bytes),
+                        last_model: parse_result.last_model.or_else(|| entry.last_model.clone()),
+                        last_totals: parse_result
+                            .last_totals
+                            .or_else(|| entry.last_totals.clone()),
+                    },
+                );
+                stats.files_resumed += 1;
+                return;
+            }
+        }
+
+        let parse_result = match JsonlScanner::parse_codex_file_detailed(path, range, 0, None, None)
+        {
+            Ok(result) => result,
+            Err(_) => return,
+        };
+        *malformed = malformed.saturating_add(parse_result.malformed_lines);
+        let mut days = HashMap::new();
+        merge_codex_records_into_days(&mut days, &parse_result.records);
+        cache.files.insert(
+            path_key,
+            CostUsageFileUsage {
+                mtime_unix_ms: mtime_ms,
+                size,
+                days,
+                parsed_bytes: Some(parse_result.parsed_bytes),
+                last_model: parse_result.last_model,
+                last_totals: parse_result.last_totals,
+            },
+        );
+        stats.files_parsed += 1;
+    }
+
     fn walk_claude_files<F>(
         &self,
         dir: &Path,
@@ -672,6 +925,48 @@ impl CostScanner {
     }
 }
 
+fn build_daily_codex_usage(
+    cache: &CostUsageCache,
+    range: &CostUsageDayRange,
+) -> (Vec<DailyCodexUsage>, Vec<DailyModelCodexUsage>) {
+    let mut rows = Vec::new();
+    let mut model_rows = Vec::new();
+    for (day_key, models) in &cache.days {
+        if !CostUsageDayRange::is_in_range(day_key, &range.since_key, &range.until_key) {
+            continue;
+        }
+        let Some(date) = CostUsageDayRange::parse_day_key(day_key) else {
+            continue;
+        };
+        let mut input_tokens = 0u64;
+        let mut cached_input_tokens = 0u64;
+        let mut output_tokens = 0u64;
+        for (model, packed) in models {
+            let model_input = packed.first().copied().unwrap_or(0).max(0) as u64;
+            let model_cached = packed.get(1).copied().unwrap_or(0).max(0) as u64;
+            let model_output = packed.get(2).copied().unwrap_or(0).max(0) as u64;
+            input_tokens = input_tokens.saturating_add(model_input);
+            cached_input_tokens = cached_input_tokens.saturating_add(model_cached);
+            output_tokens = output_tokens.saturating_add(model_output);
+            model_rows.push(DailyModelCodexUsage {
+                date,
+                model: model.clone(),
+                input_tokens: model_input,
+                cached_input_tokens: model_cached,
+                output_tokens: model_output,
+            });
+        }
+        rows.push(DailyCodexUsage {
+            date,
+            input_tokens,
+            cached_input_tokens,
+            output_tokens,
+        });
+    }
+    rows.sort_by_key(|row| row.date);
+    model_rows.sort_by(|a, b| a.date.cmp(&b.date).then_with(|| a.model.cmp(&b.model)));
+    (rows, model_rows)
+}
 /// Stream the de-duplicated, in-window usage records from one transcript
 /// file into `on_record`. Both the summary scan and the daily-history scan
 /// consume this single reader, so Claude log semantics live in one place.

@@ -364,7 +364,12 @@ mod tests {
         let dir = tempdir().unwrap();
         let sessions = dir.path().join("agent").join("sessions");
         std::fs::create_dir_all(&sessions).unwrap();
-        let line = r#"{"id":"shared-1","role":"assistant","provider":"openai-codex","model":"gpt-5","timestamp":"2026-07-20T12:00:00Z","usage":{"input":50,"output":5}}"#;
+        let recent = (Utc::now() - Duration::hours(1))
+            .format("%Y-%m-%dT%H:%M:%S%.3fZ")
+            .to_string();
+        let line = format!(
+            r#"{{"id":"shared-1","role":"assistant","provider":"openai-codex","model":"gpt-5","timestamp":"{recent}","usage":{{"input":50,"output":5}}}}"#
+        );
         for name in ["a.jsonl", "b.jsonl"] {
             let mut f = File::create(sessions.join(name)).unwrap();
             writeln!(f, "{line}").unwrap();
