@@ -19,6 +19,7 @@ export interface SettingsCopy {
     floatBallDescription: string;
     floatBallEnabled: string;
     floatBallOpacity: string;
+    surfaceSaveFailed: string;
     floatBallGlow: string;
     refreshInterval: string;
     displayMode: string;
@@ -133,7 +134,7 @@ const english: SettingsCopy = {
   tabs: { general: "General", providers: "Accounts", notifications: "Notifications", menuBar: "Menu bar", menu: "Menu", usageSpend: "Usage & spend", advanced: "Advanced", about: "About" },
   placeholder: "This settings section is reserved for a later release.",
   general: {
-    title: "General", autostart: "Start at login", taskbarTitle: "Taskbar status", taskbarDescription: "Show a compact usage status in the taskbar.", taskbarEnabled: "Show status in taskbar", taskbarOpacity: "Taskbar status transparency", floatBallTitle: "Floating status ball", floatBallDescription: "Show a movable usage status ball.", floatBallEnabled: "Show floating status ball", floatBallOpacity: "Floating status ball transparency", floatBallGlow: "Floating status ball glow", refreshInterval: "Refresh interval", displayMode: "Display mode", theme: "Theme", language: "Language", refreshOptions: ["Off", "1 minute", "5 minutes", "15 minutes", "30 minutes"], displayOptions: ["Remaining", "Used"], themeOptions: ["System", "Ink Green", "VS Code", "macOS", "Pink", "Blue", "Custom"], customTheme: "Custom skin", customMode: "Mode", customBg: "Background", customSurface: "Surface", customFg: "Text", customMuted: "Muted text", customAccent: "Accent", customRadius: "Corner radius", applyCustom: "Apply custom skin", resetCustom: "Reset custom skin", system: "System", simplifiedChinese: "Simplified Chinese",
+    title: "General", autostart: "Start at login", taskbarTitle: "Taskbar status", taskbarDescription: "Show a compact usage status in the taskbar.", taskbarEnabled: "Show status in taskbar", taskbarOpacity: "Taskbar status transparency", floatBallTitle: "Floating status ball", floatBallDescription: "Show a movable usage status ball.", floatBallEnabled: "Show floating status ball", floatBallOpacity: "Floating status ball transparency", surfaceSaveFailed: "Transparency could not be saved. Try again.", floatBallGlow: "Floating status ball glow", refreshInterval: "Refresh interval", displayMode: "Display mode", theme: "Theme", language: "Language", refreshOptions: ["Off", "1 minute", "5 minutes", "15 minutes", "30 minutes"], displayOptions: ["Remaining", "Used"], themeOptions: ["System", "Ink Green", "VS Code", "macOS", "Pink", "Blue", "Custom"], customTheme: "Custom skin", customMode: "Mode", customBg: "Background", customSurface: "Surface", customFg: "Text", customMuted: "Muted text", customAccent: "Accent", customRadius: "Corner radius", applyCustom: "Apply custom skin", resetCustom: "Reset custom skin", system: "System", simplifiedChinese: "Simplified Chinese",
   },
   notifications: {
     title: "Notifications",
@@ -177,7 +178,7 @@ const chinese: SettingsCopy = {
   tabs: { general: "通用", providers: "账户", notifications: "通知", menuBar: "菜单栏", menu: "菜单", usageSpend: "用量与费用", advanced: "高级", about: "关于" },
   placeholder: "此设置分类将在后续版本中提供。",
   general: {
-    title: "通用", autostart: "登录时启动", taskbarTitle: "任务栏状态", taskbarDescription: "在任务栏中显示紧凑的用量状态。", taskbarEnabled: "在任务栏中显示状态", taskbarOpacity: "任务栏状态透明度", floatBallTitle: "悬浮状态球", floatBallDescription: "显示可移动的用量状态球。", floatBallEnabled: "显示悬浮状态球", floatBallOpacity: "悬浮状态球透明度", floatBallGlow: "悬浮状态球荧光亮度", refreshInterval: "刷新间隔", displayMode: "显示模式", theme: "主题", language: "语言", refreshOptions: ["关闭", "1 分钟", "5 分钟", "15 分钟", "30 分钟"], displayOptions: ["剩余", "已使用"], themeOptions: ["系统", "黑绿", "VS Code", "macOS", "粉色", "蓝色", "自定义"], customTheme: "自定义皮肤", customMode: "明暗", customBg: "背景", customSurface: "面板", customFg: "文字", customMuted: "次要文字", customAccent: "强调色", customRadius: "圆角", applyCustom: "应用自定义皮肤", resetCustom: "重置自定义皮肤", system: "系统", simplifiedChinese: "简体中文",
+    title: "通用", autostart: "登录时启动", taskbarTitle: "任务栏状态", taskbarDescription: "在任务栏中显示紧凑的用量状态。", taskbarEnabled: "在任务栏中显示状态", taskbarOpacity: "任务栏状态透明度", floatBallTitle: "悬浮状态球", floatBallDescription: "显示可移动的用量状态球。", floatBallEnabled: "显示悬浮状态球", floatBallOpacity: "悬浮状态球透明度", surfaceSaveFailed: "无法保存透明度，请重试。", floatBallGlow: "悬浮状态球荧光亮度", refreshInterval: "刷新间隔", displayMode: "显示模式", theme: "主题", language: "语言", refreshOptions: ["关闭", "1 分钟", "5 分钟", "15 分钟", "30 分钟"], displayOptions: ["剩余", "已使用"], themeOptions: ["系统", "黑绿", "VS Code", "macOS", "粉色", "蓝色", "自定义"], customTheme: "自定义皮肤", customMode: "明暗", customBg: "背景", customSurface: "面板", customFg: "文字", customMuted: "次要文字", customAccent: "强调色", customRadius: "圆角", applyCustom: "应用自定义皮肤", resetCustom: "重置自定义皮肤", system: "系统", simplifiedChinese: "简体中文",
   },
   notifications: {
     title: "通知",

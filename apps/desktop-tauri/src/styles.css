@@ -334,6 +334,12 @@ html:has(.float-ball-shell) {
   transition: accent-color 180ms ease-out;
 }
 
+.settings-status-card .settings-status-card__error {
+  margin: 4px 0 0;
+  color: #ffd4d9;
+  font-weight: 600;
+}
+
 .settings-panel input[type="range"]:focus-visible {
   outline: 2px solid var(--app-accent);
   outline-offset: 3px;

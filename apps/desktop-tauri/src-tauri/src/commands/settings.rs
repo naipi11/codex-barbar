@@ -238,11 +238,11 @@ mod tests {
         DisplayMode, LanguagePreference, NotificationPreferencesPatch, ThemePreference,
     };
 
-    struct AppEnabledZeroRegistry;
+    struct AppDisabledProbe;
 
-    impl crate::notification_controller::NotificationRegistryReader for AppEnabledZeroRegistry {
-        fn read_dword(&self, _key: &str, value: &str) -> Result<Option<u32>, ()> {
-            Ok((value == "Enabled").then_some(0))
+    impl crate::notification_controller::NotificationSettingProbe for AppDisabledProbe {
+        fn notification_setting(&self) -> Result<u32, ()> {
+            Ok(1)
         }
     }
 
@@ -440,10 +440,8 @@ mod tests {
 
     #[test]
     fn proof_mode_app_enabled_zero_returns_disabled_before_transport_noop() {
-        let capability = crate::notification_controller::detect_notification_capability(
-            &AppEnabledZeroRegistry,
-            true,
-        );
+        let capability =
+            crate::notification_controller::detect_notification_capability(&AppDisabledProbe, true);
         let mut transport_started = false;
 
         let result = send_test_notification_with(true, capability, || {

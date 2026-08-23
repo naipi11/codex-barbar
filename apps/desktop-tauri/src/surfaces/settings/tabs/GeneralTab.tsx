@@ -43,6 +43,7 @@ function StatusCard({
   surface,
   opacity,
   opacityLabel,
+  saveError,
   opacityField,
   update,
   setSurfaceEnabled,
@@ -54,18 +55,20 @@ function StatusCard({
   surface: StatusSurfaceKind;
   opacity: number;
   opacityLabel: string;
+  saveError: string;
   opacityField: "taskbarStatusOpacity" | "floatBallOpacity";
   update(patch: SettingsPatchDto): Promise<unknown>;
   setSurfaceEnabled(surface: StatusSurfaceKind, enabled: boolean): Promise<AppSettingsDto>;
 }) {
+  const [hasSaveError, setHasSaveError] = useState(false);
   const inputId = `${surface}-opacity`;
   const transparency = useCommittedRange({
     value: opacity,
     min: 0,
     max: 80,
-    onCommit: (nextValue) => {
-      void update({ [opacityField]: nextValue });
-    },
+    onCommit: (nextValue) => update({ [opacityField]: nextValue }),
+    onError: () => setHasSaveError(true),
+    onSuccess: () => setHasSaveError(false),
   });
   return (
     <article className="settings-status-card">
@@ -106,6 +109,14 @@ function StatusCard({
       <div className="settings-range__ticks" aria-hidden="true">
         <span>0</span><span>20</span><span>40</span><span>60</span><span>80</span>
       </div>
+      {hasSaveError ? (
+        <p
+          className="settings-status-card__error"
+          role="alert"
+        >
+          {saveError}
+        </p>
+      ) : null}
     </article>
   );
 }
@@ -173,6 +184,7 @@ export default function GeneralTab({
         surface="taskbarStatus"
         opacity={settings.taskbarStatusOpacity}
         opacityLabel={copy.general.taskbarOpacity}
+        saveError={copy.general.surfaceSaveFailed}
         opacityField="taskbarStatusOpacity"
         update={update}
         setSurfaceEnabled={setSurfaceEnabled}
@@ -185,6 +197,7 @@ export default function GeneralTab({
         surface="floatBall"
         opacity={settings.floatBallOpacity}
         opacityLabel={copy.general.floatBallOpacity}
+        saveError={copy.general.surfaceSaveFailed}
         opacityField="floatBallOpacity"
         update={update}
         setSurfaceEnabled={setSurfaceEnabled}

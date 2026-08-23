@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import GeneralTab from "./GeneralTab";
 import { defaultAppSettings } from "../../../hooks/useSettings";
@@ -156,6 +156,39 @@ describe("GeneralTab status surfaces", () => {
     fireEvent.blur(floatBall);
     expect(update).toHaveBeenCalledTimes(2);
     expect(update).toHaveBeenLastCalledWith({ floatBallOpacity: 40 });
+  });
+
+  it("shows a localized inline save error and clears it after a later successful commit", async () => {
+    const update = vi
+      .fn()
+      .mockRejectedValueOnce(new Error("raw persistence detail"))
+      .mockResolvedValue(defaultAppSettings);
+    render(
+      <GeneralTab
+        settings={{ ...defaultAppSettings, taskbarStatusOpacity: 20 }}
+        update={update}
+        setSurfaceEnabled={vi.fn().mockResolvedValue(defaultAppSettings)}
+      />,
+    );
+    const range = screen.getByRole("slider", {
+      name: "Taskbar status transparency",
+    });
+
+    fireEvent.pointerDown(range, { pointerId: 15 });
+    fireEvent.input(range, { target: { value: "30" } });
+    fireEvent.pointerUp(range, { pointerId: 15 });
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "Transparency could not be saved. Try again.",
+    );
+    expect(range).toHaveValue("20");
+    expect(screen.queryByText("raw persistence detail")).not.toBeInTheDocument();
+
+    fireEvent.pointerDown(range, { pointerId: 16 });
+    fireEvent.input(range, { target: { value: "35" } });
+    fireEvent.pointerUp(range, { pointerId: 16 });
+
+    await waitFor(() => expect(screen.queryByRole("alert")).not.toBeInTheDocument());
   });
 });
 

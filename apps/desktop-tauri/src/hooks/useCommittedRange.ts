@@ -27,19 +27,33 @@ export function useCommittedRange({
   min,
   max,
   onCommit,
+  onError,
+  onSuccess,
 }: {
   value: number;
   min: number;
   max: number;
-  onCommit(value: number): void;
+  onCommit(value: number): void | Promise<unknown>;
+  onError?(): void;
+  onSuccess?(): void;
 }) {
   const initialValue = clampRangeValue(value, min, max);
   const [draftValue, setDraftValue] = useState(initialValue);
   const activeRef = useRef(false);
-  const savedValueRef = useRef(initialValue);
+  const mountedRef = useRef(true);
+  const confirmedValueRef = useRef(initialValue);
   const draftValueRef = useRef(initialValue);
-  const pendingValueRef = useRef<number | null>(null);
+  const pendingFrameValueRef = useRef<number | null>(null);
+  const pendingCommitRef = useRef<{ generation: number; value: number } | null>(null);
+  const commitGenerationRef = useRef(0);
   const frameRef = useRef<number | null>(null);
+  const onCommitRef = useRef(onCommit);
+  const onErrorRef = useRef(onError);
+  const onSuccessRef = useRef(onSuccess);
+
+  onCommitRef.current = onCommit;
+  onErrorRef.current = onError;
+  onSuccessRef.current = onSuccess;
 
   const cancelFrame = useCallback(() => {
     if (frameRef.current !== null) {
@@ -55,8 +69,8 @@ export function useCommittedRange({
 
   const flushPendingDraft = useCallback(() => {
     cancelFrame();
-    const nextValue = pendingValueRef.current ?? draftValueRef.current;
-    pendingValueRef.current = null;
+    const nextValue = pendingFrameValueRef.current ?? draftValueRef.current;
+    pendingFrameValueRef.current = null;
     applyDraft(nextValue);
     return nextValue;
   }, [applyDraft, cancelFrame]);
@@ -65,16 +79,49 @@ export function useCommittedRange({
     if (!activeRef.current) return;
     const nextValue = flushPendingDraft();
     activeRef.current = false;
-    if (nextValue !== savedValueRef.current) {
-      savedValueRef.current = nextValue;
-      onCommit(nextValue);
+    const baseline = pendingCommitRef.current?.value ?? confirmedValueRef.current;
+    if (nextValue === baseline) return;
+
+    const generation = commitGenerationRef.current + 1;
+    commitGenerationRef.current = generation;
+    pendingCommitRef.current = { generation, value: nextValue };
+    let acknowledgement: void | Promise<unknown>;
+    try {
+      acknowledgement = onCommitRef.current(nextValue);
+    } catch {
+      acknowledgement = Promise.reject();
     }
-  }, [flushPendingDraft, onCommit]);
+    void Promise.resolve(acknowledgement).then(
+      () => {
+        if (
+          mountedRef.current &&
+          pendingCommitRef.current?.generation === generation
+        ) {
+          onSuccessRef.current?.();
+        }
+      },
+      () => {
+        if (
+          !mountedRef.current ||
+          pendingCommitRef.current?.generation !== generation
+        ) {
+          return;
+        }
+        pendingCommitRef.current = null;
+        if (!activeRef.current) {
+          cancelFrame();
+          pendingFrameValueRef.current = null;
+          applyDraft(confirmedValueRef.current);
+        }
+        onErrorRef.current?.();
+      },
+    );
+  }, [applyDraft, cancelFrame, flushPendingDraft]);
 
   const onInput = useCallback<FormEventHandler<HTMLInputElement>>(
     (event) => {
       activeRef.current = true;
-      pendingValueRef.current = clampRangeValue(
+      pendingFrameValueRef.current = clampRangeValue(
         Number.parseFloat(event.currentTarget.value),
         min,
         max,
@@ -82,8 +129,8 @@ export function useCommittedRange({
       if (frameRef.current !== null) return;
       frameRef.current = window.requestAnimationFrame(() => {
         frameRef.current = null;
-        const nextValue = pendingValueRef.current;
-        pendingValueRef.current = null;
+        const nextValue = pendingFrameValueRef.current;
+        pendingFrameValueRef.current = null;
         if (nextValue !== null) applyDraft(nextValue);
       });
     },
@@ -100,9 +147,9 @@ export function useCommittedRange({
 
   const onPointerCancel = useCallback<PointerEventHandler<HTMLInputElement>>(() => {
     cancelFrame();
-    pendingValueRef.current = null;
+    pendingFrameValueRef.current = null;
     activeRef.current = false;
-    applyDraft(savedValueRef.current);
+    applyDraft(pendingCommitRef.current?.value ?? confirmedValueRef.current);
   }, [applyDraft, cancelFrame]);
 
   const onKeyDown = useCallback<KeyboardEventHandler<HTMLInputElement>>((event) => {
@@ -121,16 +168,34 @@ export function useCommittedRange({
   }, [commit]);
 
   useEffect(() => {
-    const nextSavedValue = clampRangeValue(value, min, max);
-    savedValueRef.current = nextSavedValue;
+    const nextConfirmedValue = clampRangeValue(value, min, max);
+    const pendingCommit = pendingCommitRef.current;
+    if (pendingCommit !== null) {
+      if (nextConfirmedValue !== pendingCommit.value) return;
+      confirmedValueRef.current = nextConfirmedValue;
+      pendingCommitRef.current = null;
+      if (!activeRef.current) applyDraft(nextConfirmedValue);
+      return;
+    }
+
+    confirmedValueRef.current = nextConfirmedValue;
     if (!activeRef.current) {
       cancelFrame();
-      pendingValueRef.current = null;
-      applyDraft(nextSavedValue);
+      pendingFrameValueRef.current = null;
+      applyDraft(nextConfirmedValue);
     }
   }, [applyDraft, cancelFrame, max, min, value]);
 
-  useEffect(() => cancelFrame, [cancelFrame]);
+  useEffect(
+    () => {
+      mountedRef.current = true;
+      return () => {
+        mountedRef.current = false;
+        cancelFrame();
+      };
+    },
+    [cancelFrame],
+  );
 
   return {
     value: draftValue,

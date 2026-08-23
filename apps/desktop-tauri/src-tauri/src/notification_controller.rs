@@ -12,10 +12,15 @@ use tauri::Manager;
 use crate::state::AppState;
 
 const UPDATE_CHECK_INTERVAL: Duration = Duration::from_secs(24 * 60 * 60);
-const APP_NOTIFICATION_SETTINGS_KEY: &str =
-    r"Software\Microsoft\Windows\CurrentVersion\Notifications\Settings\CodexBar";
-const GLOBAL_NOTIFICATION_SETTINGS_KEY: &str =
-    r"Software\Microsoft\Windows\CurrentVersion\PushNotifications";
+const TOAST_EXIT_APP_DISABLED: i32 = 20;
+const TOAST_EXIT_GLOBAL_DISABLED: i32 = 21;
+const TOAST_EXIT_UNSUPPORTED: i32 = 22;
+const NOTIFICATION_SETTING_SCRIPT: &str = r#"try {
+    [Windows.UI.Notifications.ToastNotificationManager, Windows.UI.Notifications, ContentType = WindowsRuntime] | Out-Null
+    $notifier = [Windows.UI.Notifications.ToastNotificationManager]::CreateToastNotifier('CodexBar')
+    if ($null -eq $notifier) { exit 1 }
+    [Console]::Out.Write([int]$notifier.Setting)
+} catch { exit 1 }"#;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -33,42 +38,60 @@ pub struct NotificationCapabilityDto {
     pub can_open_settings: bool,
 }
 
-pub(crate) trait NotificationRegistryReader {
-    fn read_dword(&self, key: &str, value: &str) -> Result<Option<u32>, ()>;
+pub(crate) trait NotificationSettingProbe {
+    fn notification_setting(&self) -> Result<u32, ()>;
 }
 
-struct SystemNotificationRegistry;
+struct SystemNotificationSettingProbe;
 
 #[cfg(target_os = "windows")]
-impl NotificationRegistryReader for SystemNotificationRegistry {
-    fn read_dword(&self, key: &str, value: &str) -> Result<Option<u32>, ()> {
-        use std::io::ErrorKind;
-        use winreg::RegKey;
-        use winreg::enums::{HKEY_CURRENT_USER, KEY_READ};
+impl NotificationSettingProbe for SystemNotificationSettingProbe {
+    fn notification_setting(&self) -> Result<u32, ()> {
+        use std::os::windows::process::CommandExt;
+        use std::process::Command;
 
-        let hkcu = RegKey::predef(HKEY_CURRENT_USER);
-        let key = match hkcu.open_subkey_with_flags(key, KEY_READ) {
-            Ok(key) => key,
-            Err(error) if error.kind() == ErrorKind::NotFound => return Ok(None),
-            Err(_) => return Err(()),
-        };
-        match key.get_value::<u32, _>(value) {
-            Ok(value) => Ok(Some(value)),
-            Err(error) if error.kind() == ErrorKind::NotFound => Ok(None),
-            Err(_) => Err(()),
+        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+        let output = Command::new("powershell")
+            .args([
+                "-NoLogo",
+                "-NoProfile",
+                "-NonInteractive",
+                "-ExecutionPolicy",
+                "Bypass",
+                "-Command",
+                NOTIFICATION_SETTING_SCRIPT,
+            ])
+            .creation_flags(CREATE_NO_WINDOW)
+            .output()
+            .map_err(|_| ())?;
+        if !output.status.success() {
+            return Err(());
         }
+        parse_notification_setting(&output.stdout)
     }
 }
 
 #[cfg(not(target_os = "windows"))]
-impl NotificationRegistryReader for SystemNotificationRegistry {
-    fn read_dword(&self, _key: &str, _value: &str) -> Result<Option<u32>, ()> {
+impl NotificationSettingProbe for SystemNotificationSettingProbe {
+    fn notification_setting(&self) -> Result<u32, ()> {
         Err(())
     }
 }
 
-pub(crate) fn detect_notification_capability<R: NotificationRegistryReader>(
-    reader: &R,
+fn parse_notification_setting(output: &[u8]) -> Result<u32, ()> {
+    let setting = std::str::from_utf8(output)
+        .map_err(|_| ())?
+        .trim()
+        .parse::<u32>()
+        .map_err(|_| ())?;
+    match setting {
+        0..=4 => Ok(setting),
+        _ => Err(()),
+    }
+}
+
+pub(crate) fn detect_notification_capability<P: NotificationSettingProbe>(
+    probe: &P,
     is_windows: bool,
 ) -> NotificationCapabilityDto {
     if !is_windows {
@@ -78,43 +101,19 @@ pub(crate) fn detect_notification_capability<R: NotificationRegistryReader>(
         };
     }
 
-    let app_enabled = match reader.read_dword(APP_NOTIFICATION_SETTINGS_KEY, "Enabled") {
-        Ok(value) => value,
-        Err(()) => {
-            return NotificationCapabilityDto {
-                status: NotificationCapabilityStatus::Unsupported,
-                can_open_settings: true,
-            };
-        }
-    };
-    if app_enabled == Some(0) {
-        return NotificationCapabilityDto {
-            status: NotificationCapabilityStatus::AppDisabled,
-            can_open_settings: true,
-        };
-    }
-
-    let global_enabled = match reader.read_dword(GLOBAL_NOTIFICATION_SETTINGS_KEY, "ToastEnabled") {
-        Ok(value) => value,
-        Err(()) => {
-            return NotificationCapabilityDto {
-                status: NotificationCapabilityStatus::Unsupported,
-                can_open_settings: true,
-            };
-        }
-    };
     NotificationCapabilityDto {
-        status: if global_enabled == Some(0) {
-            NotificationCapabilityStatus::GlobalDisabled
-        } else {
-            NotificationCapabilityStatus::Available
+        status: match probe.notification_setting() {
+            Ok(0) => NotificationCapabilityStatus::Available,
+            Ok(1) => NotificationCapabilityStatus::AppDisabled,
+            Ok(2) => NotificationCapabilityStatus::GlobalDisabled,
+            _ => NotificationCapabilityStatus::Unsupported,
         },
         can_open_settings: true,
     }
 }
 
 pub fn notification_capability() -> NotificationCapabilityDto {
-    detect_notification_capability(&SystemNotificationRegistry, cfg!(target_os = "windows"))
+    detect_notification_capability(&SystemNotificationSettingProbe, cfg!(target_os = "windows"))
 }
 
 pub trait ToastSink: Send {
@@ -378,12 +377,12 @@ fn xml_escape(value: &str) -> String {
         .replace('\'', "&apos;")
 }
 
-fn send_windows_toast_with<R, F>(reader: &R, is_windows: bool, transport: F) -> Result<(), String>
+fn send_windows_toast_with<P, F>(probe: &P, is_windows: bool, transport: F) -> Result<(), String>
 where
-    R: NotificationRegistryReader,
+    P: NotificationSettingProbe,
     F: FnOnce() -> Result<(), String>,
 {
-    match detect_notification_capability(reader, is_windows).status {
+    match detect_notification_capability(probe, is_windows).status {
         NotificationCapabilityStatus::Available => transport(),
         NotificationCapabilityStatus::AppDisabled
         | NotificationCapabilityStatus::GlobalDisabled => {
@@ -397,23 +396,18 @@ where
 
 #[cfg(target_os = "windows")]
 fn send_windows_toast(title: &str, body: &str, play_sound: bool) -> Result<(), String> {
-    send_windows_toast_with(&SystemNotificationRegistry, true, || {
+    send_windows_toast_with(&SystemNotificationSettingProbe, true, || {
         run_windows_toast_transport(title, body, play_sound)
     })
 }
 
-#[cfg(target_os = "windows")]
-fn run_windows_toast_transport(title: &str, body: &str, play_sound: bool) -> Result<(), String> {
-    use std::os::windows::process::CommandExt;
-    use std::process::Command;
-
-    const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+fn windows_toast_script(title: &str, body: &str, play_sound: bool) -> String {
     let audio = if play_sound {
         ""
     } else {
         r#"<audio silent="true"/>"#
     };
-    let script = format!(
+    format!(
         r#"try {{
     $appIdPath = 'HKCU:\SOFTWARE\Classes\AppUserModelId\CodexBar'
     New-Item -Path $appIdPath -Force | Out-Null
@@ -427,13 +421,40 @@ fn run_windows_toast_transport(title: &str, body: &str, play_sound: bool) -> Res
     $xml.LoadXml($template)
     $toast = [Windows.UI.Notifications.ToastNotification]::new($xml)
     $notifier = [Windows.UI.Notifications.ToastNotificationManager]::CreateToastNotifier('CodexBar')
-    if ($null -eq $notifier) {{ exit 1 }}
+    if ($null -eq $notifier) {{ exit {TOAST_EXIT_UNSUPPORTED} }}
+    $setting = [int]$notifier.Setting
+    if ($setting -eq 1) {{ exit {TOAST_EXIT_APP_DISABLED} }}
+    if ($setting -eq 2) {{ exit {TOAST_EXIT_GLOBAL_DISABLED} }}
+    if (($setting -eq 3) -or ($setting -eq 4)) {{ exit {TOAST_EXIT_UNSUPPORTED} }}
+    if ($setting -ne 0) {{ exit {TOAST_EXIT_UNSUPPORTED} }}
     $notifier.Show($toast)
 }} catch {{ exit 1 }}"#,
         xml_escape(title),
         xml_escape(body),
         audio
-    );
+    )
+}
+
+fn toast_transport_result(success: bool, code: Option<i32>) -> Result<(), String> {
+    if success {
+        return Ok(());
+    }
+    match code {
+        Some(TOAST_EXIT_APP_DISABLED) | Some(TOAST_EXIT_GLOBAL_DISABLED) => {
+            Err("NOTIFICATION_PERMISSION_DISABLED".to_string())
+        }
+        Some(TOAST_EXIT_UNSUPPORTED) => Err("NOTIFICATION_TRANSPORT_UNAVAILABLE".to_string()),
+        _ => Err("NOTIFICATION_TRANSPORT_FAILED".to_string()),
+    }
+}
+
+#[cfg(target_os = "windows")]
+fn run_windows_toast_transport(title: &str, body: &str, play_sound: bool) -> Result<(), String> {
+    use std::os::windows::process::CommandExt;
+    use std::process::Command;
+
+    const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+    let script = windows_toast_script(title, body, play_sound);
 
     let status = Command::new("powershell")
         .args([
@@ -448,16 +469,12 @@ fn run_windows_toast_transport(title: &str, body: &str, play_sound: bool) -> Res
         .creation_flags(CREATE_NO_WINDOW)
         .status()
         .map_err(|_| "NOTIFICATION_TRANSPORT_UNAVAILABLE".to_string())?;
-    if status.success() {
-        Ok(())
-    } else {
-        Err("NOTIFICATION_TRANSPORT_FAILED".to_string())
-    }
+    toast_transport_result(status.success(), status.code())
 }
 
 #[cfg(not(target_os = "windows"))]
 fn send_windows_toast(_title: &str, _body: &str, _play_sound: bool) -> Result<(), String> {
-    send_windows_toast_with(&SystemNotificationRegistry, false, || Ok(()))
+    send_windows_toast_with(&SystemNotificationSettingProbe, false, || Ok(()))
 }
 
 fn repository_from_app(app: &tauri::AppHandle) -> Option<SettingsRepository> {
@@ -530,33 +547,17 @@ mod tests {
     use uuid::Uuid;
 
     use super::{
-        APP_NOTIFICATION_SETTINGS_KEY, GLOBAL_NOTIFICATION_SETTINGS_KEY,
-        NotificationCapabilityStatus, NotificationController, NotificationRegistryReader,
-        ToastSink, account_marker_from_email, detect_notification_capability,
-        send_windows_toast_with, should_check_for_updates, xml_escape,
+        NotificationCapabilityStatus, NotificationController, NotificationSettingProbe, ToastSink,
+        account_marker_from_email, detect_notification_capability, parse_notification_setting,
+        send_windows_toast_with, should_check_for_updates, toast_transport_result,
+        windows_toast_script, xml_escape,
     };
 
-    #[derive(Default)]
-    struct FakeNotificationRegistry {
-        app_enabled: Option<u32>,
-        global_enabled: Option<u32>,
-    }
+    struct FakeNotificationSettingProbe(Result<u32, ()>);
 
-    impl NotificationRegistryReader for FakeNotificationRegistry {
-        fn read_dword(&self, key: &str, value: &str) -> Result<Option<u32>, ()> {
-            assert_eq!(
-                value,
-                if key == APP_NOTIFICATION_SETTINGS_KEY {
-                    "Enabled"
-                } else {
-                    "ToastEnabled"
-                }
-            );
-            match key {
-                APP_NOTIFICATION_SETTINGS_KEY => Ok(self.app_enabled),
-                GLOBAL_NOTIFICATION_SETTINGS_KEY => Ok(self.global_enabled),
-                _ => panic!("unexpected registry key: {key}"),
-            }
+    impl NotificationSettingProbe for FakeNotificationSettingProbe {
+        fn notification_setting(&self) -> Result<u32, ()> {
+            self.0
         }
     }
 
@@ -830,13 +831,7 @@ mod tests {
 
     #[test]
     fn notification_capability_reports_app_level_suppression() {
-        let capability = detect_notification_capability(
-            &FakeNotificationRegistry {
-                app_enabled: Some(0),
-                global_enabled: None,
-            },
-            true,
-        );
+        let capability = detect_notification_capability(&FakeNotificationSettingProbe(Ok(1)), true);
 
         assert_eq!(capability.status, NotificationCapabilityStatus::AppDisabled);
         assert!(capability.can_open_settings);
@@ -851,13 +846,7 @@ mod tests {
 
     #[test]
     fn notification_capability_reports_global_suppression() {
-        let capability = detect_notification_capability(
-            &FakeNotificationRegistry {
-                app_enabled: Some(1),
-                global_enabled: Some(0),
-            },
-            true,
-        );
+        let capability = detect_notification_capability(&FakeNotificationSettingProbe(Ok(2)), true);
 
         assert_eq!(
             capability.status,
@@ -867,17 +856,31 @@ mod tests {
     }
 
     #[test]
-    fn notification_capability_defaults_missing_registry_values_to_available() {
-        let capability = detect_notification_capability(&FakeNotificationRegistry::default(), true);
+    fn notification_capability_reports_available_only_for_authoritative_enabled_setting() {
+        let capability = detect_notification_capability(&FakeNotificationSettingProbe(Ok(0)), true);
 
         assert_eq!(capability.status, NotificationCapabilityStatus::Available);
         assert!(capability.can_open_settings);
     }
 
     #[test]
+    fn notification_capability_maps_policy_manifest_unknown_and_probe_failures_to_unsupported() {
+        for probe in [
+            FakeNotificationSettingProbe(Ok(3)),
+            FakeNotificationSettingProbe(Ok(4)),
+            FakeNotificationSettingProbe(Ok(5)),
+            FakeNotificationSettingProbe(Err(())),
+        ] {
+            let capability = detect_notification_capability(&probe, true);
+            assert_eq!(capability.status, NotificationCapabilityStatus::Unsupported);
+            assert!(capability.can_open_settings);
+        }
+    }
+
+    #[test]
     fn notification_capability_reports_unsupported_off_windows() {
         let capability =
-            detect_notification_capability(&FakeNotificationRegistry::default(), false);
+            detect_notification_capability(&FakeNotificationSettingProbe(Ok(0)), false);
 
         assert_eq!(capability.status, NotificationCapabilityStatus::Unsupported);
         assert!(!capability.can_open_settings);
@@ -886,20 +889,60 @@ mod tests {
     #[test]
     fn disabled_notification_preflight_does_not_start_transport() {
         let mut transport_started = false;
-        let result = send_windows_toast_with(
-            &FakeNotificationRegistry {
-                app_enabled: Some(0),
-                global_enabled: None,
-            },
-            true,
-            || {
-                transport_started = true;
-                Ok(())
-            },
-        );
+        let result = send_windows_toast_with(&FakeNotificationSettingProbe(Ok(1)), true, || {
+            transport_started = true;
+            Ok(())
+        });
 
         assert_eq!(result.unwrap_err(), "NOTIFICATION_PERMISSION_DISABLED");
         assert!(!transport_started);
+    }
+
+    #[test]
+    fn notification_setting_parser_accepts_only_a_fixed_authoritative_integer() {
+        assert_eq!(parse_notification_setting(b"0\r\n"), Ok(0));
+        assert_eq!(parse_notification_setting(b"4\n"), Ok(4));
+        assert_eq!(parse_notification_setting(b"0 diagnostic"), Err(()));
+        assert_eq!(parse_notification_setting(b"5"), Err(()));
+        assert_eq!(parse_notification_setting(b""), Err(()));
+        assert_eq!(parse_notification_setting(&[0xff]), Err(()));
+    }
+
+    #[test]
+    fn toast_script_rechecks_setting_immediately_before_show() {
+        let script = windows_toast_script("Title", "Body", false);
+        let setting = script.find("$notifier.Setting").unwrap();
+        let show = script.find("$notifier.Show($toast)").unwrap();
+
+        assert!(setting < show);
+        assert!(script[setting..show].contains("exit 20"));
+        assert!(script[setting..show].contains("exit 21"));
+        assert!(script[setting..show].contains("exit 22"));
+    }
+
+    #[test]
+    fn toast_transport_exit_codes_preserve_suppression_without_raw_output() {
+        assert_eq!(toast_transport_result(true, Some(0)), Ok(()));
+        assert_eq!(
+            toast_transport_result(false, Some(20)),
+            Err("NOTIFICATION_PERMISSION_DISABLED".to_string())
+        );
+        assert_eq!(
+            toast_transport_result(false, Some(21)),
+            Err("NOTIFICATION_PERMISSION_DISABLED".to_string())
+        );
+        assert_eq!(
+            toast_transport_result(false, Some(22)),
+            Err("NOTIFICATION_TRANSPORT_UNAVAILABLE".to_string())
+        );
+        assert_eq!(
+            toast_transport_result(false, Some(1)),
+            Err("NOTIFICATION_TRANSPORT_FAILED".to_string())
+        );
+        assert_eq!(
+            toast_transport_result(false, None),
+            Err("NOTIFICATION_TRANSPORT_FAILED".to_string())
+        );
     }
 
     #[test]
