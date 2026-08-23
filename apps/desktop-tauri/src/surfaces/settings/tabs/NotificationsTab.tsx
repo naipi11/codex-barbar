@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   getNotificationCapability,
   openWindowsNotificationSettings,
@@ -64,30 +64,43 @@ export default function NotificationsTab({
   const [testing, setTesting] = useState(false);
   const [openingSettings, setOpeningSettings] = useState(false);
   const [capability, setCapability] = useState<NotificationCapabilityDto | null>(null);
+  const capabilityRequestGeneration = useRef(0);
+  const mounted = useRef(false);
   const notifications = settings.notifications;
 
-  useEffect(() => {
-    let active = true;
-    const refreshCapability = () => {
-      void Promise.resolve()
-        .then(getCapability)
-        .then((next) => {
-          if (active && next) setCapability(next);
-        })
-        .catch(() => {
-          if (active) {
-            setCapability({ status: "unsupported", canOpenSettings: false });
-          }
-        });
-    };
+  const refreshCapability = useCallback(() => {
+    const requestGeneration = ++capabilityRequestGeneration.current;
+    void Promise.resolve()
+      .then(getCapability)
+      .then((next) => {
+        if (
+          mounted.current &&
+          requestGeneration === capabilityRequestGeneration.current &&
+          next
+        ) {
+          setCapability(next);
+        }
+      })
+      .catch(() => {
+        if (
+          mounted.current &&
+          requestGeneration === capabilityRequestGeneration.current
+        ) {
+          setCapability({ status: "unsupported", canOpenSettings: false });
+        }
+      });
+  }, [getCapability]);
 
+  useEffect(() => {
+    mounted.current = true;
     refreshCapability();
     window.addEventListener("focus", refreshCapability);
     return () => {
-      active = false;
+      mounted.current = false;
+      capabilityRequestGeneration.current += 1;
       window.removeEventListener("focus", refreshCapability);
     };
-  }, [getCapability]);
+  }, [refreshCapability]);
 
   const saveBoolean = (field: NotificationBooleanField, value: boolean) => {
     setError(null);
@@ -115,10 +128,7 @@ export default function NotificationsTab({
   const runTest = () => {
     setError(null);
     setTestSent(false);
-    if (
-      capability?.status === "appDisabled" ||
-      capability?.status === "globalDisabled"
-    ) {
+    if (capability?.status !== "available") {
       return;
     }
     setTesting(true);
@@ -126,12 +136,7 @@ export default function NotificationsTab({
       .then(() => setTestSent(true))
       .catch((reason: unknown) => {
         if (reason === "NOTIFICATION_PERMISSION_DISABLED") {
-          void Promise.resolve()
-            .then(getCapability)
-            .then(setCapability)
-            .catch(() =>
-              setCapability({ status: "unsupported", canOpenSettings: false }),
-            );
+          refreshCapability();
           return;
         }
         setError(copy.notifications.testFailed);
@@ -279,7 +284,11 @@ export default function NotificationsTab({
             ) : null}
           </div>
         ) : null}
-        <button type="button" disabled={testing} onClick={runTest}>
+        <button
+          type="button"
+          disabled={testing || capability?.status !== "available"}
+          onClick={runTest}
+        >
           {copy.notifications.sendTest}
         </button>
         {testSent ? <p role="status">{copy.notifications.testSent}</p> : null}

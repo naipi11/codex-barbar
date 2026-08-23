@@ -10,8 +10,8 @@ use tauri::Emitter;
 use super::bridge::{AppSettingsDto, CodexCompatibilityDto, SettingsPatchDto};
 use crate::{
     notification_controller::{
-        NotificationCapabilityDto, NotificationController, WindowsToastSink,
-        notification_capability,
+        NotificationCapabilityDto, NotificationCapabilityStatus, NotificationController,
+        WindowsToastSink, notification_capability,
     },
     state::AppState,
 };
@@ -134,15 +134,35 @@ pub fn send_test_notification(
     state: tauri::State<'_, Mutex<AppState>>,
     controller: tauri::State<'_, Mutex<NotificationController<WindowsToastSink>>>,
 ) -> Result<(), String> {
-    if crate::proof_harness::is_proof_mode(&app) {
-        return Ok(());
+    let capability = notification_capability();
+    let proof_mode = crate::proof_harness::is_proof_mode(&app);
+    send_test_notification_with(proof_mode, capability, || {
+        let repository = settings_repository(&state)?;
+        controller
+            .lock()
+            .map_err(|_| "NOTIFICATION_TEST_FAILED".to_string())?
+            .send_test(&repository)
+            .map_err(map_notification_test_error)
+    })
+}
+
+fn send_test_notification_with<F>(
+    proof_mode: bool,
+    capability: NotificationCapabilityDto,
+    send: F,
+) -> Result<(), String>
+where
+    F: FnOnce() -> Result<(), String>,
+{
+    match capability.status {
+        NotificationCapabilityStatus::AppDisabled
+        | NotificationCapabilityStatus::GlobalDisabled => {
+            Err("NOTIFICATION_PERMISSION_DISABLED".to_string())
+        }
+        NotificationCapabilityStatus::Unsupported => Err("NOTIFICATION_TEST_FAILED".to_string()),
+        NotificationCapabilityStatus::Available if proof_mode => Ok(()),
+        NotificationCapabilityStatus::Available => send(),
     }
-    let repository = settings_repository(&state)?;
-    controller
-        .lock()
-        .map_err(|_| "NOTIFICATION_TEST_FAILED".to_string())?
-        .send_test(&repository)
-        .map_err(map_notification_test_error)
 }
 
 fn map_notification_test_error(error: String) -> String {
@@ -217,6 +237,14 @@ mod tests {
     use codexbar::storage::{
         DisplayMode, LanguagePreference, NotificationPreferencesPatch, ThemePreference,
     };
+
+    struct AppEnabledZeroRegistry;
+
+    impl crate::notification_controller::NotificationRegistryReader for AppEnabledZeroRegistry {
+        fn read_dword(&self, _key: &str, value: &str) -> Result<Option<u32>, ()> {
+            Ok((value == "Enabled").then_some(0))
+        }
+    }
 
     #[test]
     fn surface_fields_are_removed_before_generic_repository_update() {
@@ -408,5 +436,53 @@ mod tests {
             map_notification_test_error("raw transport detail".to_string()),
             "NOTIFICATION_TEST_FAILED"
         );
+    }
+
+    #[test]
+    fn proof_mode_app_enabled_zero_returns_disabled_before_transport_noop() {
+        let capability = crate::notification_controller::detect_notification_capability(
+            &AppEnabledZeroRegistry,
+            true,
+        );
+        let mut transport_started = false;
+
+        let result = send_test_notification_with(true, capability, || {
+            transport_started = true;
+            Ok(())
+        });
+
+        assert_eq!(result.unwrap_err(), "NOTIFICATION_PERMISSION_DISABLED");
+        assert!(!transport_started);
+    }
+
+    #[test]
+    fn proof_mode_skips_transport_only_for_known_available_capability() {
+        let mut transport_started = false;
+        let available = crate::notification_controller::NotificationCapabilityDto {
+            status: crate::notification_controller::NotificationCapabilityStatus::Available,
+            can_open_settings: true,
+        };
+        let unsupported = crate::notification_controller::NotificationCapabilityDto {
+            status: crate::notification_controller::NotificationCapabilityStatus::Unsupported,
+            can_open_settings: false,
+        };
+
+        assert_eq!(
+            send_test_notification_with(true, available, || {
+                transport_started = true;
+                Ok(())
+            }),
+            Ok(())
+        );
+        assert!(!transport_started);
+        assert_eq!(
+            send_test_notification_with(true, unsupported, || {
+                transport_started = true;
+                Ok(())
+            })
+            .unwrap_err(),
+            "NOTIFICATION_TEST_FAILED"
+        );
+        assert!(!transport_started);
     }
 }

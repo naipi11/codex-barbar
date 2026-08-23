@@ -33,7 +33,7 @@ pub struct NotificationCapabilityDto {
     pub can_open_settings: bool,
 }
 
-trait NotificationRegistryReader {
+pub(crate) trait NotificationRegistryReader {
     fn read_dword(&self, key: &str, value: &str) -> Result<Option<u32>, ()>;
 }
 
@@ -67,7 +67,7 @@ impl NotificationRegistryReader for SystemNotificationRegistry {
     }
 }
 
-fn detect_notification_capability<R: NotificationRegistryReader>(
+pub(crate) fn detect_notification_capability<R: NotificationRegistryReader>(
     reader: &R,
     is_windows: bool,
 ) -> NotificationCapabilityDto {

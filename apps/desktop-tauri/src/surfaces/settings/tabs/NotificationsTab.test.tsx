@@ -1,6 +1,9 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
-import type { AppSettingsDto } from "../../../types/bridge";
+import type {
+  AppSettingsDto,
+  NotificationCapabilityDto,
+} from "../../../types/bridge";
 import { settingsCopy } from "../settingsCopy";
 import NotificationsTab from "./NotificationsTab";
 
@@ -29,6 +32,14 @@ const settings: AppSettingsDto = {
     dangerRemainingPercent: 33,
   },
 };
+
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((next) => {
+    resolve = next;
+  });
+  return { promise, resolve };
+}
 
 describe("NotificationsTab", () => {
   it("patches only the notification master field", () => {
@@ -156,12 +167,39 @@ describe("NotificationsTab", () => {
         update={vi.fn().mockResolvedValue(settings)}
         copy={settingsCopy("en-US")}
         sendTest={vi.fn().mockRejectedValue("NOTIFICATION_TEST_FAILED")}
+        getCapability={vi.fn().mockResolvedValue({
+          status: "available",
+          canOpenSettings: true,
+        })}
       />,
     );
-    fireEvent.click(screen.getByRole("button", { name: "Send test notification" }));
+    const sendButton = screen.getByRole("button", { name: "Send test notification" });
+    await waitFor(() => expect(sendButton).toBeEnabled());
+    fireEvent.click(sendButton);
     expect(await screen.findByRole("alert")).toHaveTextContent(
       "Windows could not send the test notification. Check notification settings and try again.",
     );
+  });
+
+  it("does not send or show sent when clicked while capability is loading", () => {
+    const capability = deferred<NotificationCapabilityDto>();
+    const sendTest = vi.fn().mockResolvedValue(undefined);
+    render(
+      <NotificationsTab
+        settings={settings}
+        update={vi.fn().mockResolvedValue(settings)}
+        copy={settingsCopy("en-US")}
+        sendTest={sendTest}
+        getCapability={vi.fn().mockReturnValue(capability.promise)}
+      />,
+    );
+
+    const sendButton = screen.getByRole("button", { name: "Send test notification" });
+    expect(sendButton).toBeDisabled();
+    fireEvent.click(sendButton);
+
+    expect(sendTest).not.toHaveBeenCalled();
+    expect(screen.queryByText("Test notification sent.")).not.toBeInTheDocument();
   });
 
   it("shows app-disabled recovery and never reports a suppressed test as sent", async () => {
@@ -181,11 +219,14 @@ describe("NotificationsTab", () => {
       />,
     );
 
-    fireEvent.click(screen.getByRole("button", { name: "Send test notification" }));
-
     expect(
       await screen.findByText(/notifications for codex-barbar are turned off in windows/i),
     ).toBeInTheDocument();
+    const sendButton = screen.getByRole("button", { name: "Send test notification" });
+    expect(sendButton).toBeDisabled();
+    fireEvent.click(sendButton);
+
+    expect(sendTest).not.toHaveBeenCalled();
     expect(screen.queryByText("Test notification sent.")).not.toBeInTheDocument();
     fireEvent.click(
       screen.getByRole("button", { name: "Open Windows notification settings" }),
@@ -224,6 +265,42 @@ describe("NotificationsTab", () => {
         screen.queryByText(/notifications for codex-barbar are turned off in windows/i),
       ).not.toBeInTheDocument(),
     );
+  });
+
+  it("keeps the newer focus capability when the older mount request resolves last", async () => {
+    const mountCapability = deferred<NotificationCapabilityDto>();
+    const focusCapability = deferred<NotificationCapabilityDto>();
+    const getCapability = vi
+      .fn()
+      .mockReturnValueOnce(mountCapability.promise)
+      .mockReturnValueOnce(focusCapability.promise);
+    render(
+      <NotificationsTab
+        settings={settings}
+        update={vi.fn().mockResolvedValue(settings)}
+        copy={settingsCopy("en-US")}
+        getCapability={getCapability}
+      />,
+    );
+
+    await waitFor(() => expect(getCapability).toHaveBeenCalledTimes(1));
+    window.dispatchEvent(new Event("focus"));
+    await waitFor(() => expect(getCapability).toHaveBeenCalledTimes(2));
+
+    await act(async () => {
+      focusCapability.resolve({ status: "available", canOpenSettings: true });
+    });
+    const sendButton = screen.getByRole("button", { name: "Send test notification" });
+    await waitFor(() => expect(sendButton).toBeEnabled());
+
+    await act(async () => {
+      mountCapability.resolve({ status: "appDisabled", canOpenSettings: true });
+    });
+
+    expect(sendButton).toBeEnabled();
+    expect(
+      screen.queryByText(/notifications for codex-barbar are turned off in windows/i),
+    ).not.toBeInTheDocument();
   });
 
   it("localizes the app-disabled recovery in Simplified Chinese", async () => {
@@ -271,6 +348,9 @@ describe("NotificationsTab", () => {
       } else {
         expect(recovery).not.toBeInTheDocument();
       }
+      expect(
+        screen.getByRole("button", { name: "Send test notification" }),
+      ).toBeDisabled();
     },
   );
 
