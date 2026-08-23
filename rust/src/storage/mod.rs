@@ -2,6 +2,7 @@
 
 pub mod account_repository;
 pub mod database;
+pub mod menu_layout;
 pub mod migrations;
 pub mod settings_repository;
 pub mod usage_repository;
@@ -13,6 +14,10 @@ use crate::core::ProfileId;
 
 pub use account_repository::AccountRepository;
 pub use database::{AppDatabase, StorageError};
+pub use menu_layout::{
+    MenuLayout, MenuLayoutPatch, MenuPreferences, MenuPreferencesPatch, NATIVE_TRAY_ITEMS,
+    REQUIRED_NATIVE_TRAY_ITEMS, TRAY_PANEL_ACTIONS, normalize_layout,
+};
 pub use settings_repository::{
     AppSettings, DisplayMode, LanguagePreference, NotificationPreferences,
     NotificationPreferencesPatch, SettingsPatch, SettingsRepository, TaskbarDensity,
