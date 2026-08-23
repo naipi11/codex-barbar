@@ -117,6 +117,17 @@ pub struct ProfileUsageSnapshot {
     pub source: UsageSource,
     /// True when any wire value had to be clamped/dropped as out of contract.
     pub protocol_anomaly: bool,
+    /// Redacted banked reset-credit summary; only the available count crosses
+    /// the domain boundary. Opaque identifiers and redemption data never do.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reset_credits: Option<ResetCreditsSummary>,
+}
+
+/// Count-only, non-sensitive view of banked reset credits.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ResetCreditsSummary {
+    pub available_count: u64,
 }
 
 /// Refresh lifecycle status of one profile.
@@ -192,6 +203,36 @@ mod tests {
     use super::*;
 
     #[test]
+    fn snapshot_without_reset_credits_deserializes_to_none() {
+        let json = r#"{"profileId":"00000000-0000-0000-0000-000000000000","fetchedAt":"2026-01-01T00:00:00Z","source":"appServer","protocolAnomaly":false}"#;
+        let snapshot: ProfileUsageSnapshot = serde_json::from_str(json).unwrap();
+        assert_eq!(snapshot.reset_credits, None);
+    }
+
+    #[test]
+    fn reset_credit_summary_round_trips_count_only() {
+        let snapshot = ProfileUsageSnapshot {
+            profile_id: Uuid::nil(),
+            plan_type: Some("plus".into()),
+            primary: None,
+            secondary: None,
+            additional_windows: Vec::new(),
+            fetched_at: DateTime::from_timestamp(1_750_000_000, 0).unwrap(),
+            source: UsageSource::AppServer,
+            protocol_anomaly: false,
+            reset_credits: Some(ResetCreditsSummary { available_count: 2 }),
+        };
+        let value = serde_json::to_value(&snapshot).unwrap();
+        assert_eq!(value["resetCredits"]["availableCount"], 2);
+        let credits_text = value["resetCredits"].to_string().to_ascii_lowercase();
+        for forbidden in ["id", "credit", "title", "grantedat", "redeem"] {
+            assert!(!credits_text.contains(forbidden), "leaked {forbidden}");
+        }
+        let back: ProfileUsageSnapshot = serde_json::from_value(value).unwrap();
+        assert_eq!(back, snapshot);
+    }
+
+    #[test]
     fn usage_window_clamps_and_derives_remaining() {
         let (window, anomaly) =
             UsageWindow::normalized("codex", None, 127.5, Some(300), None, None);
@@ -254,6 +295,7 @@ mod tests {
             fetched_at: DateTime::from_timestamp(1_750_000_000, 0).unwrap(),
             source: UsageSource::AppServer,
             protocol_anomaly: false,
+            reset_credits: None,
         };
         let value = serde_json::to_value(&snapshot).unwrap();
         assert_eq!(value["source"], "appServer");

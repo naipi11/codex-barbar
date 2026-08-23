@@ -12,6 +12,7 @@ mod fixed_actions;
 mod settings;
 mod status_surfaces;
 mod update;
+mod usage_spend;
 mod window;
 
 pub use accounts::*;
@@ -21,4 +22,5 @@ pub use fixed_actions::*;
 pub use settings::*;
 pub use status_surfaces::*;
 pub use update::*;
+pub use usage_spend::*;
 pub use window::*;

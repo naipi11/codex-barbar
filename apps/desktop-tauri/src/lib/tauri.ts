@@ -9,16 +9,23 @@ import type {
   DiagnosticsSummaryDto,
   ManagedLoginStateDto,
   ManualUpdateResult,
+  MenuPreferencesPatchDto,
+  NotificationCapabilityDto,
   ProfileUsageStateDto,
   StatusSurfaceKind,
   SettingsPatchDto,
+  UsageSpendDto,
+  UsageSpendRange,
 } from "../types/bridge";
 
 /** Frozen invoke names. Keep this list in sync with the Rust command registry. */
 export const commands = {
   getBootstrapState: "get_bootstrap_state",
   getSettingsSnapshot: "get_settings_snapshot",
+  getNotificationCapability: "get_notification_capability",
   updateSettings: "update_settings",
+  applyMenuPreferences: "apply_menu_preferences",
+  getUsageSpend: "get_usage_spend",
   sendTestNotification: "send_test_notification",
   setStatusSurfaceEnabled: "set_status_surface_enabled",
   setFloatBallExpanded: "set_float_ball_expanded",
@@ -36,6 +43,7 @@ export const commands = {
   checkForUpdates: "check_for_updates",
   openReleasePage: "open_release_page",
   openCodexUsagePage: "open_codex_usage_page",
+  openWindowsNotificationSettings: "open_windows_notification_settings",
   openSettingsWindow: "open_settings_window",
   closeSettingsWindow: "close_settings_window",
   dismissTrayPanel: "dismiss_tray_panel",
@@ -74,10 +82,21 @@ export const getBootstrapState = () =>
 export const getSettingsSnapshot = () =>
   invoke<AppSettingsDto>(commands.getSettingsSnapshot);
 
+export const getNotificationCapability = () =>
+  invoke<NotificationCapabilityDto>(commands.getNotificationCapability);
+
 export const updateSettings = (patch: SettingsPatchDto) =>
   invoke<AppSettingsDto>(commands.updateSettings, {
     patch: patch as Record<string, unknown>,
   });
+
+export const applyMenuPreferences = (preferences: MenuPreferencesPatchDto) =>
+  invoke<AppSettingsDto>(commands.applyMenuPreferences, {
+    preferences: preferences as Record<string, unknown>,
+  });
+
+export const getUsageSpend = (range: UsageSpendRange) =>
+  invoke<UsageSpendDto>(commands.getUsageSpend, { range });
 
 export const sendTestNotification = () =>
   invoke<void>(commands.sendTestNotification);
@@ -142,6 +161,9 @@ export const openReleasePage = () => invoke<void>(commands.openReleasePage);
 
 export const openCodexUsagePage = () =>
   invoke<void>(commands.openCodexUsagePage);
+
+export const openWindowsNotificationSettings = () =>
+  invoke<void>(commands.openWindowsNotificationSettings);
 
 export const openSettingsWindow = () =>
   invoke<void>(commands.openSettingsWindow);

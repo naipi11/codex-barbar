@@ -47,6 +47,46 @@ export interface NotificationPreferencesDto {
   dangerRemainingPercent: number;
 }
 
+export interface NotificationCapabilityDto {
+  status: "available" | "appDisabled" | "globalDisabled" | "unsupported";
+  canOpenSettings: boolean;
+}
+
+export interface TaskbarTrayPreferencesDto {
+  showTaskbarIcon: boolean;
+  showTaskbarAccount: boolean;
+  showWeeklyLabel: boolean;
+  showWeeklyPercent: boolean;
+  showResetDate: boolean;
+  density: "compact" | "standard";
+  trayIconMode: "dynamic" | "monochrome";
+  tooltipAccount: boolean;
+  tooltipWeekly: boolean;
+  tooltipResetDate: boolean;
+  tooltipUpdatedAt: boolean;
+  hideStatusSurfacesInFullscreen: boolean;
+}
+
+export interface MenuLayoutDto {
+  order: string[];
+  hidden: string[];
+}
+
+export interface MenuPreferencesDto {
+  nativeTray: MenuLayoutDto;
+  trayPanel: MenuLayoutDto;
+}
+
+export interface MenuLayoutPatchDto {
+  order?: string[];
+  hidden?: string[];
+}
+
+export interface MenuPreferencesPatchDto {
+  nativeTray?: MenuLayoutPatchDto;
+  trayPanel?: MenuLayoutPatchDto;
+}
+
 export interface AppSettingsDto {
   autostartEnabled: boolean;
   refreshIntervalSeconds: 0 | 60 | 300 | 900 | 1800;
@@ -60,6 +100,8 @@ export interface AppSettingsDto {
   floatBallOpacity: number;
   floatBallGlow: number;
   notifications: NotificationPreferencesDto;
+  taskbarTray: TaskbarTrayPreferencesDto;
+  menu: MenuPreferencesDto;
 }
 
 export type StatusSurfaceKind = "taskbarStatus" | "floatBall";
@@ -75,8 +117,9 @@ export interface StatusSurfaceFeedbackChangedDto {
 }
 
 export interface SettingsPatchDto
-  extends Partial<Omit<AppSettingsDto, "notifications">> {
+  extends Partial<Omit<AppSettingsDto, "notifications" | "taskbarTray" | "menu">> {
   notifications?: Partial<NotificationPreferencesDto>;
+  taskbarTray?: Partial<TaskbarTrayPreferencesDto>;
 }
 
 export interface ProfileSummaryDto {
@@ -116,6 +159,61 @@ export type RefreshStatus =
   | "cooldown"
   | "backoff"
   | "blocked";
+
+
+export type UsageSpendRange = "today" | "last7Days" | "last30Days" | "currentWeekly";
+export type ResetCreditsState = "available" | "unsupported" | "stale";
+export type LocalUsageState = "ready" | "empty" | "unavailable" | "cancelled";
+
+export interface ResetCreditsStateDto {
+  state: ResetCreditsState;
+  availableCount: number | null;
+  observedAt: string | null;
+}
+
+export interface OfficialUsageDto {
+  remainingPercent: number | null;
+  resetsAt: string | null;
+  fetchedAt: string | null;
+  freshness: "fresh" | "stale" | "missing";
+  resetCredits: ResetCreditsStateDto;
+}
+
+export interface DailyUsageSpendDto {
+  date: string;
+  totalTokens: number;
+  estimatedCostUsd: number | null;
+}
+
+export interface ModelUsageSpendDto {
+  model: string;
+  inputTokens: number;
+  cachedInputTokens: number;
+  outputTokens: number;
+  totalTokens: number;
+  estimatedCostUsd: number | null;
+}
+
+export interface LocalUsageSpendDto {
+  attribution: "deviceCombined";
+  range: UsageSpendRange;
+  inputTokens: number;
+  cachedInputTokens: number;
+  outputTokens: number;
+  totalTokens: number;
+  sessionsCount: number;
+  estimatedCostUsd: number | null;
+  unknownModels: string[];
+  daily: DailyUsageSpendDto[];
+  models: ModelUsageSpendDto[];
+  state: LocalUsageState;
+  malformedRecordsSkipped: number;
+}
+
+export interface UsageSpendDto {
+  official: OfficialUsageDto;
+  local: LocalUsageSpendDto;
+}
 
 export interface ProfileUsageStateDto {
   profileId: string;
@@ -328,3 +426,4 @@ export function parseProfileUsageState(
 
   return value as unknown as ProfileUsageStateDto;
 }
+

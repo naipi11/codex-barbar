@@ -7,9 +7,14 @@ use codexbar::providers::codex::app_server::{CodexCommandResolver, CodexInstalla
 use codexbar::storage::SettingsPatch;
 use tauri::Emitter;
 
-use super::bridge::{AppSettingsDto, CodexCompatibilityDto, SettingsPatchDto};
+use super::bridge::{
+    AppSettingsDto, CodexCompatibilityDto, MenuPreferencesPatchDto, SettingsPatchDto,
+};
 use crate::{
-    notification_controller::{NotificationController, WindowsToastSink},
+    notification_controller::{
+        NotificationCapabilityDto, NotificationCapabilityStatus, NotificationController,
+        WindowsToastSink, notification_capability,
+    },
     state::AppState,
 };
 
@@ -57,6 +62,73 @@ fn storage_error_code(error: codexbar::storage::StorageError) -> String {
     }
 }
 
+const MENU_APPLY_FAILED: &str = "MENU_APPLY_FAILED";
+
+/// Apply a candidate native menu, then persist it; roll back on save failure.
+///
+/// The candidate is applied to the real tray before any write. If persistence
+/// then fails, the prior persisted settings are re-applied to restore the last
+/// working native menu.
+pub(crate) fn apply_menu_preferences_with<F, G>(
+    repository: &codexbar::storage::SettingsRepository,
+    patch: codexbar::storage::SettingsPatch,
+    apply_candidate: F,
+    rollback_candidate: G,
+) -> Result<codexbar::storage::AppSettings, String>
+where
+    F: FnOnce(&codexbar::storage::AppSettings) -> Result<(), String>,
+    G: FnOnce(&codexbar::storage::AppSettings) -> Result<(), String>,
+{
+    let candidate = repository
+        .preview_update(patch.clone())
+        .map_err(|_| "SETTINGS_SAVE_FAILED".to_string())?;
+    apply_candidate(&candidate).map_err(|_| MENU_APPLY_FAILED.to_string())?;
+    match repository.update(patch) {
+        Ok(updated) => Ok(updated),
+        Err(error) => {
+            tracing::warn!(%error, "menu persistence failed; rolling back native menu");
+            rollback_menu(repository, rollback_candidate);
+            Err("SETTINGS_SAVE_FAILED".to_string())
+        }
+    }
+}
+
+fn rollback_menu<G>(repository: &codexbar::storage::SettingsRepository, rollback_candidate: G)
+where
+    G: FnOnce(&codexbar::storage::AppSettings) -> Result<(), String>,
+{
+    if let Ok(prior) = repository.load() {
+        let _ = rollback_candidate(&prior);
+    }
+}
+
+#[tauri::command]
+pub fn apply_menu_preferences(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, Mutex<AppState>>,
+    preferences: MenuPreferencesPatchDto,
+) -> Result<AppSettingsDto, String> {
+    let repository = settings_repository(&state)?;
+    let patch = codexbar::storage::SettingsPatch {
+        menu: Some(preferences.into_patch()),
+        ..codexbar::storage::SettingsPatch::default()
+    };
+    let settings = apply_menu_preferences_with(
+        &repository,
+        patch,
+        |candidate| {
+            crate::tray_bridge::apply_candidate_menu(&app, candidate)
+                .map_err(|error| error.to_string())
+        },
+        |prior| {
+            crate::tray_bridge::apply_candidate_menu(&app, prior).map_err(|error| error.to_string())
+        },
+    )?;
+    let dto = AppSettingsDto::from_settings(&settings);
+    let _ = app.emit(crate::events::SETTINGS_CHANGED, &dto);
+    Ok(dto)
+}
+
 fn prepare_settings_update(
     patch: SettingsPatch,
 ) -> Result<
@@ -80,6 +152,11 @@ pub fn get_settings_snapshot(state: tauri::State<'_, Mutex<AppState>>) -> AppSet
         Ok(settings) => AppSettingsDto::from_settings(&settings),
         Err(_) => AppSettingsDto::default(),
     }
+}
+
+#[tauri::command]
+pub fn get_notification_capability() -> NotificationCapabilityDto {
+    notification_capability()
 }
 
 #[tauri::command]
@@ -126,15 +203,43 @@ pub fn send_test_notification(
     state: tauri::State<'_, Mutex<AppState>>,
     controller: tauri::State<'_, Mutex<NotificationController<WindowsToastSink>>>,
 ) -> Result<(), String> {
-    if crate::proof_harness::is_proof_mode(&app) {
-        return Ok(());
+    let capability = notification_capability();
+    let proof_mode = crate::proof_harness::is_proof_mode(&app);
+    send_test_notification_with(proof_mode, capability, || {
+        let repository = settings_repository(&state)?;
+        controller
+            .lock()
+            .map_err(|_| "NOTIFICATION_TEST_FAILED".to_string())?
+            .send_test(&repository)
+            .map_err(map_notification_test_error)
+    })
+}
+
+fn send_test_notification_with<F>(
+    proof_mode: bool,
+    capability: NotificationCapabilityDto,
+    send: F,
+) -> Result<(), String>
+where
+    F: FnOnce() -> Result<(), String>,
+{
+    match capability.status {
+        NotificationCapabilityStatus::AppDisabled
+        | NotificationCapabilityStatus::GlobalDisabled => {
+            Err("NOTIFICATION_PERMISSION_DISABLED".to_string())
+        }
+        NotificationCapabilityStatus::Unsupported => Err("NOTIFICATION_TEST_FAILED".to_string()),
+        NotificationCapabilityStatus::Available if proof_mode => Ok(()),
+        NotificationCapabilityStatus::Available => send(),
     }
-    let repository = settings_repository(&state)?;
-    controller
-        .lock()
-        .map_err(|_| "NOTIFICATION_TEST_FAILED".to_string())?
-        .send_test(&repository)
-        .map_err(|_| "NOTIFICATION_TEST_FAILED".to_string())
+}
+
+fn map_notification_test_error(error: String) -> String {
+    if error == "NOTIFICATION_PERMISSION_DISABLED" {
+        error
+    } else {
+        "NOTIFICATION_TEST_FAILED".to_string()
+    }
 }
 
 #[tauri::command]
@@ -199,8 +304,124 @@ mod tests {
     use super::*;
     use crate::commands::bridge::NotificationPreferencesPatchDto;
     use codexbar::storage::{
-        DisplayMode, LanguagePreference, NotificationPreferencesPatch, ThemePreference,
+        AppDatabase, MenuLayoutPatch, MenuPreferencesPatch, SettingsRepository,
     };
+    use codexbar::storage::{
+        DisplayMode, LanguagePreference, NotificationPreferencesPatch, TaskbarDensity,
+        TaskbarTrayPreferencesPatch, ThemePreference, TrayIconMode,
+    };
+    use std::sync::Arc;
+
+    fn shell_settings_fixture() -> (SettingsRepository, std::path::PathBuf) {
+        let dir = std::env::temp_dir().join(format!(
+            "codexbar-settings-command-test-{}",
+            uuid::Uuid::new_v4()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let database = Arc::new(AppDatabase::open(&dir.join("settings.db")).unwrap());
+        (SettingsRepository::new(database), dir)
+    }
+
+    fn menu_patch() -> SettingsPatch {
+        SettingsPatch {
+            menu: Some(MenuPreferencesPatch {
+                native_tray: Some(MenuLayoutPatch {
+                    order: Some(vec!["quit".into(), "settings".into()]),
+                    hidden: None,
+                }),
+                tray_panel: None,
+            }),
+            ..SettingsPatch::default()
+        }
+    }
+
+    #[test]
+    fn menu_transaction_applies_candidate_then_persists() {
+        let (repository, _dir) = shell_settings_fixture();
+        let applied = std::cell::Cell::new(0);
+        let rollbacks = std::cell::Cell::new(0);
+        let saved = apply_menu_preferences_with(
+            &repository,
+            menu_patch(),
+            |candidate| {
+                applied.set(applied.get() + 1);
+                assert_eq!(
+                    candidate.menu.native_tray.order.first().map(String::as_str),
+                    Some("quit")
+                );
+                assert!(
+                    candidate
+                        .menu
+                        .native_tray
+                        .order
+                        .contains(&"settings".to_string())
+                );
+                Ok(())
+            },
+            |_| {
+                rollbacks.set(rollbacks.get() + 1);
+                Ok(())
+            },
+        )
+        .unwrap();
+
+        assert_eq!(applied.get(), 1);
+        assert_eq!(rollbacks.get(), 0);
+        assert_eq!(repository.load().unwrap(), saved);
+    }
+
+    #[test]
+    fn menu_apply_failure_never_persists() {
+        let (repository, _dir) = shell_settings_fixture();
+        let old = repository.load().unwrap();
+
+        let error = apply_menu_preferences_with(
+            &repository,
+            menu_patch(),
+            |_| Err("native rebuild failed".to_string()),
+            |_| unreachable!("rollback must not run when apply failed"),
+        )
+        .unwrap_err();
+
+        assert_eq!(error, "MENU_APPLY_FAILED");
+        assert_eq!(repository.load().unwrap(), old);
+    }
+
+    #[test]
+    fn menu_persistence_rollback_reapplies_last_working_settings() {
+        let (repository, _dir) = shell_settings_fixture();
+        let prior = repository.load().unwrap();
+        let mut rolled_back: Option<codexbar::storage::AppSettings> = None;
+
+        rollback_menu(&repository, |candidate| {
+            rolled_back = Some(candidate.clone());
+            Ok(())
+        });
+
+        assert_eq!(rolled_back, Some(prior));
+    }
+
+    #[test]
+    fn menu_patch_dto_maps_only_layout_fields() {
+        let dto: MenuPreferencesPatchDto = serde_json::from_str(
+            r#"{"nativeTray":{"order":["quit","settings"],"hidden":["refresh"]}}"#,
+        )
+        .unwrap();
+        let patch = dto.into_patch();
+        assert_eq!(
+            patch.native_tray.unwrap().order,
+            Some(vec!["quit".to_string(), "settings".to_string()])
+        );
+        assert_eq!(patch.tray_panel, None);
+    }
+
+    struct AppDisabledProbe;
+
+    impl crate::notification_controller::NotificationSettingProbe for AppDisabledProbe {
+        fn notification_setting(&self) -> Result<u32, ()> {
+            Ok(1)
+        }
+    }
 
     #[test]
     fn surface_fields_are_removed_before_generic_repository_update() {
@@ -287,6 +508,20 @@ mod tests {
                 warning_remaining_percent: Some(66),
                 danger_remaining_percent: Some(33),
             }),
+            taskbar_tray: Some(crate::commands::bridge::TaskbarTrayPreferencesPatchDto {
+                show_taskbar_icon: Some(false),
+                show_taskbar_account: Some(true),
+                show_weekly_label: Some(false),
+                show_weekly_percent: Some(true),
+                show_reset_date: Some(false),
+                density: Some("standard".to_string()),
+                tray_icon_mode: Some("monochrome".to_string()),
+                tooltip_account: Some(false),
+                tooltip_weekly: Some(true),
+                tooltip_reset_date: Some(false),
+                tooltip_updated_at: Some(true),
+                hide_status_surfaces_in_fullscreen: Some(false),
+            }),
         };
         let settings = patch.into_patch().unwrap();
         assert_eq!(settings.start_at_login, Some(true));
@@ -303,6 +538,23 @@ mod tests {
         assert_eq!(settings.taskbar_status_opacity, Some(0));
         assert_eq!(settings.float_ball_opacity, Some(80));
         assert_eq!(settings.float_ball_glow, Some(40));
+        assert_eq!(
+            settings.taskbar_tray,
+            Some(TaskbarTrayPreferencesPatch {
+                show_taskbar_icon: Some(false),
+                show_taskbar_account: Some(true),
+                show_weekly_label: Some(false),
+                show_weekly_percent: Some(true),
+                show_reset_date: Some(false),
+                density: Some(TaskbarDensity::Standard),
+                tray_icon_mode: Some(TrayIconMode::Monochrome),
+                tooltip_account: Some(false),
+                tooltip_weekly: Some(true),
+                tooltip_reset_date: Some(false),
+                tooltip_updated_at: Some(true),
+                hide_status_surfaces_in_fullscreen: Some(false),
+            })
+        );
         assert_eq!(
             settings.notifications,
             Some(NotificationPreferencesPatch {
@@ -380,5 +632,63 @@ mod tests {
             prepare_settings_update(patch).unwrap_err(),
             "SETTINGS_NOTIFICATION_THRESHOLDS_INVALID"
         );
+    }
+
+    #[test]
+    fn notification_permission_disabled_code_is_preserved_for_recovery_ui() {
+        assert_eq!(
+            map_notification_test_error("NOTIFICATION_PERMISSION_DISABLED".to_string()),
+            "NOTIFICATION_PERMISSION_DISABLED"
+        );
+        assert_eq!(
+            map_notification_test_error("raw transport detail".to_string()),
+            "NOTIFICATION_TEST_FAILED"
+        );
+    }
+
+    #[test]
+    fn proof_mode_app_enabled_zero_returns_disabled_before_transport_noop() {
+        let capability =
+            crate::notification_controller::detect_notification_capability(&AppDisabledProbe, true);
+        let mut transport_started = false;
+
+        let result = send_test_notification_with(true, capability, || {
+            transport_started = true;
+            Ok(())
+        });
+
+        assert_eq!(result.unwrap_err(), "NOTIFICATION_PERMISSION_DISABLED");
+        assert!(!transport_started);
+    }
+
+    #[test]
+    fn proof_mode_skips_transport_only_for_known_available_capability() {
+        let mut transport_started = false;
+        let available = crate::notification_controller::NotificationCapabilityDto {
+            status: crate::notification_controller::NotificationCapabilityStatus::Available,
+            can_open_settings: true,
+        };
+        let unsupported = crate::notification_controller::NotificationCapabilityDto {
+            status: crate::notification_controller::NotificationCapabilityStatus::Unsupported,
+            can_open_settings: false,
+        };
+
+        assert_eq!(
+            send_test_notification_with(true, available, || {
+                transport_started = true;
+                Ok(())
+            }),
+            Ok(())
+        );
+        assert!(!transport_started);
+        assert_eq!(
+            send_test_notification_with(true, unsupported, || {
+                transport_started = true;
+                Ok(())
+            })
+            .unwrap_err(),
+            "NOTIFICATION_TEST_FAILED"
+        );
+        assert!(!transport_started);
     }
 }

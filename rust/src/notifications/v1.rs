@@ -308,6 +308,7 @@ mod tests {
                 fetched_at: reset,
                 source: UsageSource::AppServer,
                 protocol_anomaly: false,
+                reset_credits: None,
             }),
             current_error: None,
             refresh_status: RefreshStatus::Idle,

@@ -243,6 +243,7 @@ mod tests {
             fetched_at: DateTime::from_timestamp(1_750_000_000, 0).unwrap(),
             source: UsageSource::AppServer,
             protocol_anomaly: false,
+            reset_credits: None,
         }
     }
 
@@ -265,6 +266,23 @@ mod tests {
         assert_eq!(
             state.current_error.unwrap().kind,
             AppErrorKind::OfflineOrTimeout
+        );
+    }
+    #[test]
+    fn reset_credit_snapshot_round_trips_through_storage() {
+        let repo = test_usage_repository();
+        let mut snapshot = snapshot();
+        snapshot.reset_credits = Some(crate::core::ResetCreditsSummary { available_count: 3 });
+        repo.save_success(&snapshot).unwrap();
+        let state = repo.load_state(profile_id()).unwrap();
+        assert_eq!(
+            state
+                .snapshot
+                .unwrap()
+                .reset_credits
+                .unwrap()
+                .available_count,
+            3
         );
     }
 }

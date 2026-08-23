@@ -123,6 +123,58 @@ describe("TaskbarStatus", () => {
     ).toHaveLength(1);
   });
 
+  it("renders only enabled taskbar fields without phantom gaps", async () => {
+    const bootstrap = bootstrapWithTwoProfiles();
+    bootstrap.profiles[0]!.accountDisplayName = "ProofUser";
+    bootstrap.usageByProfile.personal = weeklyOnlyUsage();
+    bootstrap.settings.taskbarTray = {
+      showTaskbarIcon: false,
+      showTaskbarAccount: false,
+      showWeeklyLabel: false,
+      showWeeklyPercent: true,
+      showResetDate: false,
+      density: "standard",
+      trayIconMode: "dynamic",
+      tooltipAccount: true,
+      tooltipWeekly: true,
+      tooltipResetDate: true,
+      tooltipUpdatedAt: true,
+      hideStatusSurfacesInFullscreen: true,
+    };
+    invokeMock.mockResolvedValue(bootstrap);
+    render(<TaskbarStatus />);
+
+    const visible = await screen.findByTestId("taskbar-status-visible");
+    expect(await within(visible).findByText("98%")).toBeVisible();
+    expect(within(visible).queryByText("Wk")).not.toBeInTheDocument();
+    expect(within(visible).queryByText("ProofU")).not.toBeInTheDocument();
+    expect(within(visible).queryByText("8/20")).not.toBeInTheDocument();
+    expect(visible.querySelector(".taskbar-status__avatar")).toBeNull();
+    expect(visible.querySelector(".taskbar-status__identity")).toBeNull();
+    expect(visible.querySelector(".taskbar-status__reset")).toBeNull();
+    expect(
+      visible.querySelector('.taskbar-status__main[data-density="standard"]'),
+    ).not.toBeNull();
+  });
+
+  it("omits account and reset while keeping the weekly metric", async () => {
+    const bootstrap = bootstrapWithTwoProfiles();
+    bootstrap.profiles[0]!.accountDisplayName = "ProofUser";
+    bootstrap.usageByProfile.personal = weeklyOnlyUsage();
+    bootstrap.settings.taskbarTray = {
+      ...bootstrap.settings.taskbarTray,
+      showTaskbarAccount: false,
+      showResetDate: false,
+    };
+    invokeMock.mockResolvedValue(bootstrap);
+    render(<TaskbarStatus />);
+
+    const visible = await screen.findByTestId("taskbar-status-visible");
+    expect(await within(visible).findByText(/Wk 98%/)).toBeVisible();
+    expect(within(visible).queryByText("ProofU")).not.toBeInTheDocument();
+    expect(within(visible).queryByText("8/20")).not.toBeInTheDocument();
+  });
+
   it("ignores the retired external-measurement query on the visible route", async () => {
     window.history.replaceState({}, "", "/?measurement=external");
     const bootstrap = bootstrapWithTwoProfiles();
@@ -237,8 +289,8 @@ describe("TaskbarStatus", () => {
     expect(main).toHaveAccessibleName(expect.stringContaining("0分钟前"));
   });
 
-  it.each([[0, "0"], [20, "0.2"], [80, "0.8"]])(
-    "attaches taskbar opacity %s to the rendered root as alpha %s",
+  it.each([[0, "1"], [20, "0.8"], [80, "0.2"]])(
+    "attaches taskbar transparency %s to the rendered root as alpha %s",
     async (opacity, expectedAlpha) => {
       const bootstrap = readyTwoWindowFixture();
       bootstrap.settings.taskbarStatusOpacity = opacity;
@@ -264,7 +316,7 @@ describe("TaskbarStatus", () => {
     await waitFor(() =>
       expect(eventHarness.listeners.get(events.settingsChanged)?.size).toBeGreaterThan(0),
     );
-    expect(visible.style.getPropertyValue("--surface-bg-alpha")).toBe("0.2");
+    expect(visible.style.getPropertyValue("--surface-bg-alpha")).toBe("0.8");
 
     act(() => {
       eventHarness.emit(events.settingsChanged, {
@@ -274,7 +326,7 @@ describe("TaskbarStatus", () => {
     });
 
     await waitFor(() =>
-      expect(visible.style.getPropertyValue("--surface-bg-alpha")).toBe("0.8"),
+      expect(visible.style.getPropertyValue("--surface-bg-alpha")).toBe("0.2"),
     );
     expect(
       invokeMock.mock.calls.some(([command]) => command === "set_taskbar_status_width"),

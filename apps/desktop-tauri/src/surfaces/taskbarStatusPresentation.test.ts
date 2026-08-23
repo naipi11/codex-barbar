@@ -53,7 +53,7 @@ describe("buildTaskbarStatusPresentation", () => {
     expect(presentation.displayName).toBe("ProofUser");
     expect(presentation.compactIdentity).toBe("ProofU");
     expect(presentation.reset?.resetsAt).toBe("2026-08-20T00:00:00Z");
-    expect(presentation.surfaceAlpha).toBe("0.2");
+    expect(presentation.surfaceAlpha).toBe("0.8");
     expect(presentation.ariaLabel).toBe(
       "打开完整面板，ProofUser，Wk 98%，6天，已更新，8天前",
     );
@@ -118,17 +118,87 @@ describe("buildTaskbarStatusPresentation", () => {
   });
 
   it.each([
-    [-20, "0"],
-    [0, "0"],
-    [20, "0.2"],
-    [100, "1"],
-    [140, "1"],
-  ])("clamps taskbar opacity %s to background alpha %s", (opacity, alpha) => {
+    [-20, "1"],
+    [0, "1"],
+    [20, "0.8"],
+    [80, "0.2"],
+    [100, "0.2"],
+    [140, "0.2"],
+  ])("maps taskbar transparency %s to background alpha %s", (opacity, alpha) => {
     const bootstrap = bootstrapWithTwoProfiles();
     bootstrap.settings.taskbarStatusOpacity = opacity;
 
     expect(
       buildTaskbarStatusPresentation(surfaceFrom(bootstrap)).surfaceAlpha,
     ).toBe(alpha);
+  });
+
+  it("exposes preference-aware fields with default all-visible behavior", () => {
+    const presentation = buildTaskbarStatusPresentation(weeklySurface());
+
+    expect(presentation.showIcon).toBe(true);
+    expect(presentation.showAccount).toBe(true);
+    expect(presentation.showWeeklyLabel).toBe(true);
+    expect(presentation.showWeeklyPercent).toBe(true);
+    expect(presentation.showResetDate).toBe(true);
+    expect(presentation.density).toBe("compact");
+    expect(presentation.compactIdentity).toBe("ProofU");
+    expect(presentation.weeklyText).toBe("Wk 98%");
+    expect(presentation.resetDateText).toBe("8/20");
+  });
+
+  it("filters every taskbar field from the shared presentation", () => {
+    const bootstrap = bootstrapWithTwoProfiles();
+    bootstrap.profiles[0]!.accountDisplayName = "ProofUser";
+    bootstrap.usageByProfile.personal = weeklyOnlyUsage();
+    bootstrap.settings.taskbarTray = {
+      showTaskbarIcon: false,
+      showTaskbarAccount: false,
+      showWeeklyLabel: false,
+      showWeeklyPercent: false,
+      showResetDate: false,
+      density: "standard",
+      trayIconMode: "dynamic",
+      tooltipAccount: true,
+      tooltipWeekly: true,
+      tooltipResetDate: true,
+      tooltipUpdatedAt: true,
+      hideStatusSurfacesInFullscreen: true,
+    };
+
+    const presentation = buildTaskbarStatusPresentation(surfaceFrom(bootstrap));
+
+    expect(presentation.showIcon).toBe(false);
+    expect(presentation.showAccount).toBe(false);
+    expect(presentation.showWeeklyLabel).toBe(false);
+    expect(presentation.showWeeklyPercent).toBe(false);
+    expect(presentation.showResetDate).toBe(false);
+    expect(presentation.density).toBe("standard");
+    expect(presentation.compactIdentity).toBeNull();
+    expect(presentation.weeklyText).toBeNull();
+    expect(presentation.resetDateText).toBeNull();
+  });
+
+  it("combines label and percent independently", () => {
+    const base = weeklySurface();
+    const prefs = base.bootstrap!.settings.taskbarTray;
+
+    const labelOnly = buildTaskbarStatusPresentation({
+      ...base,
+      bootstrap: {
+        ...base.bootstrap!,
+        settings: { ...base.bootstrap!.settings, taskbarTray: { ...prefs, showWeeklyPercent: false } },
+      },
+    });
+    expect(labelOnly.weeklyText).toBe("Wk");
+
+    const percentOnly = buildTaskbarStatusPresentation({
+      ...base,
+      bootstrap: {
+        ...base.bootstrap!,
+        settings: { ...base.bootstrap!.settings, taskbarTray: { ...prefs, showWeeklyLabel: false } },
+      },
+    });
+    expect(percentOnly.weeklyText).toBe("98%");
   });
 });

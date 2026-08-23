@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import { useCommittedRange } from "../../../hooks/useCommittedRange";
 import type {
   AppSettingsDto,
   SettingsPatchDto,
@@ -42,6 +43,7 @@ function StatusCard({
   surface,
   opacity,
   opacityLabel,
+  saveError,
   opacityField,
   update,
   setSurfaceEnabled,
@@ -53,11 +55,24 @@ function StatusCard({
   surface: StatusSurfaceKind;
   opacity: number;
   opacityLabel: string;
+  saveError: string;
   opacityField: "taskbarStatusOpacity" | "floatBallOpacity";
-  update(patch: SettingsPatchDto): Promise<unknown>;
+  update(patch: SettingsPatchDto): Promise<AppSettingsDto>;
   setSurfaceEnabled(surface: StatusSurfaceKind, enabled: boolean): Promise<AppSettingsDto>;
 }) {
+  const [hasSaveError, setHasSaveError] = useState(false);
   const inputId = `${surface}-opacity`;
+  const transparency = useCommittedRange({
+    value: opacity,
+    min: 0,
+    max: 80,
+    onCommit: async (nextValue) => {
+      const saved = await update({ [opacityField]: nextValue });
+      return saved[opacityField];
+    },
+    onError: () => setHasSaveError(true),
+    onSuccess: () => setHasSaveError(false),
+  });
   return (
     <article className="settings-status-card">
       <div className="settings-status-card__heading">
@@ -74,7 +89,7 @@ function StatusCard({
       </label>
       <label className="settings-range" htmlFor={inputId}>
         <span>{opacityLabel}</span>
-        <output htmlFor={inputId}>{opacity}%</output>
+        <output htmlFor={inputId}>{transparency.value}%</output>
       </label>
       <input
         id={inputId}
@@ -82,14 +97,29 @@ function StatusCard({
         min="0"
         max="80"
         step="1"
-        value={opacity}
+        value={transparency.value}
         aria-label={opacityLabel}
-        aria-valuetext={`${opacity}%`}
-        onChange={(event) => void update({ [opacityField]: Number.parseInt(event.target.value, 10) })}
+        aria-valuetext={`${transparency.value}%`}
+        onChange={() => undefined}
+        onInput={transparency.onInput}
+        onPointerDown={transparency.onPointerDown}
+        onPointerUp={transparency.onPointerUp}
+        onPointerCancel={transparency.onPointerCancel}
+        onKeyDown={transparency.onKeyDown}
+        onKeyUp={transparency.onKeyUp}
+        onBlur={transparency.onBlur}
       />
       <div className="settings-range__ticks" aria-hidden="true">
         <span>0</span><span>20</span><span>40</span><span>60</span><span>80</span>
       </div>
+      {hasSaveError ? (
+        <p
+          className="settings-status-card__error"
+          role="alert"
+        >
+          {saveError}
+        </p>
+      ) : null}
     </article>
   );
 }
@@ -121,7 +151,7 @@ export default function GeneralTab({
   copy = settingsCopy("en-US"),
 }: {
   settings: AppSettingsDto;
-  update(patch: SettingsPatchDto): Promise<unknown>;
+  update(patch: SettingsPatchDto): Promise<AppSettingsDto>;
   setSurfaceEnabled(surface: StatusSurfaceKind, enabled: boolean): Promise<AppSettingsDto>;
   copy?: SettingsCopy;
 }) {
@@ -150,18 +180,6 @@ export default function GeneralTab({
         </label>
       </p>
       <StatusCard
-        title={copy.general.taskbarTitle}
-        description={copy.general.taskbarDescription}
-        enabled={settings.taskbarStatusEnabled}
-        enabledLabel={copy.general.taskbarEnabled}
-        surface="taskbarStatus"
-        opacity={settings.taskbarStatusOpacity}
-        opacityLabel={copy.general.taskbarOpacity}
-        opacityField="taskbarStatusOpacity"
-        update={update}
-        setSurfaceEnabled={setSurfaceEnabled}
-      />
-      <StatusCard
         title={copy.general.floatBallTitle}
         description={copy.general.floatBallDescription}
         enabled={settings.floatBallEnabled}
@@ -169,6 +187,7 @@ export default function GeneralTab({
         surface="floatBall"
         opacity={settings.floatBallOpacity}
         opacityLabel={copy.general.floatBallOpacity}
+        saveError={copy.general.surfaceSaveFailed}
         opacityField="floatBallOpacity"
         update={update}
         setSurfaceEnabled={setSurfaceEnabled}

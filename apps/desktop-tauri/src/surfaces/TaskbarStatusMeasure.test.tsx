@@ -49,7 +49,7 @@ describe("TaskbarStatusMeasure", () => {
     expect(screen.queryByTestId("taskbar-status-visible")).toBeNull();
   });
 
-  it("uses the same runtime alpha on the independent measurement root", async () => {
+  it("uses the same transparency-derived alpha on the independent measurement root", async () => {
     const bootstrap = bootstrapWithTwoProfiles();
     bootstrap.settings.taskbarStatusOpacity = 80;
     invokeMock.mockResolvedValue(bootstrap);
@@ -57,7 +57,7 @@ describe("TaskbarStatusMeasure", () => {
 
     const measurement = await screen.findByTestId("taskbar-status-measurement");
     await waitFor(() =>
-      expect(measurement.style.getPropertyValue("--surface-bg-alpha")).toBe("0.8"),
+      expect(measurement.style.getPropertyValue("--surface-bg-alpha")).toBe("0.2"),
     );
   });
 
@@ -69,7 +69,7 @@ describe("TaskbarStatusMeasure", () => {
 
     const measurement = await screen.findByTestId("taskbar-status-measurement");
     await waitFor(() =>
-      expect(measurement.style.getPropertyValue("--surface-bg-alpha")).toBe("0.8"),
+      expect(measurement.style.getPropertyValue("--surface-bg-alpha")).toBe("0.2"),
     );
     for (const descendant of measurement.querySelectorAll<HTMLElement>("*")) {
       expect(descendant.style.getPropertyValue("--surface-bg-alpha")).toBe("");
@@ -111,6 +111,40 @@ describe("TaskbarStatusMeasure", () => {
       "taskbar-status__metric:Wk 98%",
       "taskbar-status__reset:8/20",
     ]);
+    measurementView.unmount();
+  });
+
+  it("keeps visible and measurement geometry identical under filtered preferences", async () => {
+    const bootstrap = bootstrapWithTwoProfiles();
+    bootstrap.profiles[0]!.accountDisplayName = "ProofUser";
+    bootstrap.usageByProfile.personal = weeklyOnlyUsage();
+    bootstrap.settings.taskbarTray = {
+      ...bootstrap.settings.taskbarTray,
+      showTaskbarIcon: false,
+      showTaskbarAccount: false,
+      showWeeklyLabel: false,
+      showWeeklyPercent: true,
+      showResetDate: false,
+    };
+    invokeMock.mockResolvedValue(bootstrap);
+
+    const visibleView = render(<TaskbarStatus />);
+    const visible = await screen.findByTestId("taskbar-status-visible");
+    await within(visible).findByText("98%");
+    const geometry = (root: HTMLElement) =>
+      Array.from(
+        root.querySelectorAll(
+          ".taskbar-status__avatar, .taskbar-status__identity, .taskbar-status__metric, .taskbar-status__reset",
+        ),
+      ).map((element) => `${element.className}:${element.textContent}`);
+    const visibleGeometry = geometry(visible);
+    visibleView.unmount();
+
+    const measurementView = render(<TaskbarStatusMeasure />);
+    const measurement = await screen.findByTestId("taskbar-status-measurement");
+    await within(measurement).findByText("98%");
+    expect(geometry(measurement)).toEqual(visibleGeometry);
+    expect(visibleGeometry).toEqual(["taskbar-status__metric:98%"]);
     measurementView.unmount();
   });
 

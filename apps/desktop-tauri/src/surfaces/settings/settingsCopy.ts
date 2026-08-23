@@ -11,14 +11,11 @@ export interface SettingsCopy {
   general: {
     title: string;
     autostart: string;
-    taskbarTitle: string;
-    taskbarDescription: string;
-    taskbarEnabled: string;
-    taskbarOpacity: string;
     floatBallTitle: string;
     floatBallDescription: string;
     floatBallEnabled: string;
     floatBallOpacity: string;
+    surfaceSaveFailed: string;
     floatBallGlow: string;
     refreshInterval: string;
     displayMode: string;
@@ -39,6 +36,93 @@ export interface SettingsCopy {
     resetCustom: string;
     system: string;
     simplifiedChinese: string;
+  };
+  taskbarTray: {
+    title: string;
+    taskbarLegend: string;
+    taskbarDescription: string;
+    taskbarEnabled: string;
+    showIcon: string;
+    showAccount: string;
+    showWeeklyLabel: string;
+    showWeeklyPercent: string;
+    showResetDate: string;
+    keepOneVisible: string;
+    density: string;
+    densityOptions: readonly [string, string];
+    transparency: string;
+    transparencyValue: (value: number) => string;
+    transparencyHelp: string;
+    transparencySaveFailed: string;
+    preferencesSaveFailed: string;
+    trayLegend: string;
+    trayDescription: string;
+    trayIconMode: string;
+    trayIconOptions: readonly [string, string];
+    tooltipRows: string;
+    tooltipAccount: string;
+    tooltipWeekly: string;
+    tooltipResetDate: string;
+    tooltipUpdatedAt: string;
+    fullscreenLegend: string;
+    fullscreenDescription: string;
+    hideInFullscreen: string;
+  };
+  menu: {
+    title: string;
+    nativeTrayLegend: string;
+    nativeTrayDescription: string;
+    trayPanelLegend: string;
+    trayPanelDescription: string;
+    itemLabels: Record<string, string>;
+    visible: string;
+    moveUp: string;
+    moveDown: string;
+    restoreDefaults: string;
+    requiredItems: string;
+    noCustomCommands: string;
+    saveFailed: string;
+  };
+  usageSpend: {
+    title: string;
+    officialTitle: string;
+    officialDescription: string;
+    weeklyAllowance: string;
+    remainingPercent: (value: number) => string;
+    resetsAt: string;
+    lastUpdated: string;
+    freshness: Record<"fresh" | "stale" | "missing", string>;
+    resetCreditsTitle: string;
+    resetCreditsAvailable: (count: number) => string;
+    resetCreditsUnsupported: string;
+    resetCreditsStale: string;
+    localTitle: string;
+    localEstimateBadge: string;
+    deviceCombined: string;
+    rangeLabel: string;
+    ranges: readonly [string, string, string, string];
+    refreshLocal: string;
+    refreshingLocal: string;
+    inputTokens: string;
+    cachedInputTokens: string;
+    outputTokens: string;
+    totalTokens: string;
+    sessions: string;
+    dailyTrendTitle: string;
+    dateColumn: string;
+    modelTableTitle: string;
+    modelColumn: string;
+    unknownModelsTitle: string;
+    unknownModelsHelp: string;
+    malformedSkipped: (count: number) => string;
+    emptyState: string;
+    unavailableState: string;
+    cancelledState: string;
+    costUnavailable: string;
+    costUsd: (value: number) => string;
+    costUnknown: string;
+    loading: string;
+    loadFailed: string;
   };
   notifications: {
     title: string;
@@ -62,6 +146,11 @@ export interface SettingsCopy {
     sendTest: string;
     testDescription: string;
     testSent: string;
+    capabilityAppDisabled: string;
+    capabilityGlobalDisabled: string;
+    capabilityUnsupported: string;
+    openWindowsSettings: string;
+    openWindowsSettingsFailed: string;
     thresholdInvalid: string;
     saveFailed: string;
     testFailed: string;
@@ -125,11 +214,118 @@ export interface SettingsCopy {
 
 const english: SettingsCopy = {
   title: "codex-barbar Settings", close: "Close", navigation: "Settings sections",
-  tabs: { general: "General", providers: "Accounts", notifications: "Notifications", menuBar: "Menu bar", menu: "Menu", usageSpend: "Usage & spend", advanced: "Advanced", about: "About" },
+  tabs: { general: "General", providers: "Accounts", notifications: "Notifications", menuBar: "Taskbar & Tray", menu: "Menu", usageSpend: "Usage & spend", advanced: "Advanced", about: "About" },
   placeholder: "This settings section is reserved for a later release.",
   general: {
-    title: "General", autostart: "Start at login", taskbarTitle: "Taskbar status", taskbarDescription: "Show a compact usage status in the taskbar.", taskbarEnabled: "Show status in taskbar", taskbarOpacity: "Taskbar status opacity", floatBallTitle: "Floating status ball", floatBallDescription: "Show a movable usage status ball.", floatBallEnabled: "Show floating status ball", floatBallOpacity: "Floating status ball opacity", floatBallGlow: "Floating status ball glow", refreshInterval: "Refresh interval", displayMode: "Display mode", theme: "Theme", language: "Language", refreshOptions: ["Off", "1 minute", "5 minutes", "15 minutes", "30 minutes"], displayOptions: ["Remaining", "Used"], themeOptions: ["System", "Ink Green", "VS Code", "macOS", "Pink", "Blue", "Custom"], customTheme: "Custom skin", customMode: "Mode", customBg: "Background", customSurface: "Surface", customFg: "Text", customMuted: "Muted text", customAccent: "Accent", customRadius: "Corner radius", applyCustom: "Apply custom skin", resetCustom: "Reset custom skin", system: "System", simplifiedChinese: "Simplified Chinese",
+    title: "General", autostart: "Start at login", floatBallTitle: "Floating status ball", floatBallDescription: "Show a movable usage status ball.", floatBallEnabled: "Show floating status ball", floatBallOpacity: "Floating status ball transparency", surfaceSaveFailed: "Transparency could not be saved. Try again.", floatBallGlow: "Floating status ball glow", refreshInterval: "Refresh interval", displayMode: "Display mode", theme: "Theme", language: "Language", refreshOptions: ["Off", "1 minute", "5 minutes", "15 minutes", "30 minutes"], displayOptions: ["Remaining", "Used"], themeOptions: ["System", "Ink Green", "VS Code", "macOS", "Pink", "Blue", "Custom"], customTheme: "Custom skin", customMode: "Mode", customBg: "Background", customSurface: "Surface", customFg: "Text", customMuted: "Muted text", customAccent: "Accent", customRadius: "Corner radius", applyCustom: "Apply custom skin", resetCustom: "Reset custom skin", system: "System", simplifiedChinese: "Simplified Chinese",
   },
+  taskbarTray: {
+    title: "Taskbar & Tray",
+    taskbarLegend: "Taskbar status",
+    taskbarDescription: "Choose the compact usage readout that stays visible while you work.",
+    taskbarEnabled: "Show taskbar status",
+    showIcon: "Show product icon",
+    showAccount: "Show account name",
+    showWeeklyLabel: "Show weekly label",
+    showWeeklyPercent: "Show remaining percentage",
+    showResetDate: "Show reset date",
+    keepOneVisible: "Keep at least one taskbar item visible while taskbar status is on.",
+    density: "Density",
+    densityOptions: ["Compact", "Standard"],
+    transparency: "Transparency",
+    transparencyValue: (value) => `${value}% transparent`,
+    transparencyHelp: "0% is most opaque; 80% is most transparent.",
+    transparencySaveFailed: "Transparency could not be saved. Try again.",
+    preferencesSaveFailed: "Taskbar and tray settings could not be saved. Try again.",
+    trayLegend: "Tray icon and tooltip",
+    trayDescription: "Set the notification-area icon and the details shown when you point to it.",
+    trayIconMode: "Tray icon style",
+    trayIconOptions: ["Dynamic quota color", "Neutral monochrome"],
+    tooltipRows: "Tooltip rows",
+    tooltipAccount: "Account name",
+    tooltipWeekly: "Weekly remaining",
+    tooltipResetDate: "Reset date",
+    tooltipUpdatedAt: "Last update time",
+    fullscreenLegend: "Full-screen behavior",
+    fullscreenDescription: "Hide glanceable status surfaces over full-screen apps without removing the native tray icon.",
+    hideInFullscreen: "Hide status surfaces during full-screen apps",
+  },
+  menu: {
+    title: "Menu",
+    nativeTrayLegend: "Tray menu",
+    nativeTrayDescription:
+      "Choose which built-in items appear in the tray right-click menu and in what order. Settings and Quit are always available.",
+    trayPanelLegend: "Panel quick actions",
+    trayPanelDescription:
+      "Choose which quick actions appear in the tray panel and in what order.",
+    itemLabels: {
+      open_panel: "Open codex-barbar",
+      refresh: "Refresh",
+      accounts: "Accounts",
+      open_usage: "Open Codex Usage",
+      settings: "Settings",
+      about: "About",
+      quit: "Quit",
+      dismiss: "Dismiss",
+    },
+    visible: "Visible",
+    moveUp: "Move up",
+    moveDown: "Move down",
+    restoreDefaults: "Restore defaults",
+    requiredItems: "Settings and Quit are required and cannot be hidden.",
+    noCustomCommands:
+      "Only built-in items can be configured. Custom commands, scripts, URLs, and executable paths are not supported.",
+    saveFailed: "Menu settings could not be saved. Try again.",
+  },
+
+  usageSpend: {
+    title: "Usage & Spend",
+    officialTitle: "Official weekly allowance",
+    officialDescription:
+      "Read-only view of the universal weekly Codex allowance from the selected account.",
+    weeklyAllowance: "Universal weekly allowance",
+    remainingPercent: (value) => `${value}% remaining`,
+    resetsAt: "Resets",
+    lastUpdated: "Last updated",
+    freshness: {
+      fresh: "Fresh",
+      stale: "Stale",
+      missing: "No data",
+    },
+    resetCreditsTitle: "Reset credits",
+    resetCreditsAvailable: (count) => `${count} reset credit(s) available`,
+    resetCreditsUnsupported: "Reset credits are not reported for this account.",
+    resetCreditsStale: "Reset-credit count is from a cached snapshot.",
+    localTitle: "Local usage estimate",
+    localEstimateBadge: "Local estimate, not an OpenAI bill",
+    deviceCombined: "This device combined",
+    rangeLabel: "Local range",
+    ranges: ["Today", "Last 7 days", "Last 30 days", "Current weekly"],
+    refreshLocal: "Refresh local data",
+    refreshingLocal: "Refreshing local data…",
+    inputTokens: "Input tokens",
+    cachedInputTokens: "Cached input tokens",
+    outputTokens: "Output tokens",
+    totalTokens: "Total tokens",
+    sessions: "Local sessions",
+    dailyTrendTitle: "Daily trend",
+    dateColumn: "Date",
+    modelTableTitle: "Per-model totals",
+    modelColumn: "Model",
+    unknownModelsTitle: "Unpriced models",
+    unknownModelsHelp:
+      "These models contributed tokens but have no known price, so no aggregate cost is shown.",
+    malformedSkipped: (count) => `${count} malformed log line(s) skipped`,
+    emptyState: "No local Codex session logs found in this range.",
+    unavailableState: "Local usage is unavailable for this range.",
+    cancelledState: "Local scan was cancelled.",
+    costUnavailable: "Cost unavailable",
+    costUsd: (value) => `$${value.toFixed(2)}`,
+    costUnknown: "—",
+    loading: "Loading usage data…",
+    loadFailed: "Usage data could not be loaded. Try again.",
+  },
+
   notifications: {
     title: "Notifications",
     masterTitle: "Windows notifications",
@@ -152,6 +348,11 @@ const english: SettingsCopy = {
     sendTest: "Send test notification",
     testDescription: "Tests Windows toast delivery without changing usage, reset credits, or account state.",
     testSent: "Test notification sent.",
+    capabilityAppDisabled: "Notifications for codex-barbar are turned off in Windows. Open Windows notification settings and allow notifications for codex-barbar.",
+    capabilityGlobalDisabled: "Windows notifications are turned off. Open Windows notification settings to turn them on.",
+    capabilityUnsupported: "Windows notification availability could not be checked on this system.",
+    openWindowsSettings: "Open Windows notification settings",
+    openWindowsSettingsFailed: "Windows notification settings could not be opened. Open Settings > System > Notifications manually.",
     thresholdInvalid: "Danger must be lower than warning. Keep both values between 0 and 100.",
     saveFailed: "Notification settings could not be saved. Try again.",
     testFailed: "Windows could not send the test notification. Check notification settings and try again.",
@@ -164,11 +365,114 @@ const english: SettingsCopy = {
 
 const chinese: SettingsCopy = {
   title: "codex-barbar 设置", close: "关闭", navigation: "设置分类",
-  tabs: { general: "通用", providers: "账户", notifications: "通知", menuBar: "菜单栏", menu: "菜单", usageSpend: "用量与费用", advanced: "高级", about: "关于" },
+  tabs: { general: "通用", providers: "账户", notifications: "通知", menuBar: "任务栏与托盘", menu: "菜单", usageSpend: "用量与费用", advanced: "高级", about: "关于" },
   placeholder: "此设置分类将在后续版本中提供。",
   general: {
-    title: "通用", autostart: "登录时启动", taskbarTitle: "任务栏状态", taskbarDescription: "在任务栏中显示紧凑的用量状态。", taskbarEnabled: "在任务栏中显示状态", taskbarOpacity: "任务栏状态透明度", floatBallTitle: "悬浮状态球", floatBallDescription: "显示可移动的用量状态球。", floatBallEnabled: "显示悬浮状态球", floatBallOpacity: "悬浮状态球透明度", floatBallGlow: "悬浮状态球荧光亮度", refreshInterval: "刷新间隔", displayMode: "显示模式", theme: "主题", language: "语言", refreshOptions: ["关闭", "1 分钟", "5 分钟", "15 分钟", "30 分钟"], displayOptions: ["剩余", "已使用"], themeOptions: ["系统", "黑绿", "VS Code", "macOS", "粉色", "蓝色", "自定义"], customTheme: "自定义皮肤", customMode: "明暗", customBg: "背景", customSurface: "面板", customFg: "文字", customMuted: "次要文字", customAccent: "强调色", customRadius: "圆角", applyCustom: "应用自定义皮肤", resetCustom: "重置自定义皮肤", system: "系统", simplifiedChinese: "简体中文",
+    title: "通用", autostart: "登录时启动", floatBallTitle: "悬浮状态球", floatBallDescription: "显示可移动的用量状态球。", floatBallEnabled: "显示悬浮状态球", floatBallOpacity: "悬浮状态球透明度", surfaceSaveFailed: "无法保存透明度，请重试。", floatBallGlow: "悬浮状态球荧光亮度", refreshInterval: "刷新间隔", displayMode: "显示模式", theme: "主题", language: "语言", refreshOptions: ["关闭", "1 分钟", "5 分钟", "15 分钟", "30 分钟"], displayOptions: ["剩余", "已使用"], themeOptions: ["系统", "黑绿", "VS Code", "macOS", "粉色", "蓝色", "自定义"], customTheme: "自定义皮肤", customMode: "明暗", customBg: "背景", customSurface: "面板", customFg: "文字", customMuted: "次要文字", customAccent: "强调色", customRadius: "圆角", applyCustom: "应用自定义皮肤", resetCustom: "重置自定义皮肤", system: "系统", simplifiedChinese: "简体中文",
   },
+  taskbarTray: {
+    title: "任务栏与托盘",
+    taskbarLegend: "任务栏状态",
+    taskbarDescription: "选择工作时持续显示的紧凑用量信息。",
+    taskbarEnabled: "显示任务栏状态",
+    showIcon: "显示产品图标",
+    showAccount: "显示账户名称",
+    showWeeklyLabel: "显示每周标签",
+    showWeeklyPercent: "显示剩余百分比",
+    showResetDate: "显示重置日期",
+    keepOneVisible: "任务栏状态开启时，请至少保留一个可见项目。",
+    density: "密度",
+    densityOptions: ["紧凑", "标准"],
+    transparency: "透明度",
+    transparencyValue: (value) => `${value}% 透明`,
+    transparencyHelp: "0% 最不透明，80% 最透明。",
+    transparencySaveFailed: "无法保存透明度，请重试。",
+    preferencesSaveFailed: "无法保存任务栏与托盘设置，请重试。",
+    trayLegend: "托盘图标与工具提示",
+    trayDescription: "设置通知区域图标，以及鼠标指向图标时显示的信息。",
+    trayIconMode: "托盘图标样式",
+    trayIconOptions: ["根据额度动态变色", "中性单色"],
+    tooltipRows: "工具提示内容",
+    tooltipAccount: "账户名称",
+    tooltipWeekly: "每周剩余",
+    tooltipResetDate: "重置日期",
+    tooltipUpdatedAt: "上次更新时间",
+    fullscreenLegend: "全屏行为",
+    fullscreenDescription: "全屏应用运行时隐藏状态界面，但保留原生托盘图标。",
+    hideInFullscreen: "全屏应用运行时隐藏状态界面",
+  },
+  menu: {
+    title: "菜单",
+    nativeTrayLegend: "托盘菜单",
+    nativeTrayDescription:
+      "选择托盘右键菜单中显示的项及其顺序。设置与退出始终可用。",
+    trayPanelLegend: "面板快捷操作",
+    trayPanelDescription: "选择托盘面板中显示的快捷操作及其顺序。",
+    itemLabels: {
+      open_panel: "打开 codex-barbar",
+      refresh: "刷新",
+      accounts: "账户",
+      open_usage: "打开 Codex 用量",
+      settings: "设置",
+      about: "关于",
+      quit: "退出",
+      dismiss: "关闭",
+    },
+    visible: "可见",
+    moveUp: "上移",
+    moveDown: "下移",
+    restoreDefaults: "恢复默认",
+    requiredItems: "设置与退出为必选项，无法隐藏。",
+    noCustomCommands: "仅可配置内置项，不支持自定义命令、脚本、网址或可执行文件。",
+    saveFailed: "无法保存菜单设置，请重试。",
+  },
+
+  usageSpend: {
+    title: "用量与费用",
+    officialTitle: "官方每周额度",
+    officialDescription: "所选账户的通用每周 Codex 额度，只读展示。",
+    weeklyAllowance: "通用每周额度",
+    remainingPercent: (value) => `剩余 ${value}%`,
+    resetsAt: "重置时间",
+    lastUpdated: "最后更新",
+    freshness: {
+      fresh: "最新",
+      stale: "已过期",
+      missing: "暂无数据",
+    },
+    resetCreditsTitle: "重置额度",
+    resetCreditsAvailable: (count) => `可用重置额度 ${count} 个`,
+    resetCreditsUnsupported: "当前账户未返回重置额度信息。",
+    resetCreditsStale: "重置额度来自缓存快照。",
+    localTitle: "本地用量估算",
+    localEstimateBadge: "本地估算，并非 OpenAI 账单",
+    deviceCombined: "此设备合计",
+    rangeLabel: "本地统计范围",
+    ranges: ["今天", "最近 7 天", "最近 30 天", "当前每周"],
+    refreshLocal: "刷新本地数据",
+    refreshingLocal: "正在刷新本地数据…",
+    inputTokens: "输入令牌",
+    cachedInputTokens: "缓存输入令牌",
+    outputTokens: "输出令牌",
+    totalTokens: "令牌总数",
+    sessions: "本地会话",
+    dailyTrendTitle: "每日趋势",
+    dateColumn: "日期",
+    modelTableTitle: "按模型统计",
+    modelColumn: "模型",
+    unknownModelsTitle: "未定价模型",
+    unknownModelsHelp: "这些模型产生了令牌但无已知价格，因此不显示总费用。",
+    malformedSkipped: (count) => `跳过 ${count} 行格式异常日志`,
+    emptyState: "该范围内未找到本地 Codex 会话日志。",
+    unavailableState: "该范围暂无法提供本地用量。",
+    cancelledState: "本地扫描已取消。",
+    costUnavailable: "费用不可用",
+    costUsd: (value) => `$${value.toFixed(2)}`,
+    costUnknown: "—",
+    loading: "正在加载用量数据…",
+    loadFailed: "无法加载用量数据，请重试。",
+  },
+
   notifications: {
     title: "通知",
     masterTitle: "Windows 通知",
@@ -191,6 +495,11 @@ const chinese: SettingsCopy = {
     sendTest: "发送测试通知",
     testDescription: "测试 Windows 通知，不会更改用量、重置额度或账户状态。",
     testSent: "测试通知已发送。",
+    capabilityAppDisabled: "Windows 已关闭 codex-barbar 的通知。请打开 Windows 通知设置，并允许 codex-barbar 发送通知。",
+    capabilityGlobalDisabled: "Windows 通知已关闭。请打开 Windows 通知设置并启用通知。",
+    capabilityUnsupported: "无法在此系统上检查 Windows 通知是否可用。",
+    openWindowsSettings: "打开 Windows 通知设置",
+    openWindowsSettingsFailed: "无法打开 Windows 通知设置。请手动打开“设置 > 系统 > 通知”。",
     thresholdInvalid: "危险值必须低于预警值。请将两者保持在 0 到 100 之间。",
     saveFailed: "无法保存通知设置，请重试。",
     testFailed: "Windows 无法发送测试通知。请检查通知设置后重试。",

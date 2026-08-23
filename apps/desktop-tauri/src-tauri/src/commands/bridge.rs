@@ -17,8 +17,9 @@ use codexbar::core::{
     AppError, AppErrorKind, AuthMode, Freshness, ProfileUsageState, RefreshStatus, UsageWindow,
 };
 use codexbar::storage::{
-    AppSettings, DisplayMode, LanguagePreference, NotificationPreferences,
-    NotificationPreferencesPatch, SettingsPatch, ThemePreference,
+    AppSettings, DisplayMode, LanguagePreference, MenuPreferences, MenuPreferencesPatch,
+    NotificationPreferences, NotificationPreferencesPatch, SettingsPatch, TaskbarDensity,
+    TaskbarTrayPreferences, TaskbarTrayPreferencesPatch, ThemePreference, TrayIconMode,
 };
 
 use crate::state::AppState;
@@ -47,6 +48,43 @@ pub struct AppSettingsDto {
     pub float_ball_opacity: u8,
     pub float_ball_glow: u8,
     pub notifications: NotificationPreferencesDto,
+    pub taskbar_tray: TaskbarTrayPreferencesDto,
+    pub menu: MenuPreferencesDto,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MenuLayoutDto {
+    pub order: Vec<String>,
+    pub hidden: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MenuPreferencesDto {
+    pub native_tray: MenuLayoutDto,
+    pub tray_panel: MenuLayoutDto,
+}
+
+impl MenuPreferencesDto {
+    fn from_preferences(preferences: &MenuPreferences) -> Self {
+        Self {
+            native_tray: MenuLayoutDto {
+                order: preferences.native_tray.order.clone(),
+                hidden: preferences.native_tray.hidden.clone(),
+            },
+            tray_panel: MenuLayoutDto {
+                order: preferences.tray_panel.order.clone(),
+                hidden: preferences.tray_panel.hidden.clone(),
+            },
+        }
+    }
+}
+
+impl Default for MenuPreferencesDto {
+    fn default() -> Self {
+        Self::from_preferences(&MenuPreferences::default())
+    }
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -87,6 +125,54 @@ impl Default for NotificationPreferencesDto {
     }
 }
 
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TaskbarTrayPreferencesDto {
+    pub show_taskbar_icon: bool,
+    pub show_taskbar_account: bool,
+    pub show_weekly_label: bool,
+    pub show_weekly_percent: bool,
+    pub show_reset_date: bool,
+    pub density: &'static str,
+    pub tray_icon_mode: &'static str,
+    pub tooltip_account: bool,
+    pub tooltip_weekly: bool,
+    pub tooltip_reset_date: bool,
+    pub tooltip_updated_at: bool,
+    pub hide_status_surfaces_in_fullscreen: bool,
+}
+
+impl TaskbarTrayPreferencesDto {
+    fn from_preferences(preferences: &TaskbarTrayPreferences) -> Self {
+        Self {
+            show_taskbar_icon: preferences.show_taskbar_icon,
+            show_taskbar_account: preferences.show_taskbar_account,
+            show_weekly_label: preferences.show_weekly_label,
+            show_weekly_percent: preferences.show_weekly_percent,
+            show_reset_date: preferences.show_reset_date,
+            density: match preferences.density {
+                TaskbarDensity::Compact => "compact",
+                TaskbarDensity::Standard => "standard",
+            },
+            tray_icon_mode: match preferences.tray_icon_mode {
+                TrayIconMode::Dynamic => "dynamic",
+                TrayIconMode::Monochrome => "monochrome",
+            },
+            tooltip_account: preferences.tooltip_account,
+            tooltip_weekly: preferences.tooltip_weekly,
+            tooltip_reset_date: preferences.tooltip_reset_date,
+            tooltip_updated_at: preferences.tooltip_updated_at,
+            hide_status_surfaces_in_fullscreen: preferences.hide_status_surfaces_in_fullscreen,
+        }
+    }
+}
+
+impl Default for TaskbarTrayPreferencesDto {
+    fn default() -> Self {
+        Self::from_preferences(&TaskbarTrayPreferences::default())
+    }
+}
+
 impl Default for AppSettingsDto {
     fn default() -> Self {
         Self {
@@ -102,6 +188,8 @@ impl Default for AppSettingsDto {
             float_ball_opacity: 20,
             float_ball_glow: 20,
             notifications: NotificationPreferencesDto::default(),
+            taskbar_tray: TaskbarTrayPreferencesDto::default(),
+            menu: MenuPreferencesDto::default(),
         }
     }
 }
@@ -121,6 +209,40 @@ pub struct SettingsPatchDto {
     pub float_ball_opacity: Option<u8>,
     pub float_ball_glow: Option<u8>,
     pub notifications: Option<NotificationPreferencesPatchDto>,
+    pub taskbar_tray: Option<TaskbarTrayPreferencesPatchDto>,
+}
+
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MenuLayoutPatchDto {
+    pub order: Option<Vec<String>>,
+    pub hidden: Option<Vec<String>>,
+}
+
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MenuPreferencesPatchDto {
+    pub native_tray: Option<MenuLayoutPatchDto>,
+    pub tray_panel: Option<MenuLayoutPatchDto>,
+}
+
+impl MenuPreferencesPatchDto {
+    pub(crate) fn into_patch(self) -> MenuPreferencesPatch {
+        MenuPreferencesPatch {
+            native_tray: self
+                .native_tray
+                .map(|patch| codexbar::storage::MenuLayoutPatch {
+                    order: patch.order,
+                    hidden: patch.hidden,
+                }),
+            tray_panel: self
+                .tray_panel
+                .map(|patch| codexbar::storage::MenuLayoutPatch {
+                    order: patch.order,
+                    hidden: patch.hidden,
+                }),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Default, Deserialize)]
@@ -136,6 +258,23 @@ pub struct NotificationPreferencesPatchDto {
     pub update_available_enabled: Option<bool>,
     pub warning_remaining_percent: Option<u8>,
     pub danger_remaining_percent: Option<u8>,
+}
+
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TaskbarTrayPreferencesPatchDto {
+    pub show_taskbar_icon: Option<bool>,
+    pub show_taskbar_account: Option<bool>,
+    pub show_weekly_label: Option<bool>,
+    pub show_weekly_percent: Option<bool>,
+    pub show_reset_date: Option<bool>,
+    pub density: Option<String>,
+    pub tray_icon_mode: Option<String>,
+    pub tooltip_account: Option<bool>,
+    pub tooltip_weekly: Option<bool>,
+    pub tooltip_reset_date: Option<bool>,
+    pub tooltip_updated_at: Option<bool>,
+    pub hide_status_surfaces_in_fullscreen: Option<bool>,
 }
 
 impl AppSettingsDto {
@@ -164,6 +303,8 @@ impl AppSettingsDto {
             float_ball_opacity: settings.float_ball_opacity,
             float_ball_glow: settings.float_ball_glow,
             notifications: NotificationPreferencesDto::from_preferences(&settings.notifications),
+            taskbar_tray: TaskbarTrayPreferencesDto::from_preferences(&settings.taskbar_tray),
+            menu: MenuPreferencesDto::from_preferences(&settings.menu),
         }
     }
 }
@@ -200,6 +341,10 @@ impl SettingsPatchDto {
             .notifications
             .map(NotificationPreferencesPatchDto::into_patch)
             .transpose()?;
+        let taskbar_tray = self
+            .taskbar_tray
+            .map(TaskbarTrayPreferencesPatchDto::into_patch)
+            .transpose()?;
         Ok(SettingsPatch {
             start_at_login: self.autostart_enabled,
             refresh_interval_seconds: self.refresh_interval_seconds,
@@ -213,6 +358,8 @@ impl SettingsPatchDto {
             float_ball_opacity: self.float_ball_opacity,
             float_ball_glow: self.float_ball_glow,
             notifications,
+            taskbar_tray,
+            menu: None,
         })
     }
 }
@@ -241,6 +388,41 @@ impl NotificationPreferencesPatchDto {
             update_available_enabled: self.update_available_enabled,
             warning_remaining_percent: self.warning_remaining_percent,
             danger_remaining_percent: self.danger_remaining_percent,
+        })
+    }
+}
+
+impl TaskbarTrayPreferencesPatchDto {
+    fn into_patch(self) -> Result<TaskbarTrayPreferencesPatch, String> {
+        let density = self
+            .density
+            .map(|value| match value.as_str() {
+                "compact" => Ok(TaskbarDensity::Compact),
+                "standard" => Ok(TaskbarDensity::Standard),
+                _ => Err("unsupported taskbar density".to_string()),
+            })
+            .transpose()?;
+        let tray_icon_mode = self
+            .tray_icon_mode
+            .map(|value| match value.as_str() {
+                "dynamic" => Ok(TrayIconMode::Dynamic),
+                "monochrome" => Ok(TrayIconMode::Monochrome),
+                _ => Err("unsupported tray icon mode".to_string()),
+            })
+            .transpose()?;
+        Ok(TaskbarTrayPreferencesPatch {
+            show_taskbar_icon: self.show_taskbar_icon,
+            show_taskbar_account: self.show_taskbar_account,
+            show_weekly_label: self.show_weekly_label,
+            show_weekly_percent: self.show_weekly_percent,
+            show_reset_date: self.show_reset_date,
+            density,
+            tray_icon_mode,
+            tooltip_account: self.tooltip_account,
+            tooltip_weekly: self.tooltip_weekly,
+            tooltip_reset_date: self.tooltip_reset_date,
+            tooltip_updated_at: self.tooltip_updated_at,
+            hide_status_surfaces_in_fullscreen: self.hide_status_surfaces_in_fullscreen,
         })
     }
 }
@@ -364,6 +546,68 @@ pub struct ProfileUsageStateDto {
     pub refresh_status: &'static str,
     pub manual_cooldown_until: Option<String>,
     pub protocol_anomaly: bool,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ResetCreditsStateDto {
+    pub state: &'static str,
+    pub available_count: Option<u64>,
+    pub observed_at: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OfficialUsageDto {
+    pub remaining_percent: Option<u8>,
+    pub resets_at: Option<String>,
+    pub fetched_at: Option<String>,
+    pub freshness: &'static str,
+    pub reset_credits: ResetCreditsStateDto,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DailyUsageSpendDto {
+    pub date: String,
+    pub total_tokens: u64,
+    pub estimated_cost_usd: Option<f64>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ModelUsageSpendDto {
+    pub model: String,
+    pub input_tokens: u64,
+    pub cached_input_tokens: u64,
+    pub output_tokens: u64,
+    pub total_tokens: u64,
+    pub estimated_cost_usd: Option<f64>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LocalUsageSpendDto {
+    pub attribution: &'static str,
+    pub range: &'static str,
+    pub input_tokens: u64,
+    pub cached_input_tokens: u64,
+    pub output_tokens: u64,
+    pub total_tokens: u64,
+    pub sessions_count: u32,
+    pub estimated_cost_usd: Option<f64>,
+    pub unknown_models: Vec<String>,
+    pub daily: Vec<DailyUsageSpendDto>,
+    pub models: Vec<ModelUsageSpendDto>,
+    pub state: &'static str,
+    pub malformed_records_skipped: u64,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UsageSpendDto {
+    pub official: OfficialUsageDto,
+    pub local: LocalUsageSpendDto,
 }
 
 impl ProfileUsageStateDto {
@@ -691,6 +935,7 @@ mod tests {
                 fetched_at: DateTime::from_timestamp(1_754_000_000, 0).unwrap(),
                 source: codexbar::core::UsageSource::AppServer,
                 protocol_anomaly: true,
+                reset_credits: None,
             }),
             current_error: Some(AppError::bare(
                 AppErrorKind::OfflineOrTimeout,
@@ -722,6 +967,32 @@ mod tests {
         for forbidden in ["sqlite", "webview", "path", "token", "error"] {
             assert!(!text.contains(forbidden), "leaked {forbidden}: {text}");
         }
+    }
+
+    #[test]
+    fn taskbar_tray_patch_maps_only_supported_wire_values() {
+        let patch: SettingsPatchDto = serde_json::from_str(
+            r#"{"taskbarTray":{"density":"standard","trayIconMode":"monochrome","showWeeklyPercent":false}}"#,
+        )
+        .unwrap();
+        let mapped = patch.into_patch().unwrap().taskbar_tray.unwrap();
+
+        assert_eq!(mapped.density, Some(TaskbarDensity::Standard));
+        assert_eq!(mapped.tray_icon_mode, Some(TrayIconMode::Monochrome));
+        assert_eq!(mapped.show_weekly_percent, Some(false));
+
+        let invalid_density: SettingsPatchDto =
+            serde_json::from_str(r#"{"taskbarTray":{"density":"wide"}}"#).unwrap();
+        assert_eq!(
+            invalid_density.into_patch().unwrap_err(),
+            "unsupported taskbar density"
+        );
+        let invalid_icon_mode: SettingsPatchDto =
+            serde_json::from_str(r#"{"taskbarTray":{"trayIconMode":"colorful"}}"#).unwrap();
+        assert_eq!(
+            invalid_icon_mode.into_patch().unwrap_err(),
+            "unsupported tray icon mode"
+        );
     }
 
     #[test]

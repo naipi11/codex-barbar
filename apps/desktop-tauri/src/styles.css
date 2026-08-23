@@ -6,7 +6,7 @@
   --app-border: #2a3342;
   --app-accent: #56d98a;
   --app-warn: #e2a33a;
-  --app-crit: #e24b55;
+  --app-crit: #e6535d;
   --app-mono: "IBM Plex Mono", "Cascadia Mono", ui-monospace, monospace;
   color-scheme: dark;
   font-family: "IBM Plex Sans", "Segoe UI", system-ui, sans-serif;
@@ -77,6 +77,57 @@ html:has(.float-ball-shell) {
   font-size: 14px;
   margin: 0;
 }
+.menu-layout-editor {
+  list-style: none;
+  margin: 0 0 10px;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.menu-layout-editor li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 4px 8px;
+  border: 1px solid var(--app-border);
+  border-radius: 8px;
+  background: var(--app-surface);
+}
+
+.menu-layout-editor li[draggable="true"] {
+  cursor: grab;
+}
+
+.menu-layout-editor__move {
+  display: inline-flex;
+  gap: 4px;
+}
+
+.menu-layout-editor__move button,
+.settings-button {
+  padding: 2px 8px;
+  border: 1px solid var(--app-border);
+  border-radius: 6px;
+  background: var(--app-surface);
+  color: var(--app-fg);
+  cursor: pointer;
+}
+
+.menu-layout-editor__move button:disabled,
+.settings-button:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
+.menu-layout-editor__move button:focus-visible,
+.settings-button:focus-visible {
+  outline: 2px solid var(--app-accent);
+  outline-offset: 1px;
+}
+
 
 .tray-panel__hint {
   font-size: 12px;
@@ -328,7 +379,105 @@ html:has(.float-ball-shell) {
 }
 
 .settings-panel input[type="range"] {
+  width: 100%;
   accent-color: var(--app-accent);
+  cursor: ew-resize;
+  transition: accent-color 180ms ease-out;
+}
+
+.settings-status-card .settings-status-card__error {
+  margin: 4px 0 0;
+  color: var(--app-crit);
+  font-weight: 600;
+}
+
+.settings-preference-groups {
+  display: grid;
+  gap: 10px;
+}
+
+.settings-preference-group {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+  margin: 0;
+  padding: 10px 12px 12px;
+  border: 1px solid var(--app-border);
+  border-radius: 10px;
+  background: var(--app-surface);
+}
+
+.settings-preference-group legend {
+  padding: 0 6px;
+  color: var(--app-fg);
+  font-weight: 650;
+  font-size: 14px;
+}
+
+.settings-preference-group__description,
+.settings-preference-group__hint,
+.settings-preference-group__subheading,
+.settings-preference-group__error {
+  margin: 0;
+}
+
+.settings-preference-group__description,
+.settings-preference-group__hint {
+  color: var(--app-muted);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.settings-preference-group__subheading {
+  color: var(--app-fg);
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.settings-preference-group__error {
+  color: var(--app-crit);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.settings-switch--primary {
+  font-weight: 650;
+}
+
+.settings-preference-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  gap: 6px 12px;
+}
+
+.settings-preference-grid--controls {
+  align-items: start;
+  padding-top: 2px;
+}
+
+.settings-compact-field {
+  display: grid;
+  gap: 4px;
+  align-content: start;
+  font-size: 12px;
+}
+
+.settings-compact-field select {
+  min-height: 30px;
+  padding: 4px 7px;
+  border: 1px solid var(--app-border);
+  border-radius: 6px;
+  background: var(--app-surface);
+  color: var(--app-fg);
+}
+
+.settings-compact-field--range {
+  min-width: 0;
+}
+
+.settings-panel input[type="range"]:focus-visible {
+  outline: 2px solid var(--app-accent);
+  outline-offset: 3px;
 }
 
 .settings-custom-skin {
@@ -371,4 +520,66 @@ html[data-surface="tray"],
 html:has(.tray-panel) body {
   height: auto;
   min-height: 0;
+}
+
+.usage-spend-badge {
+  display: inline-block;
+  padding: 1px 6px;
+  border: 1px solid var(--app-warn);
+  border-radius: 999px;
+  color: var(--app-warn);
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.usage-spend-official {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 8px 10px;
+  border: 1px solid var(--app-border);
+  border-radius: 10px;
+  background: var(--app-surface);
+}
+
+.usage-spend-official__label {
+  color: var(--app-muted);
+  font-size: 12px;
+}
+
+.usage-spend-official__percent {
+  font-size: 22px;
+  line-height: 1.1;
+}
+
+.usage-spend-token-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  gap: 6px 10px;
+  margin-top: 8px;
+  font-size: 12px;
+}
+
+.usage-spend-token-grid strong {
+  font-variant-numeric: tabular-nums;
+}
+
+.usage-spend-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-top: 6px;
+  font-size: 12px;
+}
+
+.usage-spend-table th,
+.usage-spend-table td {
+  text-align: left;
+  padding: 4px 6px;
+  border-bottom: 1px solid var(--app-border);
+  font-variant-numeric: tabular-nums;
+}
+
+.usage-spend-table th {
+  color: var(--app-muted);
+  font-weight: 600;
 }

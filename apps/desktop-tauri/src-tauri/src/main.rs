@@ -128,7 +128,10 @@ fn main() {
             commands::get_bootstrap_state,
             float_ball_motion::get_float_ball_motion,
             commands::get_settings_snapshot,
+            commands::get_notification_capability,
             commands::update_settings,
+            commands::apply_menu_preferences,
+            commands::get_usage_spend,
             commands::send_test_notification,
             commands::set_status_surface_enabled,
             commands::set_float_ball_expanded,
@@ -146,6 +149,7 @@ fn main() {
             commands::check_for_updates,
             commands::open_release_page,
             commands::open_codex_usage_page,
+            commands::open_windows_notification_settings,
             commands::open_settings_window,
             commands::close_settings_window,
             commands::dismiss_tray_panel,
@@ -226,7 +230,15 @@ fn main() {
                                                 state.profile_id,
                                                 account_marker.as_deref(),
                                                 &state,
-                                                None,
+                                                state
+                                                    .snapshot
+                                                    .as_ref()
+                                                    .and_then(|snapshot| {
+                                                        snapshot
+                                                            .reset_credits
+                                                            .as_ref()
+                                                            .map(|summary| summary.available_count)
+                                                    }),
                                             )
                                             .is_err()
                                     {

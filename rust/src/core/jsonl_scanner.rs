@@ -112,6 +112,17 @@ pub struct CodexParseResult {
     pub last_totals: Option<CodexTotals>,
 }
 
+/// Detailed result of parsing a Codex file, including a sanitized count of
+/// malformed (non-JSON) lines that were skipped. No line content is retained.
+#[derive(Debug)]
+pub struct CodexParseDetailedResult {
+    pub records: Vec<CodexUsageRecord>,
+    pub parsed_bytes: i64,
+    pub last_model: Option<String>,
+    pub last_totals: Option<CodexTotals>,
+    pub malformed_lines: u64,
+}
+
 /// A billable Codex token-count delta.
 #[derive(Debug, Clone)]
 pub struct CodexUsageRecord {
@@ -793,6 +804,30 @@ impl JsonlScanner {
         initial_model: Option<String>,
         initial_totals: Option<CodexTotals>,
     ) -> std::io::Result<CodexParseResult> {
+        let detailed = Self::parse_codex_file_detailed(
+            file_path,
+            range,
+            start_offset,
+            initial_model,
+            initial_totals,
+        )?;
+        Ok(CodexParseResult {
+            records: detailed.records,
+            parsed_bytes: detailed.parsed_bytes,
+            last_model: detailed.last_model,
+            last_totals: detailed.last_totals,
+        })
+    }
+
+    /// Parse a Codex JSONL file and count malformed lines without retaining
+    /// their content. Used by the read-only usage/spend report.
+    pub fn parse_codex_file_detailed(
+        file_path: &Path,
+        range: &CostUsageDayRange,
+        start_offset: i64,
+        initial_model: Option<String>,
+        initial_totals: Option<CodexTotals>,
+    ) -> std::io::Result<CodexParseDetailedResult> {
         let file = File::open(file_path)?;
         let file_size = file.metadata()?.len() as i64;
 
@@ -803,6 +838,7 @@ impl JsonlScanner {
 
         let mut parser = CodexParserState::new(initial_model, initial_totals);
         let mut parsed_bytes = start_offset;
+        let mut malformed_lines = 0u64;
 
         while let Some((line_bytes, consumed)) =
             read_bounded_jsonl_line(&mut reader, CODEX_JSONL_MAX_LINE_BYTES)?
@@ -812,17 +848,23 @@ impl JsonlScanner {
                 continue;
             }
             let Ok(line) = std::str::from_utf8(&line_bytes) else {
+                malformed_lines += 1;
                 continue;
             };
             let line = line.strip_suffix('\r').unwrap_or(line);
+            if serde_json::from_str::<serde_json::Value>(line).is_err() {
+                malformed_lines += 1;
+                continue;
+            }
             parser.process_line(line, range);
         }
 
-        Ok(CodexParseResult {
+        Ok(CodexParseDetailedResult {
             records: parser.records,
             parsed_bytes: file_size.max(parsed_bytes),
             last_model: parser.current_model,
             last_totals: parser.previous_totals,
+            malformed_lines,
         })
     }
 

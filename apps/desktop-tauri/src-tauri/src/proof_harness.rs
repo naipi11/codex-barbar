@@ -379,6 +379,7 @@ fn snapshot(profile_id: Uuid, primary_used: f64, secondary_used: f64) -> Profile
         fetched_at: chrono::DateTime::from_timestamp(1_752_000_000, 0).unwrap(),
         source: UsageSource::AppServer,
         protocol_anomaly: false,
+        reset_credits: None,
     }
 }
 
@@ -402,6 +403,7 @@ fn weekly_snapshot(profile_id: Uuid) -> ProfileUsageSnapshot {
         fetched_at: chrono::DateTime::from_timestamp(1_786_665_600, 0).unwrap(),
         source: UsageSource::AppServer,
         protocol_anomaly: false,
+        reset_credits: None,
     }
 }
 

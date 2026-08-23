@@ -5,8 +5,8 @@ use serde_json::{Map, Value};
 
 use crate::accounts::identity::AccountStatus;
 use crate::core::{
-    AppError, AppErrorKind, AuthMode, ProfileId, ProfileUsageSnapshot, RecoveryAction, UsageSource,
-    UsageWindow,
+    AppError, AppErrorKind, AuthMode, ProfileId, ProfileUsageSnapshot, RecoveryAction,
+    ResetCreditsSummary, UsageSource, UsageWindow,
 };
 
 /// Account identity returned by `account/read`.
@@ -81,6 +81,7 @@ pub struct ParsedRateLimits {
     pub primary: Option<UsageWindow>,
     pub secondary: Option<UsageWindow>,
     pub additional_windows: Vec<UsageWindow>,
+    pub reset_credits: Option<ResetCreditsSummary>,
     pub protocol_anomaly: bool,
 }
 
@@ -91,6 +92,7 @@ impl ParsedRateLimits {
             primary: None,
             secondary: None,
             additional_windows: Vec::new(),
+            reset_credits: None,
             protocol_anomaly: false,
         }
     }
@@ -102,11 +104,14 @@ impl ParsedRateLimits {
                 "APP_SERVER_INVALID_RATE_LIMITS",
             )
         })?;
+        let (reset_credits, credit_anomaly) = parse_reset_credits(root);
 
         if let Some(by_id) = root.get("rateLimitsByLimitId").and_then(Value::as_object)
             && let Some(codex) = get_case_insensitive(by_id, "codex")
         {
             let mut parsed = parse_bucket("codex", codex)?;
+            parsed.reset_credits = reset_credits;
+            parsed.protocol_anomaly |= credit_anomaly;
             for (limit_id, bucket) in by_id {
                 if !limit_id.eq_ignore_ascii_case("codex") {
                     let extra = parse_bucket_windows(limit_id, bucket)?;
@@ -120,6 +125,8 @@ impl ParsedRateLimits {
 
         if let Some(legacy) = root.get("rateLimits") {
             let mut parsed = parse_bucket("codex", legacy)?;
+            parsed.reset_credits = reset_credits;
+            parsed.protocol_anomaly |= credit_anomaly;
             parsed.selected_limit_id = Some("codex".to_string());
             return Ok(parsed);
         }
@@ -131,6 +138,8 @@ impl ParsedRateLimits {
             || root.contains_key("used_percent")
         {
             let mut parsed = parse_bucket("codex", &value)?;
+            parsed.reset_credits = reset_credits;
+            parsed.protocol_anomaly |= credit_anomaly;
             parsed.selected_limit_id = Some("codex".to_string());
             return Ok(parsed);
         }
@@ -170,6 +179,7 @@ pub fn parse_profile_usage(
         fetched_at,
         source: UsageSource::AppServer,
         protocol_anomaly: rates.protocol_anomaly,
+        reset_credits: rates.reset_credits,
     })
 }
 
@@ -225,8 +235,52 @@ fn parse_bucket(limit_id: &str, value: &Value) -> Result<ParsedRateLimits, AppEr
         primary,
         secondary,
         additional_windows: additional,
+        reset_credits: None,
         protocol_anomaly: parsed.protocol_anomaly,
     })
+}
+
+/// Parse only the redacted reset-credit count from the root object.
+///
+/// Returns `(summary, anomaly)`. A missing or explicit `null` field yields
+/// `(None, false)`; a non-negative integral `availableCount` yields a count;
+/// strings, negatives, fractions, or unrelated shapes yield `(None, true)`.
+fn parse_reset_credits(root: &Map<String, Value>) -> (Option<ResetCreditsSummary>, bool) {
+    let Some(credits) = root.get("rateLimitResetCredits") else {
+        return (None, false);
+    };
+    if credits.is_null() {
+        return (None, false);
+    }
+    let Some(credits) = credits.as_object() else {
+        return (None, true);
+    };
+    let Some(available) = credits.get("availableCount") else {
+        return (None, false);
+    };
+    match available {
+        Value::Number(number) => {
+            if let Some(count) = number.as_u64() {
+                return (
+                    Some(ResetCreditsSummary {
+                        available_count: count,
+                    }),
+                    false,
+                );
+            }
+            (None, true)
+        }
+        Value::String(text) => match text.trim().parse::<u64>() {
+            Ok(count) => (
+                Some(ResetCreditsSummary {
+                    available_count: count,
+                }),
+                false,
+            ),
+            Err(_) => (None, true),
+        },
+        _ => (None, true),
+    }
 }
 
 struct BucketWindows {
@@ -394,6 +448,79 @@ mod tests {
     use chrono::Utc;
     use uuid::Uuid;
 
+    #[test]
+    fn reset_credit_known_count_is_parsed_and_redacted() {
+        let parsed =
+            ParsedRateLimits::from_value(fixture("rate-limits-reset-credits-known.json")).unwrap();
+        assert_eq!(parsed.reset_credits.as_ref().unwrap().available_count, 2);
+        let credits_text = serde_json::to_value(&parsed.reset_credits)
+            .unwrap()
+            .to_string()
+            .to_ascii_lowercase();
+        for forbidden in ["id", "title", "grantedat", "redeem"] {
+            assert!(!credits_text.contains(forbidden), "leaked {forbidden}");
+        }
+    }
+
+    #[test]
+    fn reset_credit_zero_count_is_distinct_from_missing() {
+        let parsed =
+            ParsedRateLimits::from_value(fixture("rate-limits-reset-credits-zero.json")).unwrap();
+        assert_eq!(parsed.reset_credits.unwrap().available_count, 0);
+        assert!(!parsed.protocol_anomaly);
+    }
+
+    #[test]
+    fn reset_credit_malformed_shape_sets_anomaly_and_exposes_no_summary() {
+        let parsed =
+            ParsedRateLimits::from_value(fixture("rate-limits-reset-credits-malformed.json"))
+                .unwrap();
+        assert!(parsed.reset_credits.is_none());
+        assert!(parsed.protocol_anomaly);
+    }
+
+    #[test]
+    fn missing_or_null_reset_credits_are_not_anomalous() {
+        for value in [
+            serde_json::json!({"rateLimits": {"primary": {"usedPercent": 1}}}),
+            serde_json::json!({
+                "rateLimits": {"primary": {"usedPercent": 1}},
+                "rateLimitResetCredits": null
+            }),
+        ] {
+            let parsed = ParsedRateLimits::from_value(value).unwrap();
+            assert!(parsed.reset_credits.is_none());
+            assert!(!parsed.protocol_anomaly);
+        }
+    }
+
+    #[test]
+    fn negative_and_fractional_reset_counts_are_anomalous() {
+        for raw in ["-1", "1.5", "true", "{}"] {
+            let value = serde_json::json!({
+                "rateLimits": {"primary": {"usedPercent": 1}},
+                "rateLimitResetCredits": {"availableCount": serde_json::from_str::<serde_json::Value>(raw).unwrap()}
+            });
+            let parsed = ParsedRateLimits::from_value(value).unwrap();
+            assert!(parsed.reset_credits.is_none());
+            assert!(parsed.protocol_anomaly);
+        }
+    }
+
+    #[test]
+    fn parse_profile_usage_carries_the_reset_credit_summary() {
+        let account = AccountIdentity {
+            auth_mode: AuthMode::ChatGpt,
+            display_name: None,
+            email: Some("user@example.com".into()),
+            plan_type: Some("plus".into()),
+        };
+        let rates =
+            ParsedRateLimits::from_value(fixture("rate-limits-reset-credits-known.json")).unwrap();
+        let snapshot = parse_profile_usage(id(), account, rates, Utc::now()).unwrap();
+        assert_eq!(snapshot.reset_credits.as_ref().unwrap().available_count, 2);
+    }
+
     fn fixture(name: &str) -> serde_json::Value {
         let raw = match name {
             "account-chatgpt.json" => include_str!("fixtures/account-chatgpt.json"),
@@ -401,6 +528,15 @@ mod tests {
             "rate-limits-by-id.json" => include_str!("fixtures/rate-limits-by-id.json"),
             "rate-limits-legacy.json" => include_str!("fixtures/rate-limits-legacy.json"),
             "rate-limits-anomaly.json" => include_str!("fixtures/rate-limits-anomaly.json"),
+            "rate-limits-reset-credits-known.json" => {
+                include_str!("fixtures/rate-limits-reset-credits-known.json")
+            }
+            "rate-limits-reset-credits-zero.json" => {
+                include_str!("fixtures/rate-limits-reset-credits-zero.json")
+            }
+            "rate-limits-reset-credits-malformed.json" => {
+                include_str!("fixtures/rate-limits-reset-credits-malformed.json")
+            }
             _ => panic!("unknown fixture {name}"),
         };
         serde_json::from_str(raw).unwrap()

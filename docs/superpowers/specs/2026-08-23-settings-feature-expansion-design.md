@@ -136,6 +136,13 @@ The version remains visible offline and when the update check fails.
 - Per-event preferences are retained while the master switch is off.
 - Enabling notifications establishes a baseline from the current snapshot; it
   must not replay historical threshold or reset-credit events.
+- The notification page must read the actual Windows notification capability.
+  If global or per-app notifications are disabled, the test action returns a
+  disabled-specific result, the UI explains the exact recovery, and a fixed
+  action may open Windows notification settings. A transport process exiting
+  successfully is not proof that Windows displayed or accepted a notification.
+- codex-barbar must never change Windows notification permission on the user's
+  behalf.
 
 ### Event controls
 
@@ -202,7 +209,8 @@ Provide controls for:
 - show/hide the numeric remaining percentage;
 - show/hide the weekly reset date;
 - compact or standard density;
-- existing taskbar opacity;
+- taskbar transparency, using the legacy persisted opacity field only for
+  backward-compatible storage;
 - hide status overlays during a detected full-screen application.
 
 At least one meaningful status element must remain enabled when the overlay is
@@ -217,6 +225,23 @@ identity.
 The full-screen preference applies to taskbar and floating status overlays but
 does not remove the native tray icon. It uses the existing Windows full-screen
 detection path and defaults to on.
+
+### Surface transparency semantics
+
+- User-facing controls are **transparency**, not opacity.
+- `0%` means the surface is maximally opaque within the approved visual design.
+- `80%` means the surface is highly transparent; increasing the value must
+  never make the surface more opaque.
+- The existing JSON/DTO field names `taskbarStatusOpacity` and
+  `floatBallOpacity` remain temporarily unchanged for installed-settings and
+  bridge compatibility. A single tested conversion function maps the stored
+  legacy numeric value to render alpha.
+- Range dragging updates the local preview at pointer/input frequency without
+  invoking storage on every frame. Persist once on pointer release, keyboard
+  commit, or blur. Incoming settings events must not overwrite an active drag.
+- The slider thumb and fill use native/CSS range rendering with no layout-driven
+  animation. Motion stays within the existing 150–250 ms design commitment and
+  respects reduced motion.
 
 ### Native tray
 
@@ -389,8 +414,11 @@ together. The existing case-sensitive tab IDs remain synchronized between
 
 ## Error Handling
 
-- **Windows notifications unavailable:** keep settings usable, show an inline
-  diagnostic, and let the test-notification action retry.
+- **Windows notifications unavailable:** distinguish app-disabled,
+  globally-disabled, unsupported, and transport-failed states. Keep settings
+  usable, show a localized inline diagnostic and fixed Windows-settings action,
+  and do not report a successful test notification while Windows is configured
+  to suppress it.
 - **Codex app-server omits reset credits:** render Unsupported/Not returned, not
   zero.
 - **Usage refresh stale:** preserve the last known value with an explicit stale

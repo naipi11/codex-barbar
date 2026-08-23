@@ -32,6 +32,40 @@ const defaultSettings = {
     warningRemainingPercent: 66,
     dangerRemainingPercent: 33,
   },
+
+  menu: {
+    nativeTray: {
+      order: [
+        "open_panel",
+        "refresh",
+        "accounts",
+        "open_usage",
+        "settings",
+        "about",
+        "quit",
+      ],
+      hidden: [],
+    },
+    trayPanel: {
+      order: ["refresh", "open_usage", "settings", "dismiss", "quit"],
+      hidden: [],
+    },
+  },
+
+  taskbarTray: {
+    showTaskbarIcon: true,
+    showTaskbarAccount: true,
+    showWeeklyLabel: true,
+    showWeeklyPercent: true,
+    showResetDate: true,
+    density: "compact",
+    trayIconMode: "dynamic",
+    tooltipAccount: true,
+    tooltipWeekly: true,
+    tooltipResetDate: true,
+    tooltipUpdatedAt: true,
+    hideStatusSurfacesInFullscreen: true,
+  },
 };
 
 function renderSettings(language: "system" | "zh-CN" | "en-US" = "system") {
@@ -90,7 +124,7 @@ describe("Settings surface", () => {
       "通用",
       "账户",
       "通知",
-      "菜单栏",
+      "任务栏与托盘",
       "菜单",
       "用量与费用",
       "高级",
@@ -104,6 +138,15 @@ describe("Settings surface", () => {
       screen.getByRole("heading", { name: "通知" }),
     ).toBeInTheDocument();
     expect(screen.getByRole("checkbox", { name: "启用通知" })).toBeInTheDocument();
+  });
+
+  it("renders the concrete Taskbar & Tray pane instead of a placeholder", async () => {
+    renderSettings("en-US");
+    fireEvent.click(await screen.findByRole("button", { name: "Taskbar & Tray" }));
+
+    expect(screen.getByRole("heading", { name: "Taskbar & Tray" })).toBeInTheDocument();
+    expect(screen.getByRole("group", { name: "Taskbar status" })).toBeInTheDocument();
+    expect(screen.queryByText("reserved for a later release", { exact: false })).not.toBeInTheDocument();
   });
 
   it("retains English sidebar labels for en-US", async () => {
@@ -184,7 +227,30 @@ describe("Settings surface", () => {
     expect(screen.queryByRole("button", { name: "Browser login" })).not.toBeInTheDocument();
   });
 
+  it("renders every tab with a real heading and no placeholder", async () => {
+    renderSettings("en-US");
+    const tabs: Array<[string, string]> = [
+      ["General", "General"],
+      ["Accounts", "Accounts"],
+      ["Notifications", "Notifications"],
+      ["Taskbar & Tray", "Taskbar & Tray"],
+      ["Menu", "Menu"],
+      ["Usage & spend", "Usage & Spend"],
+      ["Advanced", "Advanced"],
+      ["About", "About"],
+    ];
+    for (const [buttonLabel, heading] of tabs) {
+      fireEvent.click(await screen.findByRole("button", { name: buttonLabel }));
+      expect(await screen.findByRole("heading", { name: heading })).toBeInTheDocument();
+      expect(
+        screen.queryByText(/reserved for a later release/i),
+      ).not.toBeInTheDocument();
+    }
+  });
   it("never offers remove or re-login for Current CLI", () => {
++
+
+
     render(
       <AccountsTab
         profiles={[

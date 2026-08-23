@@ -19,6 +19,38 @@ export const defaultSettings: AppSettingsDto = {
   taskbarStatusOpacity: 20,
   floatBallOpacity: 20,
   floatBallGlow: 20,
+  taskbarTray: {
+    showTaskbarIcon: true,
+    showTaskbarAccount: true,
+    showWeeklyLabel: true,
+    showWeeklyPercent: true,
+    showResetDate: true,
+    density: "compact",
+    trayIconMode: "dynamic",
+    tooltipAccount: true,
+    tooltipWeekly: true,
+    tooltipResetDate: true,
+    tooltipUpdatedAt: true,
+    hideStatusSurfacesInFullscreen: true,
+  },
+  menu: {
+    nativeTray: {
+      order: [
+        "open_panel",
+        "refresh",
+        "accounts",
+        "open_usage",
+        "settings",
+        "about",
+        "quit",
+      ],
+      hidden: [],
+    },
+    trayPanel: {
+      order: ["refresh", "open_usage", "settings", "dismiss", "quit"],
+      hidden: [],
+    },
+  },
   notifications: {
     enabled: false,
     playSound: true,

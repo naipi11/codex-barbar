@@ -1,6 +1,14 @@
-import { useState } from "react";
-import { sendTestNotification } from "../../../lib/tauri";
-import type { AppSettingsDto, SettingsPatchDto } from "../../../types/bridge";
+import { useCallback, useEffect, useRef, useState } from "react";
+import {
+  getNotificationCapability,
+  openWindowsNotificationSettings,
+  sendTestNotification,
+} from "../../../lib/tauri";
+import type {
+  AppSettingsDto,
+  NotificationCapabilityDto,
+  SettingsPatchDto,
+} from "../../../types/bridge";
 import type { SettingsCopy } from "../settingsCopy";
 
 type NotificationBooleanField =
@@ -41,16 +49,62 @@ export default function NotificationsTab({
   update,
   copy,
   sendTest = sendTestNotification,
+  getCapability = getNotificationCapability,
+  openNotificationSettings = openWindowsNotificationSettings,
 }: {
   settings: AppSettingsDto;
   update(patch: SettingsPatchDto): Promise<unknown>;
   copy: SettingsCopy;
   sendTest?: () => Promise<void>;
+  getCapability?: () => Promise<NotificationCapabilityDto>;
+  openNotificationSettings?: () => Promise<void>;
 }) {
   const [error, setError] = useState<string | null>(null);
   const [testSent, setTestSent] = useState(false);
   const [testing, setTesting] = useState(false);
+  const [openingSettings, setOpeningSettings] = useState(false);
+  const [capability, setCapability] = useState<NotificationCapabilityDto | null>(null);
+  const [capabilityLoading, setCapabilityLoading] = useState(true);
+  const capabilityRequestGeneration = useRef(0);
+  const mounted = useRef(false);
   const notifications = settings.notifications;
+
+  const refreshCapability = useCallback(() => {
+    const requestGeneration = ++capabilityRequestGeneration.current;
+    if (mounted.current) setCapabilityLoading(true);
+    void Promise.resolve()
+      .then(getCapability)
+      .then((next) => {
+        if (
+          mounted.current &&
+          requestGeneration === capabilityRequestGeneration.current &&
+          next
+        ) {
+          setCapability(next);
+          setCapabilityLoading(false);
+        }
+      })
+      .catch(() => {
+        if (
+          mounted.current &&
+          requestGeneration === capabilityRequestGeneration.current
+        ) {
+          setCapability({ status: "unsupported", canOpenSettings: false });
+          setCapabilityLoading(false);
+        }
+      });
+  }, [getCapability]);
+
+  useEffect(() => {
+    mounted.current = true;
+    refreshCapability();
+    window.addEventListener("focus", refreshCapability);
+    return () => {
+      mounted.current = false;
+      capabilityRequestGeneration.current += 1;
+      window.removeEventListener("focus", refreshCapability);
+    };
+  }, [refreshCapability]);
 
   const saveBoolean = (field: NotificationBooleanField, value: boolean) => {
     setError(null);
@@ -78,12 +132,38 @@ export default function NotificationsTab({
   const runTest = () => {
     setError(null);
     setTestSent(false);
+    if (capabilityLoading || capability?.status !== "available") {
+      return;
+    }
     setTesting(true);
     void sendTest()
       .then(() => setTestSent(true))
-      .catch(() => setError(copy.notifications.testFailed))
+      .catch((reason: unknown) => {
+        if (reason === "NOTIFICATION_PERMISSION_DISABLED") {
+          refreshCapability();
+          return;
+        }
+        setError(copy.notifications.testFailed);
+      })
       .finally(() => setTesting(false));
   };
+
+  const openNotificationRecovery = () => {
+    setError(null);
+    setOpeningSettings(true);
+    void openNotificationSettings()
+      .catch(() => setError(copy.notifications.openWindowsSettingsFailed))
+      .finally(() => setOpeningSettings(false));
+  };
+
+  const capabilityMessage =
+    capability?.status === "appDisabled"
+      ? copy.notifications.capabilityAppDisabled
+      : capability?.status === "globalDisabled"
+        ? copy.notifications.capabilityGlobalDisabled
+        : capability?.status === "unsupported"
+          ? copy.notifications.capabilityUnsupported
+          : null;
 
   return (
     <section aria-label={`${copy.notifications.title} settings`}>
@@ -194,7 +274,27 @@ export default function NotificationsTab({
           <h3>{copy.notifications.sendTest}</h3>
           <p>{copy.notifications.testDescription}</p>
         </div>
-        <button type="button" disabled={testing} onClick={runTest}>
+        {capabilityMessage ? (
+          <div className="settings-field" role="status">
+            <p>{capabilityMessage}</p>
+            {capability?.canOpenSettings ? (
+              <button
+                type="button"
+                disabled={openingSettings}
+                onClick={openNotificationRecovery}
+              >
+                {copy.notifications.openWindowsSettings}
+              </button>
+            ) : null}
+          </div>
+        ) : null}
+        <button
+          type="button"
+          disabled={
+            capabilityLoading || capability?.status !== "available" || testing
+          }
+          onClick={runTest}
+        >
           {copy.notifications.sendTest}
         </button>
         {testSent ? <p role="status">{copy.notifications.testSent}</p> : null}

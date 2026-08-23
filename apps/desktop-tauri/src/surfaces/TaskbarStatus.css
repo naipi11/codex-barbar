@@ -12,7 +12,7 @@ body,
   --quota-medium: #ffd60a;
   --quota-low: #ff453a;
   --quota-unknown: #9299aa;
-  --surface-bg-alpha: 0.2;
+  --surface-bg-alpha: 0.8;
   display: inline-grid;
   grid-auto-flow: column;
   grid-template-columns: minmax(0, max-content);
@@ -68,6 +68,10 @@ body,
   padding: 0;
   background: transparent;
   text-align: left;
+}
+
+.taskbar-status__main[data-density="standard"] {
+  gap: 10px;
 }
 
 .taskbar-status__main:hover { color: #fff; }

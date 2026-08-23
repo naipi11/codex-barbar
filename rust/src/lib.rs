@@ -5,11 +5,15 @@
 
 pub mod accounts;
 pub mod app_paths;
+pub mod codex_costs;
+pub mod codex_sessions;
 pub mod core;
+pub mod cost_scanner;
 pub mod diagnostics;
 pub mod locale;
 pub mod logging;
 pub mod notifications;
+pub mod pi_session_cost;
 pub mod platform;
 pub mod providers;
 pub mod refresh;
@@ -20,3 +24,4 @@ pub mod sound;
 pub mod storage;
 pub mod tray;
 pub mod update_check;
+pub mod usage_spend;

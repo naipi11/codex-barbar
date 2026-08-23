@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import type { CSSProperties, PointerEvent as ReactPointerEvent } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { getFloatBallMotion } from "../lib/tauri";
+import { surfaceAlphaFromTransparency } from "../lib/surfaceTransparency";
 import { useStatusSurface } from "../hooks/useStatusSurface";
 import { useTheme } from "../hooks/useTheme";
 import ChatGptMark from "../theme/ChatGptMark";
@@ -41,7 +42,7 @@ export default function FloatBall() {
     language === "zh-CN" ||
     (language !== "en-US" && (navigator.language || "").toLowerCase().startsWith("zh"));
   const glow = clampPercent(surface.bootstrap?.settings.floatBallGlow);
-  const opacity = clampPercent(surface.bootstrap?.settings.floatBallOpacity);
+  const transparency = clampPercent(surface.bootstrap?.settings.floatBallOpacity);
   const speedSeconds =
     motion === "fast" ? IDLE_SECONDS / 3 : motion === "thinking" ? IDLE_SECONDS / 2 : IDLE_SECONDS;
   const bodyLabel = `${chinese ? "打开完整面板" : "Open panel"}，${surface.displayName}，${
@@ -108,7 +109,7 @@ export default function FloatBall() {
       data-motion={motion}
       style={
         {
-          "--surface-bg-alpha": String(opacity / 100),
+          "--surface-bg-alpha": String(surfaceAlphaFromTransparency(transparency)),
           "--float-glow": String(glow / 80),
           "--float-spin-duration": `${speedSeconds}s`,
         } as CSSProperties

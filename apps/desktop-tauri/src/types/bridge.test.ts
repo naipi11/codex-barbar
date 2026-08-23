@@ -2,6 +2,9 @@ import { describe, expect, it } from "vitest";
 import {
   commands,
   events,
+  getUsageSpend,
+  getNotificationCapability,
+  openWindowsNotificationSettings,
   setFloatBallExpanded,
   setTaskbarStatusWidth,
   setStatusSurfaceEnabled,
@@ -51,7 +54,10 @@ describe("V1 bridge contract", () => {
     expect(commands).toEqual({
       getBootstrapState: "get_bootstrap_state",
       getSettingsSnapshot: "get_settings_snapshot",
+      getNotificationCapability: "get_notification_capability",
       updateSettings: "update_settings",
+      applyMenuPreferences: "apply_menu_preferences",
+      getUsageSpend: "get_usage_spend",
       sendTestNotification: "send_test_notification",
       setStatusSurfaceEnabled: "set_status_surface_enabled",
       setFloatBallExpanded: "set_float_ball_expanded",
@@ -70,6 +76,7 @@ describe("V1 bridge contract", () => {
       checkForUpdates: "check_for_updates",
       openReleasePage: "open_release_page",
       openCodexUsagePage: "open_codex_usage_page",
+      openWindowsNotificationSettings: "open_windows_notification_settings",
       openSettingsWindow: "open_settings_window",
       openTrayPanel: "open_tray_panel",
       closeSettingsWindow: "close_settings_window",
@@ -132,6 +139,48 @@ describe("V1 bridge contract", () => {
     });
   });
 
+  it("requests the read-only usage spend range through the typed command", async () => {
+    invokeMock.mockResolvedValue({
+      official: {
+        remainingPercent: 66,
+        resetsAt: null,
+        fetchedAt: "2026-08-23T01:02:03Z",
+        freshness: "fresh",
+        resetCredits: { state: "available", availableCount: 2, observedAt: "2026-08-23T01:02:03Z" },
+      },
+      local: {
+        attribution: "deviceCombined",
+        range: "today",
+        inputTokens: 10,
+        cachedInputTokens: 2,
+        outputTokens: 3,
+        totalTokens: 15,
+        sessionsCount: 1,
+        estimatedCostUsd: null,
+        unknownModels: ["gpt-mystery"],
+        daily: [],
+        models: [],
+        state: "ready",
+        malformedRecordsSkipped: 0,
+      },
+    });
+
+    await getUsageSpend("today");
+
+    expect(invokeMock).toHaveBeenCalledWith("get_usage_spend", {
+      range: "today",
+    });
+  });
+
+  it("uses no-argument notification capability and recovery commands", async () => {
+    invokeMock.mockResolvedValue({ status: "available", canOpenSettings: true });
+
+    await getNotificationCapability();
+    await openWindowsNotificationSettings();
+
+    expect(invokeMock).toHaveBeenCalledWith("get_notification_capability");
+    expect(invokeMock).toHaveBeenCalledWith("open_windows_notification_settings");
+  });
   it("persists the expanded float-ball state through the typed command", async () => {
     invokeMock.mockResolvedValue(undefined);
 
@@ -191,6 +240,38 @@ describe("V1 bridge contract", () => {
       taskbarStatusOpacity: 0,
       floatBallOpacity: 80,
       floatBallGlow: 40,
+      taskbarTray: {
+        showTaskbarIcon: true,
+        showTaskbarAccount: true,
+        showWeeklyLabel: true,
+        showWeeklyPercent: true,
+        showResetDate: true,
+        density: "compact",
+        trayIconMode: "dynamic",
+        tooltipAccount: true,
+        tooltipWeekly: true,
+        tooltipResetDate: true,
+        tooltipUpdatedAt: true,
+        hideStatusSurfacesInFullscreen: true,
+      },
+      menu: {
+        nativeTray: {
+          order: [
+            "open_panel",
+            "refresh",
+            "accounts",
+            "open_usage",
+            "settings",
+            "about",
+            "quit",
+          ],
+          hidden: [],
+        },
+        trayPanel: {
+          order: ["refresh", "open_usage", "settings", "dismiss", "quit"],
+          hidden: [],
+        },
+      },
       notifications: {
         enabled: false,
         playSound: true,
@@ -212,6 +293,22 @@ describe("V1 bridge contract", () => {
     expect(settings.taskbarStatusOpacity).toBe(0);
     expect(settings.floatBallOpacity).toBe(80);
     expect(settings.floatBallGlow).toBe(40);
+    expect(settings.taskbarTray).toEqual({
+      showTaskbarIcon: true,
+      showTaskbarAccount: true,
+      showWeeklyLabel: true,
+      showWeeklyPercent: true,
+      showResetDate: true,
+      density: "compact",
+      trayIconMode: "dynamic",
+      tooltipAccount: true,
+      tooltipWeekly: true,
+      tooltipResetDate: true,
+      tooltipUpdatedAt: true,
+      hideStatusSurfacesInFullscreen: true,
+    });
+    expect(settings.menu.nativeTray.order).toContain("settings");
+    expect(settings.menu.trayPanel.order).toContain("quit");
     expect(settings.notifications).toEqual({
       enabled: false,
       playSound: true,
@@ -226,3 +323,5 @@ describe("V1 bridge contract", () => {
     });
   });
 });
+
+
