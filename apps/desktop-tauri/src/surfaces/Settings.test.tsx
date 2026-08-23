@@ -32,6 +32,26 @@ const defaultSettings = {
     warningRemainingPercent: 66,
     dangerRemainingPercent: 33,
   },
+
+  menu: {
+    nativeTray: {
+      order: [
+        "open_panel",
+        "refresh",
+        "accounts",
+        "open_usage",
+        "settings",
+        "about",
+        "quit",
+      ],
+      hidden: [],
+    },
+    trayPanel: {
+      order: ["refresh", "open_usage", "settings", "dismiss", "quit"],
+      hidden: [],
+    },
+  },
+
   taskbarTray: {
     showTaskbarIcon: true,
     showTaskbarAccount: true,
@@ -207,7 +227,30 @@ describe("Settings surface", () => {
     expect(screen.queryByRole("button", { name: "Browser login" })).not.toBeInTheDocument();
   });
 
+  it("renders every tab with a real heading and no placeholder", async () => {
+    renderSettings("en-US");
+    const tabs: Array<[string, string]> = [
+      ["General", "General"],
+      ["Accounts", "Accounts"],
+      ["Notifications", "Notifications"],
+      ["Taskbar & Tray", "Taskbar & Tray"],
+      ["Menu", "Menu"],
+      ["Usage & spend", "Usage & Spend"],
+      ["Advanced", "Advanced"],
+      ["About", "About"],
+    ];
+    for (const [buttonLabel, heading] of tabs) {
+      fireEvent.click(await screen.findByRole("button", { name: buttonLabel }));
+      expect(await screen.findByRole("heading", { name: heading })).toBeInTheDocument();
+      expect(
+        screen.queryByText(/reserved for a later release/i),
+      ).not.toBeInTheDocument();
+    }
+  });
   it("never offers remove or re-login for Current CLI", () => {
++
+
+
     render(
       <AccountsTab
         profiles={[
