@@ -512,6 +512,152 @@ mod tests {
     use super::*;
     use crate::storage::MenuLayoutPatch;
     use std::sync::Arc;
+    #[test]
+    fn expanded_settings_json_round_trips_every_preference() {
+        let (repository, _) = settings_fixture();
+        let updated = repository
+            .update(SettingsPatch {
+                start_at_login: Some(false),
+                refresh_interval_seconds: Some(1800),
+                display_mode: Some(DisplayMode::Used),
+                theme: Some(ThemePreference::Dark),
+                language: Some(LanguagePreference::ZhCn),
+                taskbar_status_enabled: Some(true),
+                float_ball_enabled: Some(false),
+                taskbar_status_opacity: Some(0),
+                float_ball_opacity: Some(80),
+                float_ball_glow: Some(40),
+                notifications: Some(NotificationPreferencesPatch {
+                    enabled: Some(true),
+                    play_sound: Some(false),
+                    warning_enabled: Some(false),
+                    danger_enabled: Some(true),
+                    weekly_reset_enabled: Some(false),
+                    reset_credit_increase_enabled: Some(true),
+                    refresh_failure_enabled: Some(false),
+                    update_available_enabled: Some(true),
+                    warning_remaining_percent: Some(70),
+                    danger_remaining_percent: Some(30),
+                }),
+                taskbar_tray: Some(TaskbarTrayPreferencesPatch {
+                    show_taskbar_icon: Some(false),
+                    show_taskbar_account: Some(true),
+                    show_weekly_label: Some(false),
+                    show_weekly_percent: Some(true),
+                    show_reset_date: Some(false),
+                    density: Some(TaskbarDensity::Standard),
+                    tray_icon_mode: Some(TrayIconMode::Monochrome),
+                    tooltip_account: Some(false),
+                    tooltip_weekly: Some(true),
+                    tooltip_reset_date: Some(false),
+                    tooltip_updated_at: Some(true),
+                    hide_status_surfaces_in_fullscreen: Some(false),
+                }),
+                menu: Some(MenuPreferencesPatch {
+                    native_tray: Some(MenuLayoutPatch {
+                        order: Some(vec!["quit".into(), "settings".into()]),
+                        hidden: None,
+                    }),
+                    tray_panel: None,
+                }),
+                ..SettingsPatch::default()
+            })
+            .unwrap();
+
+        let reloaded = repository.load().unwrap();
+        assert_eq!(reloaded, updated);
+        assert_eq!(reloaded.theme, ThemePreference::Dark);
+        assert_eq!(reloaded.language, LanguagePreference::ZhCn);
+        assert_eq!(reloaded.notifications.warning_remaining_percent, 70);
+        assert_eq!(
+            reloaded.taskbar_tray.tray_icon_mode,
+            TrayIconMode::Monochrome
+        );
+        assert!(
+            reloaded
+                .menu
+                .native_tray
+                .order
+                .contains(&"quit".to_string())
+        );
+    }
+
+    #[test]
+    fn persisted_invalid_threshold_ordering_loads_but_save_is_atomic() {
+        let (repository, database) = settings_fixture();
+        database
+            .with_connection(|connection| {
+                connection
+                    .execute(
+                        "INSERT INTO app_settings(key, value_json) VALUES (?1, ?2)",
+                        params![
+                            SETTINGS_KEY,
+                            r#"{"notifications":{"enabled":true,"warningRemainingPercent":30,"dangerRemainingPercent":70}}"#
+                        ],
+                    )
+                    .map_err(storage_error)?;
+                Ok(())
+            })
+            .unwrap();
+
+        let loaded = repository.load().unwrap();
+        assert_eq!(loaded.notifications.warning_remaining_percent, 30);
+        assert_eq!(loaded.notifications.danger_remaining_percent, 70);
+
+        let error = repository
+            .update(SettingsPatch {
+                notifications: Some(NotificationPreferencesPatch {
+                    warning_remaining_percent: Some(20),
+                    ..Default::default()
+                }),
+                ..SettingsPatch::default()
+            })
+            .unwrap_err();
+        assert_eq!(error.code(), "SETTINGS_NOTIFICATION_THRESHOLDS_INVALID");
+        assert_eq!(
+            repository
+                .load()
+                .unwrap()
+                .notifications
+                .warning_remaining_percent,
+            30
+        );
+    }
+
+    #[test]
+    fn combined_malformed_menu_layout_normalizes_without_crashing() {
+        let (repository, database) = settings_fixture();
+        database
+            .with_connection(|connection| {
+                connection
+                    .execute(
+                        "INSERT INTO app_settings(key, value_json) VALUES (?1, ?2)",
+                        params![
+                            SETTINGS_KEY,
+                            r#"{"menu":{"nativeTray":{"order":["quit","unknown","refresh","refresh","settings"],"hidden":["settings","refresh","unknown"]},"trayPanel":{"order":["dismiss","quit"],"hidden":["refresh"]}}}"#
+                        ],
+                    )
+                    .map_err(storage_error)?;
+                Ok(())
+            })
+            .unwrap();
+
+        let settings = repository.load().unwrap();
+        let native = &settings.menu.native_tray;
+        assert!(native.order.contains(&"settings".to_string()));
+        assert!(native.order.contains(&"quit".to_string()));
+        assert!(!native.order.contains(&"unknown".to_string()));
+        assert!(!native.order.contains(&"refresh".to_string()));
+        assert_eq!(
+            settings.menu.tray_panel.order,
+            vec![
+                "dismiss".to_string(),
+                "quit".to_string(),
+                "open_usage".to_string(),
+                "settings".to_string(),
+            ]
+        );
+    }
 
     #[test]
     fn v1_settings_defaults_are_exact() {
