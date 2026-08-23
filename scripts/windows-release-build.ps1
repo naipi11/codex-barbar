@@ -97,6 +97,8 @@ try {
 
     $status = (& $git.Source status --porcelain) | Where-Object { $_ -notmatch '^\?\?\s+target/' }
     if ($status -and -not $AllowDirty) {
+        Write-Host "Dirty files:" -ForegroundColor Red
+        $status | ForEach-Object { Write-Host $_ }
         throw "Worktree is not clean. Commit or stash changes first (or pass -AllowDirty for development)."
     }
     if ($status -and $AllowDirty) {
