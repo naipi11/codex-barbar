@@ -62,6 +62,11 @@ export interface SettingsCopy {
     sendTest: string;
     testDescription: string;
     testSent: string;
+    capabilityAppDisabled: string;
+    capabilityGlobalDisabled: string;
+    capabilityUnsupported: string;
+    openWindowsSettings: string;
+    openWindowsSettingsFailed: string;
     thresholdInvalid: string;
     saveFailed: string;
     testFailed: string;
@@ -152,6 +157,11 @@ const english: SettingsCopy = {
     sendTest: "Send test notification",
     testDescription: "Tests Windows toast delivery without changing usage, reset credits, or account state.",
     testSent: "Test notification sent.",
+    capabilityAppDisabled: "Notifications for codex-barbar are turned off in Windows. Open Windows notification settings and allow notifications for codex-barbar.",
+    capabilityGlobalDisabled: "Windows notifications are turned off. Open Windows notification settings to turn them on.",
+    capabilityUnsupported: "Windows notification availability could not be checked on this system.",
+    openWindowsSettings: "Open Windows notification settings",
+    openWindowsSettingsFailed: "Windows notification settings could not be opened. Open Settings > System > Notifications manually.",
     thresholdInvalid: "Danger must be lower than warning. Keep both values between 0 and 100.",
     saveFailed: "Notification settings could not be saved. Try again.",
     testFailed: "Windows could not send the test notification. Check notification settings and try again.",
@@ -191,6 +201,11 @@ const chinese: SettingsCopy = {
     sendTest: "发送测试通知",
     testDescription: "测试 Windows 通知，不会更改用量、重置额度或账户状态。",
     testSent: "测试通知已发送。",
+    capabilityAppDisabled: "Windows 已关闭 codex-barbar 的通知。请打开 Windows 通知设置，并允许 codex-barbar 发送通知。",
+    capabilityGlobalDisabled: "Windows 通知已关闭。请打开 Windows 通知设置并启用通知。",
+    capabilityUnsupported: "无法在此系统上检查 Windows 通知是否可用。",
+    openWindowsSettings: "打开 Windows 通知设置",
+    openWindowsSettingsFailed: "无法打开 Windows 通知设置。请手动打开“设置 > 系统 > 通知”。",
     thresholdInvalid: "危险值必须低于预警值。请将两者保持在 0 到 100 之间。",
     saveFailed: "无法保存通知设置，请重试。",
     testFailed: "Windows 无法发送测试通知。请检查通知设置后重试。",

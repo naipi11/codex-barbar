@@ -6,11 +6,116 @@ use codexbar::{
     storage::{AppSettings, LanguagePreference, SettingsRepository},
     update_check::{ManualUpdateChecker, ManualUpdateResult},
 };
+use serde::Serialize;
 use tauri::Manager;
 
 use crate::state::AppState;
 
 const UPDATE_CHECK_INTERVAL: Duration = Duration::from_secs(24 * 60 * 60);
+const APP_NOTIFICATION_SETTINGS_KEY: &str =
+    r"Software\Microsoft\Windows\CurrentVersion\Notifications\Settings\CodexBar";
+const GLOBAL_NOTIFICATION_SETTINGS_KEY: &str =
+    r"Software\Microsoft\Windows\CurrentVersion\PushNotifications";
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub enum NotificationCapabilityStatus {
+    Available,
+    AppDisabled,
+    GlobalDisabled,
+    Unsupported,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NotificationCapabilityDto {
+    pub status: NotificationCapabilityStatus,
+    pub can_open_settings: bool,
+}
+
+trait NotificationRegistryReader {
+    fn read_dword(&self, key: &str, value: &str) -> Result<Option<u32>, ()>;
+}
+
+struct SystemNotificationRegistry;
+
+#[cfg(target_os = "windows")]
+impl NotificationRegistryReader for SystemNotificationRegistry {
+    fn read_dword(&self, key: &str, value: &str) -> Result<Option<u32>, ()> {
+        use std::io::ErrorKind;
+        use winreg::RegKey;
+        use winreg::enums::{HKEY_CURRENT_USER, KEY_READ};
+
+        let hkcu = RegKey::predef(HKEY_CURRENT_USER);
+        let key = match hkcu.open_subkey_with_flags(key, KEY_READ) {
+            Ok(key) => key,
+            Err(error) if error.kind() == ErrorKind::NotFound => return Ok(None),
+            Err(_) => return Err(()),
+        };
+        match key.get_value::<u32, _>(value) {
+            Ok(value) => Ok(Some(value)),
+            Err(error) if error.kind() == ErrorKind::NotFound => Ok(None),
+            Err(_) => Err(()),
+        }
+    }
+}
+
+#[cfg(not(target_os = "windows"))]
+impl NotificationRegistryReader for SystemNotificationRegistry {
+    fn read_dword(&self, _key: &str, _value: &str) -> Result<Option<u32>, ()> {
+        Err(())
+    }
+}
+
+fn detect_notification_capability<R: NotificationRegistryReader>(
+    reader: &R,
+    is_windows: bool,
+) -> NotificationCapabilityDto {
+    if !is_windows {
+        return NotificationCapabilityDto {
+            status: NotificationCapabilityStatus::Unsupported,
+            can_open_settings: false,
+        };
+    }
+
+    let app_enabled = match reader.read_dword(APP_NOTIFICATION_SETTINGS_KEY, "Enabled") {
+        Ok(value) => value,
+        Err(()) => {
+            return NotificationCapabilityDto {
+                status: NotificationCapabilityStatus::Unsupported,
+                can_open_settings: true,
+            };
+        }
+    };
+    if app_enabled == Some(0) {
+        return NotificationCapabilityDto {
+            status: NotificationCapabilityStatus::AppDisabled,
+            can_open_settings: true,
+        };
+    }
+
+    let global_enabled = match reader.read_dword(GLOBAL_NOTIFICATION_SETTINGS_KEY, "ToastEnabled") {
+        Ok(value) => value,
+        Err(()) => {
+            return NotificationCapabilityDto {
+                status: NotificationCapabilityStatus::Unsupported,
+                can_open_settings: true,
+            };
+        }
+    };
+    NotificationCapabilityDto {
+        status: if global_enabled == Some(0) {
+            NotificationCapabilityStatus::GlobalDisabled
+        } else {
+            NotificationCapabilityStatus::Available
+        },
+        can_open_settings: true,
+    }
+}
+
+pub fn notification_capability() -> NotificationCapabilityDto {
+    detect_notification_capability(&SystemNotificationRegistry, cfg!(target_os = "windows"))
+}
 
 pub trait ToastSink: Send {
     fn send(&mut self, title: &str, body: &str, play_sound: bool) -> Result<(), String>;
@@ -104,7 +209,7 @@ impl<S: ToastSink> NotificationController<S> {
         let (title, body) = test_copy(&settings);
         self.sink
             .send(title, body, settings.notifications.play_sound)
-            .map_err(|_| "NOTIFICATION_TEST_FAILED".to_string())
+            .map_err(|error| map_sink_error(error, "NOTIFICATION_TEST_FAILED"))
     }
 
     fn dispatch(
@@ -116,9 +221,17 @@ impl<S: ToastSink> NotificationController<S> {
             let (title, body) = event_copy(settings, &event);
             self.sink
                 .send(&title, &body, settings.notifications.play_sound)
-                .map_err(|_| "NOTIFICATION_DISPATCH_FAILED".to_string())?;
+                .map_err(|error| map_sink_error(error, "NOTIFICATION_DISPATCH_FAILED"))?;
         }
         Ok(())
+    }
+}
+
+fn map_sink_error(error: String, fallback: &str) -> String {
+    if error == "NOTIFICATION_PERMISSION_DISABLED" {
+        error
+    } else {
+        fallback.to_string()
     }
 }
 
@@ -265,8 +378,32 @@ fn xml_escape(value: &str) -> String {
         .replace('\'', "&apos;")
 }
 
+fn send_windows_toast_with<R, F>(reader: &R, is_windows: bool, transport: F) -> Result<(), String>
+where
+    R: NotificationRegistryReader,
+    F: FnOnce() -> Result<(), String>,
+{
+    match detect_notification_capability(reader, is_windows).status {
+        NotificationCapabilityStatus::Available => transport(),
+        NotificationCapabilityStatus::AppDisabled
+        | NotificationCapabilityStatus::GlobalDisabled => {
+            Err("NOTIFICATION_PERMISSION_DISABLED".to_string())
+        }
+        NotificationCapabilityStatus::Unsupported => {
+            Err("NOTIFICATION_TRANSPORT_UNAVAILABLE".to_string())
+        }
+    }
+}
+
 #[cfg(target_os = "windows")]
 fn send_windows_toast(title: &str, body: &str, play_sound: bool) -> Result<(), String> {
+    send_windows_toast_with(&SystemNotificationRegistry, true, || {
+        run_windows_toast_transport(title, body, play_sound)
+    })
+}
+
+#[cfg(target_os = "windows")]
+fn run_windows_toast_transport(title: &str, body: &str, play_sound: bool) -> Result<(), String> {
     use std::os::windows::process::CommandExt;
     use std::process::Command;
 
@@ -320,7 +457,7 @@ fn send_windows_toast(title: &str, body: &str, play_sound: bool) -> Result<(), S
 
 #[cfg(not(target_os = "windows"))]
 fn send_windows_toast(_title: &str, _body: &str, _play_sound: bool) -> Result<(), String> {
-    Err("NOTIFICATION_TRANSPORT_UNAVAILABLE".to_string())
+    send_windows_toast_with(&SystemNotificationRegistry, false, || Ok(()))
 }
 
 fn repository_from_app(app: &tauri::AppHandle) -> Option<SettingsRepository> {
@@ -393,9 +530,35 @@ mod tests {
     use uuid::Uuid;
 
     use super::{
-        NotificationController, ToastSink, account_marker_from_email, should_check_for_updates,
-        xml_escape,
+        APP_NOTIFICATION_SETTINGS_KEY, GLOBAL_NOTIFICATION_SETTINGS_KEY,
+        NotificationCapabilityStatus, NotificationController, NotificationRegistryReader,
+        ToastSink, account_marker_from_email, detect_notification_capability,
+        send_windows_toast_with, should_check_for_updates, xml_escape,
     };
+
+    #[derive(Default)]
+    struct FakeNotificationRegistry {
+        app_enabled: Option<u32>,
+        global_enabled: Option<u32>,
+    }
+
+    impl NotificationRegistryReader for FakeNotificationRegistry {
+        fn read_dword(&self, key: &str, value: &str) -> Result<Option<u32>, ()> {
+            assert_eq!(
+                value,
+                if key == APP_NOTIFICATION_SETTINGS_KEY {
+                    "Enabled"
+                } else {
+                    "ToastEnabled"
+                }
+            );
+            match key {
+                APP_NOTIFICATION_SETTINGS_KEY => Ok(self.app_enabled),
+                GLOBAL_NOTIFICATION_SETTINGS_KEY => Ok(self.global_enabled),
+                _ => panic!("unexpected registry key: {key}"),
+            }
+        }
+    }
 
     #[derive(Debug, Clone, PartialEq, Eq)]
     struct SentToast {
@@ -425,6 +588,14 @@ mod tests {
     impl ToastSink for FailingToastSink {
         fn send(&mut self, _title: &str, _body: &str, _play_sound: bool) -> Result<(), String> {
             Err("raw transport details must stay private".to_string())
+        }
+    }
+
+    struct DisabledToastSink;
+
+    impl ToastSink for DisabledToastSink {
+        fn send(&mut self, _title: &str, _body: &str, _play_sound: bool) -> Result<(), String> {
+            Err("NOTIFICATION_PERMISSION_DISABLED".to_string())
         }
     }
 
@@ -638,8 +809,97 @@ mod tests {
     }
 
     #[test]
+    fn test_action_preserves_disabled_permission_code() {
+        let temp = TestDir::new();
+        let paths = AppPaths::from_local_app_data(&temp.0);
+        let database = Arc::new(AppDatabase::open(&paths.database).unwrap());
+        let repository = SettingsRepository::new(database);
+        let mut controller =
+            NotificationController::new(V1NotificationEngine::load(&paths), DisabledToastSink);
+
+        assert_eq!(
+            controller.send_test(&repository).unwrap_err(),
+            "NOTIFICATION_PERMISSION_DISABLED"
+        );
+    }
+
+    #[test]
     fn toast_text_is_xml_escaped_before_transport() {
         assert_eq!(xml_escape("<&>\"'"), "&lt;&amp;&gt;&quot;&apos;");
+    }
+
+    #[test]
+    fn notification_capability_reports_app_level_suppression() {
+        let capability = detect_notification_capability(
+            &FakeNotificationRegistry {
+                app_enabled: Some(0),
+                global_enabled: None,
+            },
+            true,
+        );
+
+        assert_eq!(capability.status, NotificationCapabilityStatus::AppDisabled);
+        assert!(capability.can_open_settings);
+        assert_eq!(
+            serde_json::to_value(capability).unwrap(),
+            serde_json::json!({
+                "status": "appDisabled",
+                "canOpenSettings": true,
+            })
+        );
+    }
+
+    #[test]
+    fn notification_capability_reports_global_suppression() {
+        let capability = detect_notification_capability(
+            &FakeNotificationRegistry {
+                app_enabled: Some(1),
+                global_enabled: Some(0),
+            },
+            true,
+        );
+
+        assert_eq!(
+            capability.status,
+            NotificationCapabilityStatus::GlobalDisabled
+        );
+        assert!(capability.can_open_settings);
+    }
+
+    #[test]
+    fn notification_capability_defaults_missing_registry_values_to_available() {
+        let capability = detect_notification_capability(&FakeNotificationRegistry::default(), true);
+
+        assert_eq!(capability.status, NotificationCapabilityStatus::Available);
+        assert!(capability.can_open_settings);
+    }
+
+    #[test]
+    fn notification_capability_reports_unsupported_off_windows() {
+        let capability =
+            detect_notification_capability(&FakeNotificationRegistry::default(), false);
+
+        assert_eq!(capability.status, NotificationCapabilityStatus::Unsupported);
+        assert!(!capability.can_open_settings);
+    }
+
+    #[test]
+    fn disabled_notification_preflight_does_not_start_transport() {
+        let mut transport_started = false;
+        let result = send_windows_toast_with(
+            &FakeNotificationRegistry {
+                app_enabled: Some(0),
+                global_enabled: None,
+            },
+            true,
+            || {
+                transport_started = true;
+                Ok(())
+            },
+        );
+
+        assert_eq!(result.unwrap_err(), "NOTIFICATION_PERMISSION_DISABLED");
+        assert!(!transport_started);
     }
 
     #[test]

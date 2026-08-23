@@ -1,6 +1,14 @@
-import { useState } from "react";
-import { sendTestNotification } from "../../../lib/tauri";
-import type { AppSettingsDto, SettingsPatchDto } from "../../../types/bridge";
+import { useEffect, useState } from "react";
+import {
+  getNotificationCapability,
+  openWindowsNotificationSettings,
+  sendTestNotification,
+} from "../../../lib/tauri";
+import type {
+  AppSettingsDto,
+  NotificationCapabilityDto,
+  SettingsPatchDto,
+} from "../../../types/bridge";
 import type { SettingsCopy } from "../settingsCopy";
 
 type NotificationBooleanField =
@@ -41,16 +49,45 @@ export default function NotificationsTab({
   update,
   copy,
   sendTest = sendTestNotification,
+  getCapability = getNotificationCapability,
+  openNotificationSettings = openWindowsNotificationSettings,
 }: {
   settings: AppSettingsDto;
   update(patch: SettingsPatchDto): Promise<unknown>;
   copy: SettingsCopy;
   sendTest?: () => Promise<void>;
+  getCapability?: () => Promise<NotificationCapabilityDto>;
+  openNotificationSettings?: () => Promise<void>;
 }) {
   const [error, setError] = useState<string | null>(null);
   const [testSent, setTestSent] = useState(false);
   const [testing, setTesting] = useState(false);
+  const [openingSettings, setOpeningSettings] = useState(false);
+  const [capability, setCapability] = useState<NotificationCapabilityDto | null>(null);
   const notifications = settings.notifications;
+
+  useEffect(() => {
+    let active = true;
+    const refreshCapability = () => {
+      void Promise.resolve()
+        .then(getCapability)
+        .then((next) => {
+          if (active && next) setCapability(next);
+        })
+        .catch(() => {
+          if (active) {
+            setCapability({ status: "unsupported", canOpenSettings: false });
+          }
+        });
+    };
+
+    refreshCapability();
+    window.addEventListener("focus", refreshCapability);
+    return () => {
+      active = false;
+      window.removeEventListener("focus", refreshCapability);
+    };
+  }, [getCapability]);
 
   const saveBoolean = (field: NotificationBooleanField, value: boolean) => {
     setError(null);
@@ -78,12 +115,46 @@ export default function NotificationsTab({
   const runTest = () => {
     setError(null);
     setTestSent(false);
+    if (
+      capability?.status === "appDisabled" ||
+      capability?.status === "globalDisabled"
+    ) {
+      return;
+    }
     setTesting(true);
     void sendTest()
       .then(() => setTestSent(true))
-      .catch(() => setError(copy.notifications.testFailed))
+      .catch((reason: unknown) => {
+        if (reason === "NOTIFICATION_PERMISSION_DISABLED") {
+          void Promise.resolve()
+            .then(getCapability)
+            .then(setCapability)
+            .catch(() =>
+              setCapability({ status: "unsupported", canOpenSettings: false }),
+            );
+          return;
+        }
+        setError(copy.notifications.testFailed);
+      })
       .finally(() => setTesting(false));
   };
+
+  const openNotificationRecovery = () => {
+    setError(null);
+    setOpeningSettings(true);
+    void openNotificationSettings()
+      .catch(() => setError(copy.notifications.openWindowsSettingsFailed))
+      .finally(() => setOpeningSettings(false));
+  };
+
+  const capabilityMessage =
+    capability?.status === "appDisabled"
+      ? copy.notifications.capabilityAppDisabled
+      : capability?.status === "globalDisabled"
+        ? copy.notifications.capabilityGlobalDisabled
+        : capability?.status === "unsupported"
+          ? copy.notifications.capabilityUnsupported
+          : null;
 
   return (
     <section aria-label={`${copy.notifications.title} settings`}>
@@ -194,6 +265,20 @@ export default function NotificationsTab({
           <h3>{copy.notifications.sendTest}</h3>
           <p>{copy.notifications.testDescription}</p>
         </div>
+        {capabilityMessage ? (
+          <div className="settings-field" role="status">
+            <p>{capabilityMessage}</p>
+            {capability?.canOpenSettings ? (
+              <button
+                type="button"
+                disabled={openingSettings}
+                onClick={openNotificationRecovery}
+              >
+                {copy.notifications.openWindowsSettings}
+              </button>
+            ) : null}
+          </div>
+        ) : null}
         <button type="button" disabled={testing} onClick={runTest}>
           {copy.notifications.sendTest}
         </button>

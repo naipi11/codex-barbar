@@ -9,7 +9,10 @@ use tauri::Emitter;
 
 use super::bridge::{AppSettingsDto, CodexCompatibilityDto, SettingsPatchDto};
 use crate::{
-    notification_controller::{NotificationController, WindowsToastSink},
+    notification_controller::{
+        NotificationCapabilityDto, NotificationController, WindowsToastSink,
+        notification_capability,
+    },
     state::AppState,
 };
 
@@ -83,6 +86,11 @@ pub fn get_settings_snapshot(state: tauri::State<'_, Mutex<AppState>>) -> AppSet
 }
 
 #[tauri::command]
+pub fn get_notification_capability() -> NotificationCapabilityDto {
+    notification_capability()
+}
+
+#[tauri::command]
 pub async fn update_settings(
     app: tauri::AppHandle,
     state: tauri::State<'_, Mutex<AppState>>,
@@ -134,7 +142,15 @@ pub fn send_test_notification(
         .lock()
         .map_err(|_| "NOTIFICATION_TEST_FAILED".to_string())?
         .send_test(&repository)
-        .map_err(|_| "NOTIFICATION_TEST_FAILED".to_string())
+        .map_err(map_notification_test_error)
+}
+
+fn map_notification_test_error(error: String) -> String {
+    if error == "NOTIFICATION_PERMISSION_DISABLED" {
+        error
+    } else {
+        "NOTIFICATION_TEST_FAILED".to_string()
+    }
 }
 
 #[tauri::command]
@@ -379,6 +395,18 @@ mod tests {
         assert_eq!(
             prepare_settings_update(patch).unwrap_err(),
             "SETTINGS_NOTIFICATION_THRESHOLDS_INVALID"
+        );
+    }
+
+    #[test]
+    fn notification_permission_disabled_code_is_preserved_for_recovery_ui() {
+        assert_eq!(
+            map_notification_test_error("NOTIFICATION_PERMISSION_DISABLED".to_string()),
+            "NOTIFICATION_PERMISSION_DISABLED"
+        );
+        assert_eq!(
+            map_notification_test_error("raw transport detail".to_string()),
+            "NOTIFICATION_TEST_FAILED"
         );
     }
 }

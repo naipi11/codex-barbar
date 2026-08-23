@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 import {
   commands,
   events,
+  getNotificationCapability,
+  openWindowsNotificationSettings,
   setFloatBallExpanded,
   setTaskbarStatusWidth,
   setStatusSurfaceEnabled,
@@ -51,6 +53,7 @@ describe("V1 bridge contract", () => {
     expect(commands).toEqual({
       getBootstrapState: "get_bootstrap_state",
       getSettingsSnapshot: "get_settings_snapshot",
+      getNotificationCapability: "get_notification_capability",
       updateSettings: "update_settings",
       sendTestNotification: "send_test_notification",
       setStatusSurfaceEnabled: "set_status_surface_enabled",
@@ -70,6 +73,7 @@ describe("V1 bridge contract", () => {
       checkForUpdates: "check_for_updates",
       openReleasePage: "open_release_page",
       openCodexUsagePage: "open_codex_usage_page",
+      openWindowsNotificationSettings: "open_windows_notification_settings",
       openSettingsWindow: "open_settings_window",
       openTrayPanel: "open_tray_panel",
       closeSettingsWindow: "close_settings_window",
@@ -130,6 +134,16 @@ describe("V1 bridge contract", () => {
       surface: "taskbarStatus",
       enabled: false,
     });
+  });
+
+  it("uses no-argument notification capability and recovery commands", async () => {
+    invokeMock.mockResolvedValue({ status: "available", canOpenSettings: true });
+
+    await getNotificationCapability();
+    await openWindowsNotificationSettings();
+
+    expect(invokeMock).toHaveBeenCalledWith("get_notification_capability");
+    expect(invokeMock).toHaveBeenCalledWith("open_windows_notification_settings");
   });
 
   it("persists the expanded float-ball state through the typed command", async () => {

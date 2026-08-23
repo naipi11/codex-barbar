@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import type { AppSettingsDto } from "../../../types/bridge";
 import { settingsCopy } from "../settingsCopy";
@@ -161,6 +161,141 @@ describe("NotificationsTab", () => {
     fireEvent.click(screen.getByRole("button", { name: "Send test notification" }));
     expect(await screen.findByRole("alert")).toHaveTextContent(
       "Windows could not send the test notification. Check notification settings and try again.",
+    );
+  });
+
+  it("shows app-disabled recovery and never reports a suppressed test as sent", async () => {
+    const openNotificationSettings = vi.fn().mockResolvedValue(undefined);
+    const sendTest = vi.fn().mockRejectedValue("NOTIFICATION_PERMISSION_DISABLED");
+    render(
+      <NotificationsTab
+        settings={settings}
+        update={vi.fn().mockResolvedValue(settings)}
+        copy={settingsCopy("en-US")}
+        sendTest={sendTest}
+        getCapability={vi.fn().mockResolvedValue({
+          status: "appDisabled",
+          canOpenSettings: true,
+        })}
+        openNotificationSettings={openNotificationSettings}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Send test notification" }));
+
+    expect(
+      await screen.findByText(/notifications for codex-barbar are turned off in windows/i),
+    ).toBeInTheDocument();
+    expect(screen.queryByText("Test notification sent.")).not.toBeInTheDocument();
+    fireEvent.click(
+      screen.getByRole("button", { name: "Open Windows notification settings" }),
+    );
+    expect(openNotificationSettings).toHaveBeenCalledTimes(1);
+    await waitFor(() =>
+      expect(
+        screen.getByRole("button", { name: "Open Windows notification settings" }),
+      ).toBeEnabled(),
+    );
+  });
+
+  it("refreshes capability after focus returns from Windows notification settings", async () => {
+    const getCapability = vi
+      .fn()
+      .mockResolvedValueOnce({ status: "appDisabled", canOpenSettings: true })
+      .mockResolvedValueOnce({ status: "available", canOpenSettings: true });
+    render(
+      <NotificationsTab
+        settings={settings}
+        update={vi.fn().mockResolvedValue(settings)}
+        copy={settingsCopy("en-US")}
+        getCapability={getCapability}
+      />,
+    );
+
+    expect(
+      await screen.findByText(/notifications for codex-barbar are turned off in windows/i),
+    ).toBeInTheDocument();
+
+    window.dispatchEvent(new Event("focus"));
+
+    await waitFor(() => expect(getCapability).toHaveBeenCalledTimes(2));
+    await waitFor(() =>
+      expect(
+        screen.queryByText(/notifications for codex-barbar are turned off in windows/i),
+      ).not.toBeInTheDocument(),
+    );
+  });
+
+  it("localizes the app-disabled recovery in Simplified Chinese", async () => {
+    render(
+      <NotificationsTab
+        settings={{ ...settings, language: "zh-CN" }}
+        update={vi.fn().mockResolvedValue(settings)}
+        copy={settingsCopy("zh-CN")}
+        getCapability={vi.fn().mockResolvedValue({
+          status: "appDisabled",
+          canOpenSettings: true,
+        })}
+      />,
+    );
+
+    expect(
+      await screen.findByText(/windows 已关闭 codex-barbar 的通知/i),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "打开 Windows 通知设置" }),
+    ).toBeInTheDocument();
+  });
+
+  it.each([
+    ["globalDisabled", /windows notifications are turned off/i, true],
+    ["unsupported", /availability could not be checked/i, false],
+  ] as const)(
+    "distinguishes the %s capability state",
+    async (status, message, canOpenSettings) => {
+      render(
+        <NotificationsTab
+          settings={settings}
+          update={vi.fn().mockResolvedValue(settings)}
+          copy={settingsCopy("en-US")}
+          getCapability={vi.fn().mockResolvedValue({ status, canOpenSettings })}
+        />,
+      );
+
+      expect(await screen.findByText(message)).toBeInTheDocument();
+      const recovery = screen.queryByRole("button", {
+        name: "Open Windows notification settings",
+      });
+      if (canOpenSettings) {
+        expect(recovery).toBeInTheDocument();
+      } else {
+        expect(recovery).not.toBeInTheDocument();
+      }
+    },
+  );
+
+  it("shows a localized error when Windows notification settings cannot open", async () => {
+    render(
+      <NotificationsTab
+        settings={settings}
+        update={vi.fn().mockResolvedValue(settings)}
+        copy={settingsCopy("en-US")}
+        getCapability={vi.fn().mockResolvedValue({
+          status: "appDisabled",
+          canOpenSettings: true,
+        })}
+        openNotificationSettings={vi.fn().mockRejectedValue("OPEN_FAILED")}
+      />,
+    );
+
+    fireEvent.click(
+      await screen.findByRole("button", {
+        name: "Open Windows notification settings",
+      }),
+    );
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "Windows notification settings could not be opened.",
     );
   });
 });

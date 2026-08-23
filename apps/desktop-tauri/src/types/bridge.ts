@@ -47,6 +47,11 @@ export interface NotificationPreferencesDto {
   dangerRemainingPercent: number;
 }
 
+export interface NotificationCapabilityDto {
+  status: "available" | "appDisabled" | "globalDisabled" | "unsupported";
+  canOpenSettings: boolean;
+}
+
 export interface AppSettingsDto {
   autostartEnabled: boolean;
   refreshIntervalSeconds: 0 | 60 | 300 | 900 | 1800;
