@@ -43,6 +43,24 @@ const bootstrapFixture = {
       warningRemainingPercent: 66,
       dangerRemainingPercent: 33,
     },
+    menu: {
+      nativeTray: {
+        order: [
+          "open_panel",
+          "refresh",
+          "accounts",
+          "open_usage",
+          "settings",
+          "about",
+          "quit",
+        ],
+        hidden: [],
+      },
+      trayPanel: {
+        order: ["refresh", "open_usage", "settings", "dismiss", "quit"],
+        hidden: [],
+      },
+    },
   },
   profiles: [],
   selectedProfileId: "",

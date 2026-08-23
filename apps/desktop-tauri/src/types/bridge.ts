@@ -67,6 +67,26 @@ export interface TaskbarTrayPreferencesDto {
   hideStatusSurfacesInFullscreen: boolean;
 }
 
+export interface MenuLayoutDto {
+  order: string[];
+  hidden: string[];
+}
+
+export interface MenuPreferencesDto {
+  nativeTray: MenuLayoutDto;
+  trayPanel: MenuLayoutDto;
+}
+
+export interface MenuLayoutPatchDto {
+  order?: string[];
+  hidden?: string[];
+}
+
+export interface MenuPreferencesPatchDto {
+  nativeTray?: MenuLayoutPatchDto;
+  trayPanel?: MenuLayoutPatchDto;
+}
+
 export interface AppSettingsDto {
   autostartEnabled: boolean;
   refreshIntervalSeconds: 0 | 60 | 300 | 900 | 1800;
@@ -81,6 +101,7 @@ export interface AppSettingsDto {
   floatBallGlow: number;
   notifications: NotificationPreferencesDto;
   taskbarTray: TaskbarTrayPreferencesDto;
+  menu: MenuPreferencesDto;
 }
 
 export type StatusSurfaceKind = "taskbarStatus" | "floatBall";
@@ -96,7 +117,7 @@ export interface StatusSurfaceFeedbackChangedDto {
 }
 
 export interface SettingsPatchDto
-  extends Partial<Omit<AppSettingsDto, "notifications" | "taskbarTray">> {
+  extends Partial<Omit<AppSettingsDto, "notifications" | "taskbarTray" | "menu">> {
   notifications?: Partial<NotificationPreferencesDto>;
   taskbarTray?: Partial<TaskbarTrayPreferencesDto>;
 }

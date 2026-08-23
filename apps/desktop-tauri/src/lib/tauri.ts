@@ -9,6 +9,7 @@ import type {
   DiagnosticsSummaryDto,
   ManagedLoginStateDto,
   ManualUpdateResult,
+  MenuPreferencesPatchDto,
   NotificationCapabilityDto,
   ProfileUsageStateDto,
   StatusSurfaceKind,
@@ -21,6 +22,7 @@ export const commands = {
   getSettingsSnapshot: "get_settings_snapshot",
   getNotificationCapability: "get_notification_capability",
   updateSettings: "update_settings",
+  applyMenuPreferences: "apply_menu_preferences",
   sendTestNotification: "send_test_notification",
   setStatusSurfaceEnabled: "set_status_surface_enabled",
   setFloatBallExpanded: "set_float_ball_expanded",
@@ -83,6 +85,11 @@ export const getNotificationCapability = () =>
 export const updateSettings = (patch: SettingsPatchDto) =>
   invoke<AppSettingsDto>(commands.updateSettings, {
     patch: patch as Record<string, unknown>,
+  });
+
+export const applyMenuPreferences = (preferences: MenuPreferencesPatchDto) =>
+  invoke<AppSettingsDto>(commands.applyMenuPreferences, {
+    preferences: preferences as Record<string, unknown>,
   });
 
 export const sendTestNotification = () =>

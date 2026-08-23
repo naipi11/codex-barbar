@@ -97,6 +97,7 @@ function TrayDashboard({ bootstrap }: { bootstrap: BootstrapDto }) {
 
       <TrayActions
         copy={copy}
+        order={bootstrap.settings.menu.trayPanel.order}
         onRefresh={usage.refresh}
         onOpenUsage={openCodexUsagePage}
         onOpenSettings={openSettingsWindow}

@@ -68,6 +68,21 @@ export interface SettingsCopy {
     fullscreenDescription: string;
     hideInFullscreen: string;
   };
+  menu: {
+    title: string;
+    nativeTrayLegend: string;
+    nativeTrayDescription: string;
+    trayPanelLegend: string;
+    trayPanelDescription: string;
+    itemLabels: Record<string, string>;
+    visible: string;
+    moveUp: string;
+    moveDown: string;
+    restoreDefaults: string;
+    requiredItems: string;
+    noCustomCommands: string;
+    saveFailed: string;
+  };
   notifications: {
     title: string;
     masterTitle: string;
@@ -194,6 +209,33 @@ const english: SettingsCopy = {
     fullscreenDescription: "Hide glanceable status surfaces over full-screen apps without removing the native tray icon.",
     hideInFullscreen: "Hide status surfaces during full-screen apps",
   },
+  menu: {
+    title: "Menu",
+    nativeTrayLegend: "Tray menu",
+    nativeTrayDescription:
+      "Choose which built-in items appear in the tray right-click menu and in what order. Settings and Quit are always available.",
+    trayPanelLegend: "Panel quick actions",
+    trayPanelDescription:
+      "Choose which quick actions appear in the tray panel and in what order.",
+    itemLabels: {
+      open_panel: "Open codex-barbar",
+      refresh: "Refresh",
+      accounts: "Accounts",
+      open_usage: "Open Codex Usage",
+      settings: "Settings",
+      about: "About",
+      quit: "Quit",
+      dismiss: "Dismiss",
+    },
+    visible: "Visible",
+    moveUp: "Move up",
+    moveDown: "Move down",
+    restoreDefaults: "Restore defaults",
+    requiredItems: "Settings and Quit are required and cannot be hidden.",
+    noCustomCommands:
+      "Only built-in items can be configured. Custom commands, scripts, URLs, and executable paths are not supported.",
+    saveFailed: "Menu settings could not be saved. Try again.",
+  },
   notifications: {
     title: "Notifications",
     masterTitle: "Windows notifications",
@@ -268,6 +310,31 @@ const chinese: SettingsCopy = {
     fullscreenLegend: "全屏行为",
     fullscreenDescription: "全屏应用运行时隐藏状态界面，但保留原生托盘图标。",
     hideInFullscreen: "全屏应用运行时隐藏状态界面",
+  },
+  menu: {
+    title: "菜单",
+    nativeTrayLegend: "托盘菜单",
+    nativeTrayDescription:
+      "选择托盘右键菜单中显示的项及其顺序。设置与退出始终可用。",
+    trayPanelLegend: "面板快捷操作",
+    trayPanelDescription: "选择托盘面板中显示的快捷操作及其顺序。",
+    itemLabels: {
+      open_panel: "打开 codex-barbar",
+      refresh: "刷新",
+      accounts: "账户",
+      open_usage: "打开 Codex 用量",
+      settings: "设置",
+      about: "关于",
+      quit: "退出",
+      dismiss: "关闭",
+    },
+    visible: "可见",
+    moveUp: "上移",
+    moveDown: "下移",
+    restoreDefaults: "恢复默认",
+    requiredItems: "设置与退出为必选项，无法隐藏。",
+    noCustomCommands: "仅可配置内置项，不支持自定义命令、脚本、网址或可执行文件。",
+    saveFailed: "无法保存菜单设置，请重试。",
   },
   notifications: {
     title: "通知",

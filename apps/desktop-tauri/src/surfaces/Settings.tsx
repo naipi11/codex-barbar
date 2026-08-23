@@ -16,6 +16,7 @@ import type { BootstrapDto } from "../types/bridge";
 import GeneralTab from "./settings/tabs/GeneralTab";
 import NotificationsTab from "./settings/tabs/NotificationsTab";
 import TaskbarTrayTab from "./settings/tabs/TaskbarTrayTab";
+import MenuTab from "./settings/tabs/MenuTab";
 import AccountsTab from "./settings/tabs/AccountsTab";
 import AdvancedTab from "./settings/tabs/AdvancedTab";
 import AboutTab from "./settings/tabs/AboutTab";
@@ -181,12 +182,16 @@ export default function Settings() {
           copy={copy}
         />
       ) : null}
+      {tab === "menu" ? (
+        <MenuTab settings={settings} copy={copy} />
+      ) : null}
       {tab === "advanced" ? <AdvancedTab settings={settings} copy={copy} /> : null}
       {tab === "about" ? <AboutTab version={bootstrap?.version ?? "—"} copy={copy} /> : null}
       {tab !== "general" &&
        tab !== "providers" &&
        tab !== "notifications" &&
        tab !== "menuBar" &&
+       tab !== "menu" &&
       tab !== "advanced" &&
       tab !== "about" ? (
         <PlaceholderTab tab={tab} copy={copy} />

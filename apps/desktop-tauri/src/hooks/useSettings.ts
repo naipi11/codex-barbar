@@ -38,6 +38,24 @@ export const defaultAppSettings: AppSettingsDto = {
     tooltipUpdatedAt: true,
     hideStatusSurfacesInFullscreen: true,
   },
+  menu: {
+    nativeTray: {
+      order: [
+        "open_panel",
+        "refresh",
+        "accounts",
+        "open_usage",
+        "settings",
+        "about",
+        "quit",
+      ],
+      hidden: [],
+    },
+    trayPanel: {
+      order: ["refresh", "open_usage", "settings", "dismiss", "quit"],
+      hidden: [],
+    },
+  },
   notifications: {
     enabled: false,
     playSound: true,

@@ -55,6 +55,7 @@ describe("V1 bridge contract", () => {
       getSettingsSnapshot: "get_settings_snapshot",
       getNotificationCapability: "get_notification_capability",
       updateSettings: "update_settings",
+      applyMenuPreferences: "apply_menu_preferences",
       sendTestNotification: "send_test_notification",
       setStatusSurfaceEnabled: "set_status_surface_enabled",
       setFloatBallExpanded: "set_float_ball_expanded",
@@ -219,6 +220,24 @@ describe("V1 bridge contract", () => {
         tooltipUpdatedAt: true,
         hideStatusSurfacesInFullscreen: true,
       },
+      menu: {
+        nativeTray: {
+          order: [
+            "open_panel",
+            "refresh",
+            "accounts",
+            "open_usage",
+            "settings",
+            "about",
+            "quit",
+          ],
+          hidden: [],
+        },
+        trayPanel: {
+          order: ["refresh", "open_usage", "settings", "dismiss", "quit"],
+          hidden: [],
+        },
+      },
       notifications: {
         enabled: false,
         playSound: true,
@@ -254,6 +273,8 @@ describe("V1 bridge contract", () => {
       tooltipUpdatedAt: true,
       hideStatusSurfacesInFullscreen: true,
     });
+    expect(settings.menu.nativeTray.order).toContain("settings");
+    expect(settings.menu.trayPanel.order).toContain("quit");
     expect(settings.notifications).toEqual({
       enabled: false,
       playSound: true,
