@@ -235,7 +235,8 @@ mod tests {
     use super::*;
     use crate::commands::bridge::NotificationPreferencesPatchDto;
     use codexbar::storage::{
-        DisplayMode, LanguagePreference, NotificationPreferencesPatch, ThemePreference,
+        DisplayMode, LanguagePreference, NotificationPreferencesPatch, TaskbarDensity,
+        TaskbarTrayPreferencesPatch, ThemePreference, TrayIconMode,
     };
 
     struct AppDisabledProbe;
@@ -331,6 +332,20 @@ mod tests {
                 warning_remaining_percent: Some(66),
                 danger_remaining_percent: Some(33),
             }),
+            taskbar_tray: Some(crate::commands::bridge::TaskbarTrayPreferencesPatchDto {
+                show_taskbar_icon: Some(false),
+                show_taskbar_account: Some(true),
+                show_weekly_label: Some(false),
+                show_weekly_percent: Some(true),
+                show_reset_date: Some(false),
+                density: Some("standard".to_string()),
+                tray_icon_mode: Some("monochrome".to_string()),
+                tooltip_account: Some(false),
+                tooltip_weekly: Some(true),
+                tooltip_reset_date: Some(false),
+                tooltip_updated_at: Some(true),
+                hide_status_surfaces_in_fullscreen: Some(false),
+            }),
         };
         let settings = patch.into_patch().unwrap();
         assert_eq!(settings.start_at_login, Some(true));
@@ -347,6 +362,23 @@ mod tests {
         assert_eq!(settings.taskbar_status_opacity, Some(0));
         assert_eq!(settings.float_ball_opacity, Some(80));
         assert_eq!(settings.float_ball_glow, Some(40));
+        assert_eq!(
+            settings.taskbar_tray,
+            Some(TaskbarTrayPreferencesPatch {
+                show_taskbar_icon: Some(false),
+                show_taskbar_account: Some(true),
+                show_weekly_label: Some(false),
+                show_weekly_percent: Some(true),
+                show_reset_date: Some(false),
+                density: Some(TaskbarDensity::Standard),
+                tray_icon_mode: Some(TrayIconMode::Monochrome),
+                tooltip_account: Some(false),
+                tooltip_weekly: Some(true),
+                tooltip_reset_date: Some(false),
+                tooltip_updated_at: Some(true),
+                hide_status_surfaces_in_fullscreen: Some(false),
+            })
+        );
         assert_eq!(
             settings.notifications,
             Some(NotificationPreferencesPatch {

@@ -85,6 +85,56 @@ impl Default for NotificationPreferences {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum TaskbarDensity {
+    Compact,
+    Standard,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum TrayIconMode {
+    Dynamic,
+    Monochrome,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct TaskbarTrayPreferences {
+    pub show_taskbar_icon: bool,
+    pub show_taskbar_account: bool,
+    pub show_weekly_label: bool,
+    pub show_weekly_percent: bool,
+    pub show_reset_date: bool,
+    pub density: TaskbarDensity,
+    pub tray_icon_mode: TrayIconMode,
+    pub tooltip_account: bool,
+    pub tooltip_weekly: bool,
+    pub tooltip_reset_date: bool,
+    pub tooltip_updated_at: bool,
+    pub hide_status_surfaces_in_fullscreen: bool,
+}
+
+impl Default for TaskbarTrayPreferences {
+    fn default() -> Self {
+        Self {
+            show_taskbar_icon: true,
+            show_taskbar_account: true,
+            show_weekly_label: true,
+            show_weekly_percent: true,
+            show_reset_date: true,
+            density: TaskbarDensity::Compact,
+            tray_icon_mode: TrayIconMode::Dynamic,
+            tooltip_account: true,
+            tooltip_weekly: true,
+            tooltip_reset_date: true,
+            tooltip_updated_at: true,
+            hide_status_surfaces_in_fullscreen: true,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct NotificationPreferencesPatch {
     pub enabled: Option<bool>,
@@ -97,6 +147,22 @@ pub struct NotificationPreferencesPatch {
     pub update_available_enabled: Option<bool>,
     pub warning_remaining_percent: Option<u8>,
     pub danger_remaining_percent: Option<u8>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct TaskbarTrayPreferencesPatch {
+    pub show_taskbar_icon: Option<bool>,
+    pub show_taskbar_account: Option<bool>,
+    pub show_weekly_label: Option<bool>,
+    pub show_weekly_percent: Option<bool>,
+    pub show_reset_date: Option<bool>,
+    pub density: Option<TaskbarDensity>,
+    pub tray_icon_mode: Option<TrayIconMode>,
+    pub tooltip_account: Option<bool>,
+    pub tooltip_weekly: Option<bool>,
+    pub tooltip_reset_date: Option<bool>,
+    pub tooltip_updated_at: Option<bool>,
+    pub hide_status_surfaces_in_fullscreen: Option<bool>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -118,6 +184,7 @@ pub struct AppSettings {
     #[serde(default = "default_surface_opacity")]
     pub float_ball_glow: u8,
     pub notifications: NotificationPreferences,
+    pub taskbar_tray: TaskbarTrayPreferences,
 }
 
 impl Default for AppSettings {
@@ -135,6 +202,7 @@ impl Default for AppSettings {
             float_ball_opacity: DEFAULT_SURFACE_OPACITY,
             float_ball_glow: DEFAULT_SURFACE_OPACITY,
             notifications: NotificationPreferences::default(),
+            taskbar_tray: TaskbarTrayPreferences::default(),
         }
     }
 }
@@ -153,6 +221,7 @@ pub struct SettingsPatch {
     pub float_ball_opacity: Option<u8>,
     pub float_ball_glow: Option<u8>,
     pub notifications: Option<NotificationPreferencesPatch>,
+    pub taskbar_tray: Option<TaskbarTrayPreferencesPatch>,
 }
 
 #[derive(Clone)]
@@ -280,6 +349,47 @@ impl NotificationPreferencesPatch {
     }
 }
 
+impl TaskbarTrayPreferencesPatch {
+    fn apply_to(self, preferences: &mut TaskbarTrayPreferences) {
+        if let Some(value) = self.show_taskbar_icon {
+            preferences.show_taskbar_icon = value;
+        }
+        if let Some(value) = self.show_taskbar_account {
+            preferences.show_taskbar_account = value;
+        }
+        if let Some(value) = self.show_weekly_label {
+            preferences.show_weekly_label = value;
+        }
+        if let Some(value) = self.show_weekly_percent {
+            preferences.show_weekly_percent = value;
+        }
+        if let Some(value) = self.show_reset_date {
+            preferences.show_reset_date = value;
+        }
+        if let Some(value) = self.density {
+            preferences.density = value;
+        }
+        if let Some(value) = self.tray_icon_mode {
+            preferences.tray_icon_mode = value;
+        }
+        if let Some(value) = self.tooltip_account {
+            preferences.tooltip_account = value;
+        }
+        if let Some(value) = self.tooltip_weekly {
+            preferences.tooltip_weekly = value;
+        }
+        if let Some(value) = self.tooltip_reset_date {
+            preferences.tooltip_reset_date = value;
+        }
+        if let Some(value) = self.tooltip_updated_at {
+            preferences.tooltip_updated_at = value;
+        }
+        if let Some(value) = self.hide_status_surfaces_in_fullscreen {
+            preferences.hide_status_surfaces_in_fullscreen = value;
+        }
+    }
+}
+
 impl AppSettings {
     fn apply(&mut self, patch: SettingsPatch) {
         if let Some(value) = patch.refresh_interval_seconds {
@@ -317,6 +427,9 @@ impl AppSettings {
         }
         if let Some(notifications) = patch.notifications {
             notifications.apply_to(&mut self.notifications);
+        }
+        if let Some(taskbar_tray) = patch.taskbar_tray {
+            taskbar_tray.apply_to(&mut self.taskbar_tray);
         }
     }
 
@@ -386,6 +499,18 @@ mod tests {
         assert_eq!(settings.taskbar_status_opacity, 20);
         assert_eq!(settings.float_ball_opacity, 20);
         assert_eq!(settings.float_ball_glow, 20);
+        assert!(settings.taskbar_tray.show_taskbar_icon);
+        assert!(settings.taskbar_tray.show_taskbar_account);
+        assert!(settings.taskbar_tray.show_weekly_label);
+        assert!(settings.taskbar_tray.show_weekly_percent);
+        assert!(settings.taskbar_tray.show_reset_date);
+        assert_eq!(settings.taskbar_tray.density, TaskbarDensity::Compact);
+        assert_eq!(settings.taskbar_tray.tray_icon_mode, TrayIconMode::Dynamic);
+        assert!(settings.taskbar_tray.tooltip_account);
+        assert!(settings.taskbar_tray.tooltip_weekly);
+        assert!(settings.taskbar_tray.tooltip_reset_date);
+        assert!(settings.taskbar_tray.tooltip_updated_at);
+        assert!(settings.taskbar_tray.hide_status_surfaces_in_fullscreen);
         assert!(!settings.notifications.enabled);
         assert_eq!(settings.notifications.warning_remaining_percent, 66);
         assert_eq!(settings.notifications.danger_remaining_percent, 33);
@@ -420,6 +545,30 @@ mod tests {
         assert!(notifications.update_available_enabled);
         assert_eq!(notifications.warning_remaining_percent, 66);
         assert_eq!(notifications.danger_remaining_percent, 33);
+        assert_eq!(
+            repository.load().unwrap().taskbar_tray,
+            TaskbarTrayPreferences::default()
+        );
+    }
+
+    #[test]
+    fn invalid_taskbar_tray_enum_uses_safe_settings_recovery_path() {
+        let (repository, database) = settings_fixture();
+        database
+            .with_connection(|connection| {
+                connection
+                    .execute(
+                        "INSERT INTO app_settings(key, value_json) VALUES (?1, ?2)",
+                        params![SETTINGS_KEY, r#"{"taskbarTray":{"density":"spacious"}}"#],
+                    )
+                    .map_err(storage_error)?;
+                Ok(())
+            })
+            .unwrap();
+
+        let error = repository.load().unwrap_err();
+
+        assert_eq!(error.code(), "SETTINGS_DECODE_FAILED");
     }
 
     #[test]
@@ -440,6 +589,36 @@ mod tests {
 
         assert_eq!(error.code(), "SETTINGS_NOTIFICATION_THRESHOLDS_INVALID");
         assert_eq!(repository.load().unwrap(), before);
+    }
+
+    #[test]
+    fn partial_taskbar_tray_patch_preserves_unpatched_preferences() {
+        let (repository, _) = settings_fixture();
+        repository
+            .update(SettingsPatch {
+                taskbar_tray: Some(TaskbarTrayPreferencesPatch {
+                    density: Some(TaskbarDensity::Standard),
+                    tooltip_account: Some(false),
+                    ..Default::default()
+                }),
+                ..Default::default()
+            })
+            .unwrap();
+
+        let updated = repository
+            .update(SettingsPatch {
+                taskbar_tray: Some(TaskbarTrayPreferencesPatch {
+                    show_weekly_percent: Some(false),
+                    ..Default::default()
+                }),
+                ..Default::default()
+            })
+            .unwrap();
+
+        assert!(!updated.taskbar_tray.show_weekly_percent);
+        assert_eq!(updated.taskbar_tray.density, TaskbarDensity::Standard);
+        assert!(!updated.taskbar_tray.tooltip_account);
+        assert!(updated.taskbar_tray.show_taskbar_icon);
     }
 
     #[test]

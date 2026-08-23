@@ -52,6 +52,21 @@ export interface NotificationCapabilityDto {
   canOpenSettings: boolean;
 }
 
+export interface TaskbarTrayPreferencesDto {
+  showTaskbarIcon: boolean;
+  showTaskbarAccount: boolean;
+  showWeeklyLabel: boolean;
+  showWeeklyPercent: boolean;
+  showResetDate: boolean;
+  density: "compact" | "standard";
+  trayIconMode: "dynamic" | "monochrome";
+  tooltipAccount: boolean;
+  tooltipWeekly: boolean;
+  tooltipResetDate: boolean;
+  tooltipUpdatedAt: boolean;
+  hideStatusSurfacesInFullscreen: boolean;
+}
+
 export interface AppSettingsDto {
   autostartEnabled: boolean;
   refreshIntervalSeconds: 0 | 60 | 300 | 900 | 1800;
@@ -65,6 +80,7 @@ export interface AppSettingsDto {
   floatBallOpacity: number;
   floatBallGlow: number;
   notifications: NotificationPreferencesDto;
+  taskbarTray: TaskbarTrayPreferencesDto;
 }
 
 export type StatusSurfaceKind = "taskbarStatus" | "floatBall";
@@ -80,8 +96,9 @@ export interface StatusSurfaceFeedbackChangedDto {
 }
 
 export interface SettingsPatchDto
-  extends Partial<Omit<AppSettingsDto, "notifications">> {
+  extends Partial<Omit<AppSettingsDto, "notifications" | "taskbarTray">> {
   notifications?: Partial<NotificationPreferencesDto>;
+  taskbarTray?: Partial<TaskbarTrayPreferencesDto>;
 }
 
 export interface ProfileSummaryDto {

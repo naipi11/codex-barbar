@@ -15,7 +15,8 @@ pub use account_repository::AccountRepository;
 pub use database::{AppDatabase, StorageError};
 pub use settings_repository::{
     AppSettings, DisplayMode, LanguagePreference, NotificationPreferences,
-    NotificationPreferencesPatch, SettingsPatch, SettingsRepository, ThemePreference,
+    NotificationPreferencesPatch, SettingsPatch, SettingsRepository, TaskbarDensity,
+    TaskbarTrayPreferences, TaskbarTrayPreferencesPatch, ThemePreference, TrayIconMode,
 };
 pub use usage_repository::{SqliteUsageRepository, UsageCacheKey, UsageRepository};
 

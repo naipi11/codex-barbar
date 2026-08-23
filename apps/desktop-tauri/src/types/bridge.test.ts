@@ -205,6 +205,20 @@ describe("V1 bridge contract", () => {
       taskbarStatusOpacity: 0,
       floatBallOpacity: 80,
       floatBallGlow: 40,
+      taskbarTray: {
+        showTaskbarIcon: true,
+        showTaskbarAccount: true,
+        showWeeklyLabel: true,
+        showWeeklyPercent: true,
+        showResetDate: true,
+        density: "compact",
+        trayIconMode: "dynamic",
+        tooltipAccount: true,
+        tooltipWeekly: true,
+        tooltipResetDate: true,
+        tooltipUpdatedAt: true,
+        hideStatusSurfacesInFullscreen: true,
+      },
       notifications: {
         enabled: false,
         playSound: true,
@@ -226,6 +240,20 @@ describe("V1 bridge contract", () => {
     expect(settings.taskbarStatusOpacity).toBe(0);
     expect(settings.floatBallOpacity).toBe(80);
     expect(settings.floatBallGlow).toBe(40);
+    expect(settings.taskbarTray).toEqual({
+      showTaskbarIcon: true,
+      showTaskbarAccount: true,
+      showWeeklyLabel: true,
+      showWeeklyPercent: true,
+      showResetDate: true,
+      density: "compact",
+      trayIconMode: "dynamic",
+      tooltipAccount: true,
+      tooltipWeekly: true,
+      tooltipResetDate: true,
+      tooltipUpdatedAt: true,
+      hideStatusSurfacesInFullscreen: true,
+    });
     expect(settings.notifications).toEqual({
       enabled: false,
       playSound: true,
