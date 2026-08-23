@@ -823,6 +823,47 @@ mod tests {
     }
 
     #[test]
+    fn reset_credit_increase_notifies_once_when_enabled() {
+        let (_temp, repository, mut controller, sent) = fixture();
+        enable_notifications(&repository);
+        let profile_id = Uuid::new_v4();
+
+        controller
+            .observe_usage(
+                &repository,
+                profile_id,
+                None,
+                &weekly(profile_id, 50.0),
+                Some(1),
+            )
+            .unwrap();
+        assert_eq!(sent.lock().unwrap().len(), 0, "first count is a baseline");
+
+        controller
+            .observe_usage(
+                &repository,
+                profile_id,
+                None,
+                &weekly(profile_id, 50.0),
+                Some(2),
+            )
+            .unwrap();
+        controller
+            .observe_usage(
+                &repository,
+                profile_id,
+                None,
+                &weekly(profile_id, 50.0),
+                Some(2),
+            )
+            .unwrap();
+
+        let sent = sent.lock().unwrap();
+        assert_eq!(sent.len(), 1, "increase fires once and dedupes");
+        assert!(sent[0].title.contains("Reset credits increased"));
+    }
+
+    #[test]
     fn newly_observed_update_version_dispatches_exactly_once() {
         let (temp, repository, mut controller, sent) = fixture();
         enable_notifications(&repository);

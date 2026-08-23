@@ -14,6 +14,8 @@ import type {
   ProfileUsageStateDto,
   StatusSurfaceKind,
   SettingsPatchDto,
+  UsageSpendDto,
+  UsageSpendRange,
 } from "../types/bridge";
 
 /** Frozen invoke names. Keep this list in sync with the Rust command registry. */
@@ -23,6 +25,7 @@ export const commands = {
   getNotificationCapability: "get_notification_capability",
   updateSettings: "update_settings",
   applyMenuPreferences: "apply_menu_preferences",
+  getUsageSpend: "get_usage_spend",
   sendTestNotification: "send_test_notification",
   setStatusSurfaceEnabled: "set_status_surface_enabled",
   setFloatBallExpanded: "set_float_ball_expanded",
@@ -91,6 +94,9 @@ export const applyMenuPreferences = (preferences: MenuPreferencesPatchDto) =>
   invoke<AppSettingsDto>(commands.applyMenuPreferences, {
     preferences: preferences as Record<string, unknown>,
   });
+
+export const getUsageSpend = (range: UsageSpendRange) =>
+  invoke<UsageSpendDto>(commands.getUsageSpend, { range });
 
 export const sendTestNotification = () =>
   invoke<void>(commands.sendTestNotification);

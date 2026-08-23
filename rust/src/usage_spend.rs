@@ -14,8 +14,11 @@ use crate::core::CostUsagePricing;
 type TokenTotals = (u64, u64, u64);
 type ModelTotalsMap = BTreeMap<String, TokenTotals>;
 type DailyTotalsMap = BTreeMap<NaiveDate, TokenTotals>;
+
+pub use crate::cost_scanner::CodexUsageRange;
+
 use crate::cost_scanner::{
-    CodexRangeScanError, CodexUsageRange, CodexUsageScanReport, CostScanner, DailyModelCodexUsage,
+    CodexRangeScanError, CodexUsageScanReport, CostScanner, DailyModelCodexUsage,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

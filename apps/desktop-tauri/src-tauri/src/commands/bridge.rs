@@ -548,6 +548,68 @@ pub struct ProfileUsageStateDto {
     pub protocol_anomaly: bool,
 }
 
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ResetCreditsStateDto {
+    pub state: &'static str,
+    pub available_count: Option<u64>,
+    pub observed_at: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OfficialUsageDto {
+    pub remaining_percent: Option<u8>,
+    pub resets_at: Option<String>,
+    pub fetched_at: Option<String>,
+    pub freshness: &'static str,
+    pub reset_credits: ResetCreditsStateDto,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DailyUsageSpendDto {
+    pub date: String,
+    pub total_tokens: u64,
+    pub estimated_cost_usd: Option<f64>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ModelUsageSpendDto {
+    pub model: String,
+    pub input_tokens: u64,
+    pub cached_input_tokens: u64,
+    pub output_tokens: u64,
+    pub total_tokens: u64,
+    pub estimated_cost_usd: Option<f64>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LocalUsageSpendDto {
+    pub attribution: &'static str,
+    pub range: &'static str,
+    pub input_tokens: u64,
+    pub cached_input_tokens: u64,
+    pub output_tokens: u64,
+    pub total_tokens: u64,
+    pub sessions_count: u32,
+    pub estimated_cost_usd: Option<f64>,
+    pub unknown_models: Vec<String>,
+    pub daily: Vec<DailyUsageSpendDto>,
+    pub models: Vec<ModelUsageSpendDto>,
+    pub state: &'static str,
+    pub malformed_records_skipped: u64,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UsageSpendDto {
+    pub official: OfficialUsageDto,
+    pub local: LocalUsageSpendDto,
+}
+
 impl ProfileUsageStateDto {
     pub(crate) fn from_state(state: &ProfileUsageState) -> Self {
         let snapshot = state.snapshot.as_ref();

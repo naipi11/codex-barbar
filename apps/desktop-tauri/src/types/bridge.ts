@@ -160,6 +160,61 @@ export type RefreshStatus =
   | "backoff"
   | "blocked";
 
+
+export type UsageSpendRange = "today" | "last7Days" | "last30Days" | "currentWeekly";
+export type ResetCreditsState = "available" | "unsupported" | "stale";
+export type LocalUsageState = "ready" | "empty" | "unavailable" | "cancelled";
+
+export interface ResetCreditsStateDto {
+  state: ResetCreditsState;
+  availableCount: number | null;
+  observedAt: string | null;
+}
+
+export interface OfficialUsageDto {
+  remainingPercent: number | null;
+  resetsAt: string | null;
+  fetchedAt: string | null;
+  freshness: "fresh" | "stale" | "missing";
+  resetCredits: ResetCreditsStateDto;
+}
+
+export interface DailyUsageSpendDto {
+  date: string;
+  totalTokens: number;
+  estimatedCostUsd: number | null;
+}
+
+export interface ModelUsageSpendDto {
+  model: string;
+  inputTokens: number;
+  cachedInputTokens: number;
+  outputTokens: number;
+  totalTokens: number;
+  estimatedCostUsd: number | null;
+}
+
+export interface LocalUsageSpendDto {
+  attribution: "deviceCombined";
+  range: UsageSpendRange;
+  inputTokens: number;
+  cachedInputTokens: number;
+  outputTokens: number;
+  totalTokens: number;
+  sessionsCount: number;
+  estimatedCostUsd: number | null;
+  unknownModels: string[];
+  daily: DailyUsageSpendDto[];
+  models: ModelUsageSpendDto[];
+  state: LocalUsageState;
+  malformedRecordsSkipped: number;
+}
+
+export interface UsageSpendDto {
+  official: OfficialUsageDto;
+  local: LocalUsageSpendDto;
+}
+
 export interface ProfileUsageStateDto {
   profileId: string;
   primary: UsageWindowDto | null;
@@ -371,3 +426,4 @@ export function parseProfileUsageState(
 
   return value as unknown as ProfileUsageStateDto;
 }
+
