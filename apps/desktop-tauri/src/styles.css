@@ -521,3 +521,65 @@ html:has(.tray-panel) body {
   height: auto;
   min-height: 0;
 }
+
+.usage-spend-badge {
+  display: inline-block;
+  padding: 1px 6px;
+  border: 1px solid var(--app-warn);
+  border-radius: 999px;
+  color: var(--app-warn);
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.usage-spend-official {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 8px 10px;
+  border: 1px solid var(--app-border);
+  border-radius: 10px;
+  background: var(--app-surface);
+}
+
+.usage-spend-official__label {
+  color: var(--app-muted);
+  font-size: 12px;
+}
+
+.usage-spend-official__percent {
+  font-size: 22px;
+  line-height: 1.1;
+}
+
+.usage-spend-token-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  gap: 6px 10px;
+  margin-top: 8px;
+  font-size: 12px;
+}
+
+.usage-spend-token-grid strong {
+  font-variant-numeric: tabular-nums;
+}
+
+.usage-spend-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-top: 6px;
+  font-size: 12px;
+}
+
+.usage-spend-table th,
+.usage-spend-table td {
+  text-align: left;
+  padding: 4px 6px;
+  border-bottom: 1px solid var(--app-border);
+  font-variant-numeric: tabular-nums;
+}
+
+.usage-spend-table th {
+  color: var(--app-muted);
+  font-weight: 600;
+}

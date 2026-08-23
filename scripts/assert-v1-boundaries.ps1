@@ -10,7 +10,7 @@ $repoRoot = Split-Path -Parent $PSScriptRoot
 Push-Location $repoRoot
 try {
   $expectedCommands = @(
-    'get_bootstrap_state','get_settings_snapshot','get_notification_capability','update_settings','apply_menu_preferences','send_test_notification','get_locale_strings',
+    'get_bootstrap_state','get_settings_snapshot','get_notification_capability','update_settings','apply_menu_preferences','get_usage_spend','send_test_notification','get_locale_strings',
     'select_profile','refresh_selected_profile','start_managed_login','cancel_managed_login',
     'rename_managed_profile','remove_managed_profile','validate_codex_executable',
     'get_diagnostics_summary','export_diagnostics','check_for_updates','open_release_page',

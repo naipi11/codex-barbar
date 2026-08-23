@@ -83,6 +83,46 @@ export interface SettingsCopy {
     noCustomCommands: string;
     saveFailed: string;
   };
+  usageSpend: {
+    title: string;
+    officialTitle: string;
+    officialDescription: string;
+    weeklyAllowance: string;
+    remainingPercent: (value: number) => string;
+    resetsAt: string;
+    lastUpdated: string;
+    freshness: Record<"fresh" | "stale" | "missing", string>;
+    resetCreditsTitle: string;
+    resetCreditsAvailable: (count: number) => string;
+    resetCreditsUnsupported: string;
+    resetCreditsStale: string;
+    localTitle: string;
+    localEstimateBadge: string;
+    deviceCombined: string;
+    rangeLabel: string;
+    ranges: readonly [string, string, string, string];
+    refreshLocal: string;
+    refreshingLocal: string;
+    inputTokens: string;
+    cachedInputTokens: string;
+    outputTokens: string;
+    totalTokens: string;
+    sessions: string;
+    dailyTrendTitle: string;
+    modelTableTitle: string;
+    modelColumn: string;
+    unknownModelsTitle: string;
+    unknownModelsHelp: string;
+    malformedSkipped: (count: number) => string;
+    emptyState: string;
+    unavailableState: string;
+    cancelledState: string;
+    costUnavailable: string;
+    costUsd: (value: number) => string;
+    costUnknown: string;
+    loading: string;
+    loadFailed: string;
+  };
   notifications: {
     title: string;
     masterTitle: string;
@@ -236,6 +276,54 @@ const english: SettingsCopy = {
       "Only built-in items can be configured. Custom commands, scripts, URLs, and executable paths are not supported.",
     saveFailed: "Menu settings could not be saved. Try again.",
   },
+
+  usageSpend: {
+    title: "Usage & Spend",
+    officialTitle: "Official weekly allowance",
+    officialDescription:
+      "Read-only view of the universal weekly Codex allowance from the selected account.",
+    weeklyAllowance: "Universal weekly allowance",
+    remainingPercent: (value) => `${value}% remaining`,
+    resetsAt: "Resets",
+    lastUpdated: "Last updated",
+    freshness: {
+      fresh: "Fresh",
+      stale: "Stale",
+      missing: "No data",
+    },
+    resetCreditsTitle: "Reset credits",
+    resetCreditsAvailable: (count) => `${count} reset credit(s) available`,
+    resetCreditsUnsupported: "Reset credits are not reported for this account.",
+    resetCreditsStale: "Reset-credit count is from a cached snapshot.",
+    localTitle: "Local usage estimate",
+    localEstimateBadge: "Local estimate, not an OpenAI bill",
+    deviceCombined: "This device combined",
+    rangeLabel: "Local range",
+    ranges: ["Today", "Last 7 days", "Last 30 days", "Current weekly"],
+    refreshLocal: "Refresh local data",
+    refreshingLocal: "Refreshing local data…",
+    inputTokens: "Input tokens",
+    cachedInputTokens: "Cached input tokens",
+    outputTokens: "Output tokens",
+    totalTokens: "Total tokens",
+    sessions: "Local sessions",
+    dailyTrendTitle: "Daily trend",
+    modelTableTitle: "Per-model totals",
+    modelColumn: "Model",
+    unknownModelsTitle: "Unpriced models",
+    unknownModelsHelp:
+      "These models contributed tokens but have no known price, so no aggregate cost is shown.",
+    malformedSkipped: (count) => `${count} malformed log line(s) skipped`,
+    emptyState: "No local Codex session logs found in this range.",
+    unavailableState: "Local usage is unavailable for this range.",
+    cancelledState: "Local scan was cancelled.",
+    costUnavailable: "Cost unavailable",
+    costUsd: (value) => `$${value.toFixed(2)}`,
+    costUnknown: "—",
+    loading: "Loading usage data…",
+    loadFailed: "Usage data could not be loaded. Try again.",
+  },
+
   notifications: {
     title: "Notifications",
     masterTitle: "Windows notifications",
@@ -336,6 +424,52 @@ const chinese: SettingsCopy = {
     noCustomCommands: "仅可配置内置项，不支持自定义命令、脚本、网址或可执行文件。",
     saveFailed: "无法保存菜单设置，请重试。",
   },
+
+  usageSpend: {
+    title: "用量与费用",
+    officialTitle: "官方每周额度",
+    officialDescription: "所选账户的通用每周 Codex 额度，只读展示。",
+    weeklyAllowance: "通用每周额度",
+    remainingPercent: (value) => `剩余 ${value}%`,
+    resetsAt: "重置时间",
+    lastUpdated: "最后更新",
+    freshness: {
+      fresh: "最新",
+      stale: "已过期",
+      missing: "暂无数据",
+    },
+    resetCreditsTitle: "重置额度",
+    resetCreditsAvailable: (count) => `可用重置额度 ${count} 个`,
+    resetCreditsUnsupported: "当前账户未返回重置额度信息。",
+    resetCreditsStale: "重置额度来自缓存快照。",
+    localTitle: "本地用量估算",
+    localEstimateBadge: "本地估算，并非 OpenAI 账单",
+    deviceCombined: "此设备合计",
+    rangeLabel: "本地统计范围",
+    ranges: ["今天", "最近 7 天", "最近 30 天", "当前每周"],
+    refreshLocal: "刷新本地数据",
+    refreshingLocal: "正在刷新本地数据…",
+    inputTokens: "输入令牌",
+    cachedInputTokens: "缓存输入令牌",
+    outputTokens: "输出令牌",
+    totalTokens: "令牌总数",
+    sessions: "本地会话",
+    dailyTrendTitle: "每日趋势",
+    modelTableTitle: "按模型统计",
+    modelColumn: "模型",
+    unknownModelsTitle: "未定价模型",
+    unknownModelsHelp: "这些模型产生了令牌但无已知价格，因此不显示总费用。",
+    malformedSkipped: (count) => `跳过 ${count} 行格式异常日志`,
+    emptyState: "该范围内未找到本地 Codex 会话日志。",
+    unavailableState: "该范围暂无法提供本地用量。",
+    cancelledState: "本地扫描已取消。",
+    costUnavailable: "费用不可用",
+    costUsd: (value) => `$${value.toFixed(2)}`,
+    costUnknown: "—",
+    loading: "正在加载用量数据…",
+    loadFailed: "无法加载用量数据，请重试。",
+  },
+
   notifications: {
     title: "通知",
     masterTitle: "Windows 通知",
