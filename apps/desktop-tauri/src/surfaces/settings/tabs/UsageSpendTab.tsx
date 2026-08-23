@@ -232,7 +232,7 @@ export default function UsageSpendTab({
               <table className="usage-spend-table">
                 <thead>
                   <tr>
-                    <th scope="col">Date</th>
+                    <th scope="col">{usageCopy.dateColumn}</th>
                     <th scope="col">{usageCopy.totalTokens}</th>
                     <th scope="col">{usageCopy.costUnavailable}</th>
                   </tr>

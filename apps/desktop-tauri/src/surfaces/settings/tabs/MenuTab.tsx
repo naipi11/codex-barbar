@@ -152,7 +152,7 @@ export default function MenuTab({
   };
 
   return (
-    <section data-testid="menu-tab" aria-label={menuCopy.title + " settings"}>
+    <section data-testid="menu-tab" aria-label={menuCopy.title}>
       <h2>{menuCopy.title}</h2>
       <p className="settings-preference-group__hint">{menuCopy.noCustomCommands}</p>
       {saveError ? (
@@ -310,4 +310,3 @@ function LayoutEditor({
     </fieldset>
   );
 }
-

@@ -109,6 +109,7 @@ export interface SettingsCopy {
     totalTokens: string;
     sessions: string;
     dailyTrendTitle: string;
+    dateColumn: string;
     modelTableTitle: string;
     modelColumn: string;
     unknownModelsTitle: string;
@@ -308,6 +309,7 @@ const english: SettingsCopy = {
     totalTokens: "Total tokens",
     sessions: "Local sessions",
     dailyTrendTitle: "Daily trend",
+    dateColumn: "Date",
     modelTableTitle: "Per-model totals",
     modelColumn: "Model",
     unknownModelsTitle: "Unpriced models",
@@ -455,6 +457,7 @@ const chinese: SettingsCopy = {
     totalTokens: "令牌总数",
     sessions: "本地会话",
     dailyTrendTitle: "每日趋势",
+    dateColumn: "日期",
     modelTableTitle: "按模型统计",
     modelColumn: "模型",
     unknownModelsTitle: "未定价模型",
