@@ -9,7 +9,7 @@ function RangeHarness({
   onSuccess,
 }: {
   value: number;
-  onCommit(value: number): void | Promise<unknown>;
+  onCommit(value: number): Promise<number>;
   onError?(): void;
   onSuccess?(): void;
 }) {
@@ -40,7 +40,7 @@ function RangeHarness({
   );
 }
 
-function deferred<T = void>() {
+function deferred<T>() {
   let resolve!: (value: T | PromiseLike<T>) => void;
   let reject!: (reason?: unknown) => void;
   const promise = new Promise<T>((resolvePromise, rejectPromise) => {
@@ -75,7 +75,7 @@ describe("useCommittedRange", () => {
 
   it("coalesces input frames, protects an active draft, and commits the final value once", () => {
     const animationFrames = installAnimationFrameHarness();
-    const onCommit = vi.fn();
+    const onCommit = vi.fn().mockResolvedValue(30);
     const view = render(<RangeHarness value={20} onCommit={onCommit} />);
     const range = screen.getByRole("slider", { name: "Transparency" });
 
@@ -97,7 +97,7 @@ describe("useCommittedRange", () => {
 
   it("cancels a pointer draft back to the latest saved value without committing", () => {
     const animationFrames = installAnimationFrameHarness();
-    const onCommit = vi.fn();
+    const onCommit = vi.fn().mockResolvedValue(20);
     const view = render(<RangeHarness value={20} onCommit={onCommit} />);
     const range = screen.getByRole("slider", { name: "Transparency" });
 
@@ -111,9 +111,9 @@ describe("useCommittedRange", () => {
     expect(onCommit).not.toHaveBeenCalled();
   });
 
-  it("commits keyboard edits on key release and unbound input edits on blur", () => {
+  it("commits keyboard edits on key release and unbound input edits on blur", async () => {
     const animationFrames = installAnimationFrameHarness();
-    const onCommit = vi.fn();
+    const onCommit = vi.fn((nextValue: number) => Promise.resolve(nextValue));
     const view = render(<RangeHarness value={20} onCommit={onCommit} />);
     const range = screen.getByRole("slider", { name: "Transparency" });
 
@@ -124,6 +124,9 @@ describe("useCommittedRange", () => {
     fireEvent.blur(range);
     expect(onCommit).toHaveBeenCalledTimes(1);
     expect(onCommit).toHaveBeenLastCalledWith(21);
+    await act(async () => {
+      await Promise.resolve();
+    });
 
     view.rerender(<RangeHarness value={21} onCommit={onCommit} />);
     fireEvent.input(range, { target: { value: "35" } });
@@ -132,29 +135,50 @@ describe("useCommittedRange", () => {
     expect(onCommit).toHaveBeenLastCalledWith(35);
   });
 
-  it("uses the last committed draft as the baseline before settings echo it back", () => {
+  it("does not treat a matching prop echo as acknowledgement before the Promise settles", async () => {
     const animationFrames = installAnimationFrameHarness();
-    const onCommit = vi.fn();
-    render(<RangeHarness value={20} onCommit={onCommit} />);
+    const commit = deferred<number>();
+    const onError = vi.fn();
+    const onSuccess = vi.fn();
+    const view = render(
+      <RangeHarness
+        value={20}
+        onCommit={() => commit.promise}
+        onError={onError}
+        onSuccess={onSuccess}
+      />,
+    );
     const range = screen.getByRole("slider", { name: "Transparency" });
 
     fireEvent.pointerDown(range, { pointerId: 9 });
     fireEvent.input(range, { target: { value: "30" } });
     fireEvent.pointerUp(range, { pointerId: 9 });
-    expect(onCommit).toHaveBeenLastCalledWith(30);
-
-    fireEvent.pointerDown(range, { pointerId: 10 });
-    fireEvent.input(range, { target: { value: "20" } });
     animationFrames.flush();
-    fireEvent.pointerUp(range, { pointerId: 10 });
+    view.rerender(
+      <RangeHarness
+        value={30}
+        onCommit={() => commit.promise}
+        onError={onError}
+        onSuccess={onSuccess}
+      />,
+    );
 
-    expect(onCommit).toHaveBeenCalledTimes(2);
-    expect(onCommit).toHaveBeenLastCalledWith(20);
+    expect(range).toHaveValue("30");
+    expect(onSuccess).not.toHaveBeenCalled();
+
+    await act(async () => {
+      commit.reject(new Error("save failed after echo"));
+      await Promise.resolve();
+    });
+
+    expect(range).toHaveValue("20");
+    expect(onError).toHaveBeenCalledTimes(1);
+    expect(onSuccess).not.toHaveBeenCalled();
   });
 
   it("rolls the latest rejected commit back, reports a sanitized error, and consumes rejection", async () => {
     const animationFrames = installAnimationFrameHarness();
-    const commit = deferred();
+    const commit = deferred<number>();
     const onError = vi.fn();
     const unhandled = vi.fn();
     window.addEventListener("unhandledrejection", unhandled);
@@ -185,10 +209,32 @@ describe("useCommittedRange", () => {
     window.removeEventListener("unhandledrejection", unhandled);
   });
 
-  it("keeps the newest interaction when commit promises settle out of order", async () => {
+  it("accepts a later external value after a rejection with no stale echo", async () => {
+    const commit = deferred<number>();
+    const view = render(
+      <RangeHarness value={20} onCommit={() => commit.promise} />,
+    );
+    const range = screen.getByRole("slider", { name: "Transparency" });
+
+    fireEvent.pointerDown(range, { pointerId: 19 });
+    fireEvent.input(range, { target: { value: "30" } });
+    fireEvent.pointerUp(range, { pointerId: 19 });
+    await act(async () => {
+      commit.reject(new Error("save failed"));
+      await Promise.resolve();
+    });
+    expect(range).toHaveValue("20");
+
+    view.rerender(
+      <RangeHarness value={25} onCommit={() => commit.promise} />,
+    );
+    expect(range).toHaveValue("25");
+  });
+
+  it("serializes two deferred boundary commits and keeps the queued draft visible", async () => {
     const animationFrames = installAnimationFrameHarness();
-    const first = deferred();
-    const second = deferred();
+    const first = deferred<number>();
+    const second = deferred<number>();
     const onError = vi.fn();
     const onSuccess = vi.fn();
     const onCommit = vi
@@ -213,57 +259,132 @@ describe("useCommittedRange", () => {
     animationFrames.flush();
     fireEvent.pointerUp(range, { pointerId: 13 });
     expect(onCommit).toHaveBeenNthCalledWith(1, 30);
-    expect(onCommit).toHaveBeenNthCalledWith(2, 40);
-
-    await act(async () => {
-      second.resolve();
-      await Promise.resolve();
-    });
-    view.rerender(
-      <RangeHarness
-        value={30}
-        onCommit={onCommit}
-        onError={onError}
-        onSuccess={onSuccess}
-      />,
-    );
+    expect(onCommit).toHaveBeenCalledTimes(1);
     expect(range).toHaveValue("40");
 
     await act(async () => {
-      first.reject(new Error("older failure"));
+      first.resolve(30);
+      await Promise.resolve();
+    });
+    expect(onCommit).toHaveBeenNthCalledWith(2, 40);
+    expect(range).toHaveValue("40");
+
+    await act(async () => {
+      second.resolve(40);
       await Promise.resolve();
     });
     expect(range).toHaveValue("40");
     expect(onError).not.toHaveBeenCalled();
-    expect(onSuccess).toHaveBeenCalledTimes(1);
+    expect(onSuccess).toHaveBeenCalledTimes(2);
   });
 
-  it("protects a released pending draft from stale external events until its echo confirms", async () => {
+  it("handles ABA commits and rolls the newest rejection back to the last Promise acknowledgement", async () => {
     const animationFrames = installAnimationFrameHarness();
-    const commit = deferred();
+    const first = deferred<number>();
+    const second = deferred<number>();
+    const onError = vi.fn();
+    const onCommit = vi
+      .fn()
+      .mockReturnValueOnce(first.promise)
+      .mockReturnValueOnce(second.promise);
+    const view = render(
+      <RangeHarness value={30} onCommit={onCommit} onError={onError} />,
+    );
+    const range = screen.getByRole("slider", { name: "Transparency" });
+
+    fireEvent.pointerDown(range, { pointerId: 14 });
+    fireEvent.input(range, { target: { value: "40" } });
+    fireEvent.pointerUp(range, { pointerId: 14 });
+    fireEvent.pointerDown(range, { pointerId: 15 });
+    fireEvent.input(range, { target: { value: "30" } });
+    animationFrames.flush();
+    fireEvent.pointerUp(range, { pointerId: 15 });
+    expect(onCommit).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      first.resolve(40);
+      await Promise.resolve();
+    });
+    expect(onCommit).toHaveBeenNthCalledWith(2, 30);
+
+    view.rerender(
+      <RangeHarness value={40} onCommit={onCommit} onError={onError} />,
+    );
+    expect(range).toHaveValue("30");
+
+    await act(async () => {
+      second.reject(new Error("newest failed"));
+      await Promise.resolve();
+    });
+
+    expect(range).toHaveValue("40");
+    expect(onError).toHaveBeenCalledTimes(1);
+  });
+
+  it("suppresses an older rejection while preserving and starting a newer queued commit", async () => {
+    const first = deferred<number>();
+    const second = deferred<number>();
+    const onError = vi.fn();
+    const onCommit = vi
+      .fn()
+      .mockReturnValueOnce(first.promise)
+      .mockReturnValueOnce(second.promise);
+    render(
+      <RangeHarness value={20} onCommit={onCommit} onError={onError} />,
+    );
+    const range = screen.getByRole("slider", { name: "Transparency" });
+
+    fireEvent.pointerDown(range, { pointerId: 16 });
+    fireEvent.input(range, { target: { value: "30" } });
+    fireEvent.pointerUp(range, { pointerId: 16 });
+    fireEvent.pointerDown(range, { pointerId: 17 });
+    fireEvent.input(range, { target: { value: "40" } });
+    fireEvent.pointerUp(range, { pointerId: 17 });
+    expect(onCommit).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      first.reject(new Error("older failed"));
+      await Promise.resolve();
+    });
+
+    expect(onCommit).toHaveBeenNthCalledWith(2, 40);
+    expect(range).toHaveValue("40");
+    expect(onError).not.toHaveBeenCalled();
+
+    await act(async () => {
+      second.resolve(40);
+      await Promise.resolve();
+    });
+    expect(range).toHaveValue("40");
+  });
+
+  it("ignores stale prop events until the latest Promise acknowledgement is reflected", async () => {
+    const commit = deferred<number>();
     const view = render(
       <RangeHarness value={20} onCommit={() => commit.promise} />,
     );
     const range = screen.getByRole("slider", { name: "Transparency" });
 
-    fireEvent.pointerDown(range, { pointerId: 14 });
+    fireEvent.pointerDown(range, { pointerId: 18 });
     fireEvent.input(range, { target: { value: "30" } });
-    animationFrames.flush();
-    fireEvent.pointerUp(range, { pointerId: 14 });
+    fireEvent.pointerUp(range, { pointerId: 18 });
     view.rerender(
       <RangeHarness value={25} onCommit={() => commit.promise} />,
     );
     expect(range).toHaveValue("30");
 
     await act(async () => {
-      commit.resolve();
+      commit.resolve(30);
       await Promise.resolve();
     });
     view.rerender(
-      <RangeHarness value={30} onCommit={() => commit.promise} />,
+      <RangeHarness value={26} onCommit={() => commit.promise} />,
     );
     expect(range).toHaveValue("30");
 
+    view.rerender(
+      <RangeHarness value={30} onCommit={() => commit.promise} />,
+    );
     view.rerender(
       <RangeHarness value={35} onCommit={() => commit.promise} />,
     );

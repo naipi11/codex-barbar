@@ -15,6 +15,11 @@ const UPDATE_CHECK_INTERVAL: Duration = Duration::from_secs(24 * 60 * 60);
 const TOAST_EXIT_APP_DISABLED: i32 = 20;
 const TOAST_EXIT_GLOBAL_DISABLED: i32 = 21;
 const TOAST_EXIT_UNSUPPORTED: i32 = 22;
+const NOTIFICATION_REGISTRATION_SCRIPT: &str = r#"try {
+    $appIdPath = 'HKCU:\SOFTWARE\Classes\AppUserModelId\CodexBar'
+    New-Item -Path $appIdPath -Force | Out-Null
+    New-ItemProperty -Path $appIdPath -Name DisplayName -Value 'codex-barbar' -PropertyType String -Force | Out-Null
+} catch { exit 1 }"#;
 const NOTIFICATION_SETTING_SCRIPT: &str = r#"try {
     [Windows.UI.Notifications.ToastNotificationManager, Windows.UI.Notifications, ContentType = WindowsRuntime] | Out-Null
     $notifier = [Windows.UI.Notifications.ToastNotificationManager]::CreateToastNotifier('CodexBar')
@@ -39,6 +44,9 @@ pub struct NotificationCapabilityDto {
 }
 
 pub(crate) trait NotificationSettingProbe {
+    fn ensure_registration(&self) -> Result<(), ()> {
+        Ok(())
+    }
     fn notification_setting(&self) -> Result<u32, ()>;
 }
 
@@ -46,6 +54,27 @@ struct SystemNotificationSettingProbe;
 
 #[cfg(target_os = "windows")]
 impl NotificationSettingProbe for SystemNotificationSettingProbe {
+    fn ensure_registration(&self) -> Result<(), ()> {
+        use std::os::windows::process::CommandExt;
+        use std::process::Command;
+
+        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+        let status = Command::new("powershell")
+            .args([
+                "-NoLogo",
+                "-NoProfile",
+                "-NonInteractive",
+                "-ExecutionPolicy",
+                "Bypass",
+                "-Command",
+                NOTIFICATION_REGISTRATION_SCRIPT,
+            ])
+            .creation_flags(CREATE_NO_WINDOW)
+            .status()
+            .map_err(|_| ())?;
+        status.success().then_some(()).ok_or(())
+    }
+
     fn notification_setting(&self) -> Result<u32, ()> {
         use std::os::windows::process::CommandExt;
         use std::process::Command;
@@ -73,6 +102,10 @@ impl NotificationSettingProbe for SystemNotificationSettingProbe {
 
 #[cfg(not(target_os = "windows"))]
 impl NotificationSettingProbe for SystemNotificationSettingProbe {
+    fn ensure_registration(&self) -> Result<(), ()> {
+        Err(())
+    }
+
     fn notification_setting(&self) -> Result<u32, ()> {
         Err(())
     }
@@ -101,13 +134,17 @@ pub(crate) fn detect_notification_capability<P: NotificationSettingProbe>(
         };
     }
 
-    NotificationCapabilityDto {
-        status: match probe.notification_setting() {
+    let status = match probe.ensure_registration() {
+        Ok(()) => match probe.notification_setting() {
             Ok(0) => NotificationCapabilityStatus::Available,
             Ok(1) => NotificationCapabilityStatus::AppDisabled,
             Ok(2) => NotificationCapabilityStatus::GlobalDisabled,
             _ => NotificationCapabilityStatus::Unsupported,
         },
+        Err(()) => NotificationCapabilityStatus::Unsupported,
+    };
+    NotificationCapabilityDto {
+        status,
         can_open_settings: true,
     }
 }
@@ -547,17 +584,45 @@ mod tests {
     use uuid::Uuid;
 
     use super::{
-        NotificationCapabilityStatus, NotificationController, NotificationSettingProbe, ToastSink,
-        account_marker_from_email, detect_notification_capability, parse_notification_setting,
-        send_windows_toast_with, should_check_for_updates, toast_transport_result,
-        windows_toast_script, xml_escape,
+        NOTIFICATION_REGISTRATION_SCRIPT, NotificationCapabilityStatus, NotificationController,
+        NotificationSettingProbe, ToastSink, account_marker_from_email,
+        detect_notification_capability, parse_notification_setting, send_windows_toast_with,
+        should_check_for_updates, toast_transport_result, windows_toast_script, xml_escape,
     };
 
-    struct FakeNotificationSettingProbe(Result<u32, ()>);
+    struct FakeNotificationSettingProbe {
+        registration: Result<(), ()>,
+        setting: Result<u32, ()>,
+        calls: Arc<Mutex<Vec<&'static str>>>,
+    }
+
+    impl FakeNotificationSettingProbe {
+        fn new(setting: Result<u32, ()>) -> Self {
+            Self {
+                registration: Ok(()),
+                setting,
+                calls: Arc::new(Mutex::new(Vec::new())),
+            }
+        }
+
+        fn with_registration_failure(setting: Result<u32, ()>) -> Self {
+            Self {
+                registration: Err(()),
+                setting,
+                calls: Arc::new(Mutex::new(Vec::new())),
+            }
+        }
+    }
 
     impl NotificationSettingProbe for FakeNotificationSettingProbe {
+        fn ensure_registration(&self) -> Result<(), ()> {
+            self.calls.lock().unwrap().push("register");
+            self.registration
+        }
+
         fn notification_setting(&self) -> Result<u32, ()> {
-            self.0
+            self.calls.lock().unwrap().push("probe");
+            self.setting
         }
     }
 
@@ -831,7 +896,8 @@ mod tests {
 
     #[test]
     fn notification_capability_reports_app_level_suppression() {
-        let capability = detect_notification_capability(&FakeNotificationSettingProbe(Ok(1)), true);
+        let capability =
+            detect_notification_capability(&FakeNotificationSettingProbe::new(Ok(1)), true);
 
         assert_eq!(capability.status, NotificationCapabilityStatus::AppDisabled);
         assert!(capability.can_open_settings);
@@ -846,7 +912,8 @@ mod tests {
 
     #[test]
     fn notification_capability_reports_global_suppression() {
-        let capability = detect_notification_capability(&FakeNotificationSettingProbe(Ok(2)), true);
+        let capability =
+            detect_notification_capability(&FakeNotificationSettingProbe::new(Ok(2)), true);
 
         assert_eq!(
             capability.status,
@@ -857,7 +924,8 @@ mod tests {
 
     #[test]
     fn notification_capability_reports_available_only_for_authoritative_enabled_setting() {
-        let capability = detect_notification_capability(&FakeNotificationSettingProbe(Ok(0)), true);
+        let capability =
+            detect_notification_capability(&FakeNotificationSettingProbe::new(Ok(0)), true);
 
         assert_eq!(capability.status, NotificationCapabilityStatus::Available);
         assert!(capability.can_open_settings);
@@ -866,10 +934,10 @@ mod tests {
     #[test]
     fn notification_capability_maps_policy_manifest_unknown_and_probe_failures_to_unsupported() {
         for probe in [
-            FakeNotificationSettingProbe(Ok(3)),
-            FakeNotificationSettingProbe(Ok(4)),
-            FakeNotificationSettingProbe(Ok(5)),
-            FakeNotificationSettingProbe(Err(())),
+            FakeNotificationSettingProbe::new(Ok(3)),
+            FakeNotificationSettingProbe::new(Ok(4)),
+            FakeNotificationSettingProbe::new(Ok(5)),
+            FakeNotificationSettingProbe::new(Err(())),
         ] {
             let capability = detect_notification_capability(&probe, true);
             assert_eq!(capability.status, NotificationCapabilityStatus::Unsupported);
@@ -879,23 +947,58 @@ mod tests {
 
     #[test]
     fn notification_capability_reports_unsupported_off_windows() {
-        let capability =
-            detect_notification_capability(&FakeNotificationSettingProbe(Ok(0)), false);
+        let probe = FakeNotificationSettingProbe::new(Ok(0));
+        let capability = detect_notification_capability(&probe, false);
 
         assert_eq!(capability.status, NotificationCapabilityStatus::Unsupported);
         assert!(!capability.can_open_settings);
+        assert!(probe.calls.lock().unwrap().is_empty());
     }
 
     #[test]
     fn disabled_notification_preflight_does_not_start_transport() {
         let mut transport_started = false;
-        let result = send_windows_toast_with(&FakeNotificationSettingProbe(Ok(1)), true, || {
-            transport_started = true;
-            Ok(())
-        });
+        let result =
+            send_windows_toast_with(&FakeNotificationSettingProbe::new(Ok(1)), true, || {
+                transport_started = true;
+                Ok(())
+            });
 
         assert_eq!(result.unwrap_err(), "NOTIFICATION_PERMISSION_DISABLED");
         assert!(!transport_started);
+    }
+
+    #[test]
+    fn notification_capability_registers_fixed_aumid_before_authoritative_probe() {
+        let probe = FakeNotificationSettingProbe::new(Ok(0));
+
+        let capability = detect_notification_capability(&probe, true);
+
+        assert_eq!(capability.status, NotificationCapabilityStatus::Available);
+        assert_eq!(*probe.calls.lock().unwrap(), ["register", "probe"]);
+    }
+
+    #[test]
+    fn notification_capability_stops_before_probe_when_registration_fails() {
+        let probe = FakeNotificationSettingProbe::with_registration_failure(Ok(0));
+
+        let capability = detect_notification_capability(&probe, true);
+
+        assert_eq!(capability.status, NotificationCapabilityStatus::Unsupported);
+        assert!(capability.can_open_settings);
+        assert_eq!(*probe.calls.lock().unwrap(), ["register"]);
+    }
+
+    #[test]
+    fn notification_registration_script_writes_only_fixed_aumid_metadata() {
+        assert!(
+            NOTIFICATION_REGISTRATION_SCRIPT
+                .contains("HKCU:\\SOFTWARE\\Classes\\AppUserModelId\\CodexBar")
+        );
+        assert!(NOTIFICATION_REGISTRATION_SCRIPT.contains("-Name DisplayName"));
+        assert!(!NOTIFICATION_REGISTRATION_SCRIPT.contains("-Name Enabled"));
+        assert!(!NOTIFICATION_REGISTRATION_SCRIPT.contains("ToastEnabled"));
+        assert!(!NOTIFICATION_REGISTRATION_SCRIPT.contains("Notifications\\Settings"));
     }
 
     #[test]

@@ -57,7 +57,7 @@ function StatusCard({
   opacityLabel: string;
   saveError: string;
   opacityField: "taskbarStatusOpacity" | "floatBallOpacity";
-  update(patch: SettingsPatchDto): Promise<unknown>;
+  update(patch: SettingsPatchDto): Promise<AppSettingsDto>;
   setSurfaceEnabled(surface: StatusSurfaceKind, enabled: boolean): Promise<AppSettingsDto>;
 }) {
   const [hasSaveError, setHasSaveError] = useState(false);
@@ -66,7 +66,10 @@ function StatusCard({
     value: opacity,
     min: 0,
     max: 80,
-    onCommit: (nextValue) => update({ [opacityField]: nextValue }),
+    onCommit: async (nextValue) => {
+      const saved = await update({ [opacityField]: nextValue });
+      return saved[opacityField];
+    },
     onError: () => setHasSaveError(true),
     onSuccess: () => setHasSaveError(false),
   });
@@ -148,7 +151,7 @@ export default function GeneralTab({
   copy = settingsCopy("en-US"),
 }: {
   settings: AppSettingsDto;
-  update(patch: SettingsPatchDto): Promise<unknown>;
+  update(patch: SettingsPatchDto): Promise<AppSettingsDto>;
   setSurfaceEnabled(surface: StatusSurfaceKind, enabled: boolean): Promise<AppSettingsDto>;
   copy?: SettingsCopy;
 }) {

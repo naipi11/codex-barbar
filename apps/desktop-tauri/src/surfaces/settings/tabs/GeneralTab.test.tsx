@@ -3,6 +3,10 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import GeneralTab from "./GeneralTab";
 import { defaultAppSettings } from "../../../hooks/useSettings";
 
+function pending<T>(): Promise<T> {
+  return new Promise(() => undefined);
+}
+
 describe("GeneralTab status surfaces", () => {
   afterEach(() => vi.restoreAllMocks());
 
@@ -55,7 +59,7 @@ describe("GeneralTab status surfaces", () => {
   });
 
   it("previews transparency input frames locally and persists once on pointer release", () => {
-    const update = vi.fn().mockResolvedValue(defaultAppSettings);
+    const update = vi.fn(() => pending<typeof defaultAppSettings>());
     const setSurfaceEnabled = vi.fn().mockResolvedValue(defaultAppSettings);
     const frames: FrameRequestCallback[] = [];
     vi.spyOn(window, "requestAnimationFrame").mockImplementation((callback) => {
@@ -128,7 +132,7 @@ describe("GeneralTab status surfaces", () => {
   });
 
   it("commits keyboard and blur transparency edits once per interaction", () => {
-    const update = vi.fn().mockResolvedValue(defaultAppSettings);
+    const update = vi.fn(() => pending<typeof defaultAppSettings>());
     const frames: FrameRequestCallback[] = [];
     vi.spyOn(window, "requestAnimationFrame").mockImplementation((callback) => {
       frames.push(callback);
@@ -162,7 +166,7 @@ describe("GeneralTab status surfaces", () => {
     const update = vi
       .fn()
       .mockRejectedValueOnce(new Error("raw persistence detail"))
-      .mockResolvedValue(defaultAppSettings);
+      .mockResolvedValue({ ...defaultAppSettings, taskbarStatusOpacity: 35 });
     render(
       <GeneralTab
         settings={{ ...defaultAppSettings, taskbarStatusOpacity: 20 }}
@@ -189,6 +193,7 @@ describe("GeneralTab status surfaces", () => {
     fireEvent.pointerUp(range, { pointerId: 16 });
 
     await waitFor(() => expect(screen.queryByRole("alert")).not.toBeInTheDocument());
+    expect(range).toHaveValue("35");
   });
 });
 

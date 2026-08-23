@@ -33,7 +33,7 @@ export function useCommittedRange({
   value: number;
   min: number;
   max: number;
-  onCommit(value: number): void | Promise<unknown>;
+  onCommit(value: number): Promise<number>;
   onError?(): void;
   onSuccess?(): void;
 }) {
@@ -43,9 +43,13 @@ export function useCommittedRange({
   const mountedRef = useRef(true);
   const confirmedValueRef = useRef(initialValue);
   const draftValueRef = useRef(initialValue);
+  const latestPropValueRef = useRef(initialValue);
   const pendingFrameValueRef = useRef<number | null>(null);
-  const pendingCommitRef = useRef<{ generation: number; value: number } | null>(null);
+  const inFlightCommitRef = useRef<{ generation: number; value: number } | null>(null);
+  const commitQueueRef = useRef<Array<{ generation: number; value: number }>>([]);
   const commitGenerationRef = useRef(0);
+  const propBarrierRef = useRef<number | null>(null);
+  const pumpCommitQueueRef = useRef<() => void>(() => undefined);
   const frameRef = useRef<number | null>(null);
   const onCommitRef = useRef(onCommit);
   const onErrorRef = useRef(onError);
@@ -75,39 +79,61 @@ export function useCommittedRange({
     return nextValue;
   }, [applyDraft, cancelFrame]);
 
-  const commit = useCallback(() => {
-    if (!activeRef.current) return;
-    const nextValue = flushPendingDraft();
-    activeRef.current = false;
-    const baseline = pendingCommitRef.current?.value ?? confirmedValueRef.current;
-    if (nextValue === baseline) return;
+  const pumpCommitQueue = useCallback(() => {
+    if (inFlightCommitRef.current !== null) return;
+    const request = commitQueueRef.current.shift();
+    if (request === undefined) return;
+    inFlightCommitRef.current = request;
 
-    const generation = commitGenerationRef.current + 1;
-    commitGenerationRef.current = generation;
-    pendingCommitRef.current = { generation, value: nextValue };
-    let acknowledgement: void | Promise<unknown>;
+    let acknowledgement: Promise<number>;
     try {
-      acknowledgement = onCommitRef.current(nextValue);
+      acknowledgement = onCommitRef.current(request.value);
     } catch {
       acknowledgement = Promise.reject();
     }
     void Promise.resolve(acknowledgement).then(
-      () => {
+      (savedValue) => {
         if (
-          mountedRef.current &&
-          pendingCommitRef.current?.generation === generation
+          !mountedRef.current ||
+          inFlightCommitRef.current?.generation !== request.generation
         ) {
-          onSuccessRef.current?.();
+          return;
         }
+
+        const nextConfirmedValue = clampRangeValue(savedValue, min, max);
+        confirmedValueRef.current = nextConfirmedValue;
+        inFlightCommitRef.current = null;
+        propBarrierRef.current =
+          latestPropValueRef.current === nextConfirmedValue
+            ? null
+            : nextConfirmedValue;
+        const hasNewerCommit = commitQueueRef.current.length > 0;
+        if (!activeRef.current && !hasNewerCommit) {
+          cancelFrame();
+          pendingFrameValueRef.current = null;
+          applyDraft(nextConfirmedValue);
+        }
+        onSuccessRef.current?.();
+        pumpCommitQueueRef.current();
       },
       () => {
         if (
           !mountedRef.current ||
-          pendingCommitRef.current?.generation !== generation
+          inFlightCommitRef.current?.generation !== request.generation
         ) {
           return;
         }
-        pendingCommitRef.current = null;
+
+        inFlightCommitRef.current = null;
+        if (commitQueueRef.current.length > 0) {
+          pumpCommitQueueRef.current();
+          return;
+        }
+
+        propBarrierRef.current =
+          latestPropValueRef.current === confirmedValueRef.current
+            ? null
+            : confirmedValueRef.current;
         if (!activeRef.current) {
           cancelFrame();
           pendingFrameValueRef.current = null;
@@ -116,7 +142,25 @@ export function useCommittedRange({
         onErrorRef.current?.();
       },
     );
-  }, [applyDraft, cancelFrame, flushPendingDraft]);
+  }, [applyDraft, cancelFrame, max, min]);
+  pumpCommitQueueRef.current = pumpCommitQueue;
+
+  const commit = useCallback(() => {
+    if (!activeRef.current) return;
+    const nextValue = flushPendingDraft();
+    activeRef.current = false;
+    const queuedCommits = commitQueueRef.current;
+    const baseline =
+      queuedCommits[queuedCommits.length - 1]?.value ??
+      inFlightCommitRef.current?.value ??
+      confirmedValueRef.current;
+    if (nextValue === baseline) return;
+
+    const generation = commitGenerationRef.current + 1;
+    commitGenerationRef.current = generation;
+    commitQueueRef.current.push({ generation, value: nextValue });
+    pumpCommitQueueRef.current();
+  }, [flushPendingDraft]);
 
   const onInput = useCallback<FormEventHandler<HTMLInputElement>>(
     (event) => {
@@ -149,7 +193,12 @@ export function useCommittedRange({
     cancelFrame();
     pendingFrameValueRef.current = null;
     activeRef.current = false;
-    applyDraft(pendingCommitRef.current?.value ?? confirmedValueRef.current);
+    const queuedCommits = commitQueueRef.current;
+    applyDraft(
+      queuedCommits[queuedCommits.length - 1]?.value ??
+        inFlightCommitRef.current?.value ??
+        confirmedValueRef.current,
+    );
   }, [applyDraft, cancelFrame]);
 
   const onKeyDown = useCallback<KeyboardEventHandler<HTMLInputElement>>((event) => {
@@ -169,21 +218,25 @@ export function useCommittedRange({
 
   useEffect(() => {
     const nextConfirmedValue = clampRangeValue(value, min, max);
-    const pendingCommit = pendingCommitRef.current;
-    if (pendingCommit !== null) {
-      if (nextConfirmedValue !== pendingCommit.value) return;
-      confirmedValueRef.current = nextConfirmedValue;
-      pendingCommitRef.current = null;
-      if (!activeRef.current) applyDraft(nextConfirmedValue);
+    latestPropValueRef.current = nextConfirmedValue;
+    if (
+      inFlightCommitRef.current !== null ||
+      commitQueueRef.current.length > 0
+    ) {
       return;
     }
 
-    confirmedValueRef.current = nextConfirmedValue;
-    if (!activeRef.current) {
-      cancelFrame();
-      pendingFrameValueRef.current = null;
-      applyDraft(nextConfirmedValue);
+    const propBarrier = propBarrierRef.current;
+    if (propBarrier !== null) {
+      if (nextConfirmedValue !== propBarrier) return;
+      propBarrierRef.current = null;
     }
+
+    confirmedValueRef.current = nextConfirmedValue;
+    if (activeRef.current) return;
+    cancelFrame();
+    pendingFrameValueRef.current = null;
+    applyDraft(nextConfirmedValue);
   }, [applyDraft, cancelFrame, max, min, value]);
 
   useEffect(
