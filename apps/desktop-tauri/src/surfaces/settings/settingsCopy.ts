@@ -54,6 +54,7 @@ export interface SettingsCopy {
     transparencyValue: (value: number) => string;
     transparencyHelp: string;
     transparencySaveFailed: string;
+    preferencesSaveFailed: string;
     trayLegend: string;
     trayDescription: string;
     trayIconMode: string;
@@ -179,6 +180,7 @@ const english: SettingsCopy = {
     transparencyValue: (value) => `${value}% transparent`,
     transparencyHelp: "0% is most opaque; 80% is most transparent.",
     transparencySaveFailed: "Transparency could not be saved. Try again.",
+    preferencesSaveFailed: "Taskbar and tray settings could not be saved. Try again.",
     trayLegend: "Tray icon and tooltip",
     trayDescription: "Set the notification-area icon and the details shown when you point to it.",
     trayIconMode: "Tray icon style",
@@ -253,6 +255,7 @@ const chinese: SettingsCopy = {
     transparencyValue: (value) => `${value}% 透明`,
     transparencyHelp: "0% 最不透明，80% 最透明。",
     transparencySaveFailed: "无法保存透明度，请重试。",
+    preferencesSaveFailed: "无法保存任务栏与托盘设置，请重试。",
     trayLegend: "托盘图标与工具提示",
     trayDescription: "设置通知区域图标，以及鼠标指向图标时显示的信息。",
     trayIconMode: "托盘图标样式",

@@ -6,7 +6,7 @@
   --app-border: #2a3342;
   --app-accent: #56d98a;
   --app-warn: #e2a33a;
-  --app-crit: #e24b55;
+  --app-crit: #e6535d;
   --app-mono: "IBM Plex Mono", "Cascadia Mono", ui-monospace, monospace;
   color-scheme: dark;
   font-family: "IBM Plex Sans", "Segoe UI", system-ui, sans-serif;
@@ -336,7 +336,7 @@ html:has(.float-ball-shell) {
 
 .settings-status-card .settings-status-card__error {
   margin: 4px 0 0;
-  color: #ffd4d9;
+  color: var(--app-crit);
   font-weight: 600;
 }
 
@@ -384,7 +384,7 @@ html:has(.float-ball-shell) {
 }
 
 .settings-preference-group__error {
-  color: #ffd4d9;
+  color: var(--app-crit);
   font-size: 12px;
   font-weight: 600;
 }

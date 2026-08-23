@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useCommittedRange } from "../../../hooks/useCommittedRange";
 import type {
   AppSettingsDto,
@@ -16,6 +16,18 @@ const TASKBAR_ITEM_FIELDS = [
   "showResetDate",
 ] as const satisfies readonly (keyof TaskbarTrayPreferencesDto)[];
 
+interface TaskbarTrayDraft {
+  enabled: boolean;
+  preferences: TaskbarTrayPreferencesDto;
+}
+
+function draftFromSettings(settings: AppSettingsDto): TaskbarTrayDraft {
+  return {
+    enabled: settings.taskbarStatusEnabled,
+    preferences: settings.taskbarTray,
+  };
+}
+
 export default function TaskbarTrayTab({
   settings,
   update,
@@ -31,8 +43,23 @@ export default function TaskbarTrayTab({
   copy?: SettingsCopy;
 }) {
   const [hasTransparencySaveError, setHasTransparencySaveError] = useState(false);
+  const [hasPreferencesSaveError, setHasPreferencesSaveError] = useState(false);
+  const [draft, setDraft] = useState<TaskbarTrayDraft>(() =>
+    draftFromSettings(settings),
+  );
+  const [isSavingPreferences, setIsSavingPreferences] = useState(false);
+  const draftRef = useRef(draft);
+  const isSavingPreferencesRef = useRef(false);
+
+  useEffect(() => {
+    if (isSavingPreferencesRef.current) return;
+    const nextDraft = draftFromSettings(settings);
+    draftRef.current = nextDraft;
+    setDraft(nextDraft);
+  }, [settings.taskbarStatusEnabled, settings.taskbarTray]);
+
   const visibleTaskbarItems = TASKBAR_ITEM_FIELDS.filter(
-    (field) => settings.taskbarTray[field],
+    (field) => draft.preferences[field],
   ).length;
   const transparency = useCommittedRange({
     value: settings.taskbarStatusOpacity,
@@ -46,10 +73,62 @@ export default function TaskbarTrayTab({
     onSuccess: () => setHasTransparencySaveError(false),
   });
 
+  const commitDraft = (
+    nextDraft: TaskbarTrayDraft,
+    persist: () => Promise<AppSettingsDto>,
+  ) => {
+    if (isSavingPreferencesRef.current) return;
+    const previousDraft = draftRef.current;
+    isSavingPreferencesRef.current = true;
+    draftRef.current = nextDraft;
+    setDraft(nextDraft);
+    setIsSavingPreferences(true);
+
+    let save: Promise<AppSettingsDto>;
+    try {
+      save = persist();
+    } catch {
+      draftRef.current = previousDraft;
+      setDraft(previousDraft);
+      setHasPreferencesSaveError(true);
+      isSavingPreferencesRef.current = false;
+      setIsSavingPreferences(false);
+      return;
+    }
+
+    void save
+      .then((saved) => {
+        const acknowledgedDraft = draftFromSettings(saved);
+        draftRef.current = acknowledgedDraft;
+        setDraft(acknowledgedDraft);
+        setHasPreferencesSaveError(false);
+      })
+      .catch(() => {
+        draftRef.current = previousDraft;
+        setDraft(previousDraft);
+        setHasPreferencesSaveError(true);
+      })
+      .finally(() => {
+        isSavingPreferencesRef.current = false;
+        setIsSavingPreferences(false);
+      });
+  };
+
+  const setTaskbarEnabled = (enabled: boolean) => {
+    const nextDraft = { ...draftRef.current, enabled };
+    commitDraft(nextDraft, () => setSurfaceEnabled("taskbarStatus", enabled));
+  };
+
   const patchTaskbarTray = <K extends keyof TaskbarTrayPreferencesDto>(
     field: K,
     value: TaskbarTrayPreferencesDto[K],
-  ) => void update({ taskbarTray: { [field]: value } });
+  ) => {
+    const nextDraft = {
+      ...draftRef.current,
+      preferences: { ...draftRef.current.preferences, [field]: value },
+    };
+    commitDraft(nextDraft, () => update({ taskbarTray: { [field]: value } }));
+  };
 
   const taskbarItems = [
     ["showTaskbarIcon", copy.taskbarTray.showIcon],
@@ -69,6 +148,11 @@ export default function TaskbarTrayTab({
   return (
     <section aria-label={`${copy.taskbarTray.title} settings`}>
       <h2>{copy.taskbarTray.title}</h2>
+      {hasPreferencesSaveError ? (
+        <p className="settings-preference-group__error" role="alert">
+          {copy.taskbarTray.preferencesSaveFailed}
+        </p>
+      ) : null}
       <div className="settings-preference-groups">
         <fieldset className="settings-preference-group">
           <legend>{copy.taskbarTray.taskbarLegend}</legend>
@@ -78,28 +162,27 @@ export default function TaskbarTrayTab({
           <label className="settings-switch settings-switch--primary">
             <input
               type="checkbox"
-              checked={settings.taskbarStatusEnabled}
-              disabled={!settings.taskbarStatusEnabled && visibleTaskbarItems === 0}
-              aria-describedby="taskbar-visible-item-help"
-              onChange={(event) =>
-                void setSurfaceEnabled("taskbarStatus", event.target.checked)
+              checked={draft.enabled}
+              disabled={
+                isSavingPreferences || (!draft.enabled && visibleTaskbarItems === 0)
               }
+              aria-describedby="taskbar-visible-item-help"
+              onChange={(event) => setTaskbarEnabled(event.target.checked)}
             />
             {copy.taskbarTray.taskbarEnabled}
           </label>
 
           <div className="settings-preference-grid">
             {taskbarItems.map(([field, label]) => {
-              const checked = settings.taskbarTray[field];
+              const checked = draft.preferences[field];
               return (
                 <label className="settings-switch" key={field}>
                   <input
                     type="checkbox"
                     checked={checked}
                     disabled={
-                      settings.taskbarStatusEnabled &&
-                      checked &&
-                      visibleTaskbarItems === 1
+                      isSavingPreferences ||
+                      (draft.enabled && checked && visibleTaskbarItems === 1)
                     }
                     aria-describedby="taskbar-visible-item-help"
                     onChange={(event) => patchTaskbarTray(field, event.target.checked)}
@@ -121,7 +204,8 @@ export default function TaskbarTrayTab({
               <span>{copy.taskbarTray.density}</span>
               <select
                 id="taskbar-density"
-                value={settings.taskbarTray.density}
+                value={draft.preferences.density}
+                disabled={isSavingPreferences}
                 onChange={(event) =>
                   patchTaskbarTray(
                     "density",
@@ -145,6 +229,7 @@ export default function TaskbarTrayTab({
                 max="80"
                 step="1"
                 value={transparency.value}
+                disabled={isSavingPreferences}
                 aria-label={copy.taskbarTray.transparency}
                 aria-valuetext={copy.taskbarTray.transparencyValue(transparency.value)}
                 onChange={() => undefined}
@@ -180,7 +265,8 @@ export default function TaskbarTrayTab({
             <span>{copy.taskbarTray.trayIconMode}</span>
             <select
               id="tray-icon-mode"
-              value={settings.taskbarTray.trayIconMode}
+              value={draft.preferences.trayIconMode}
+              disabled={isSavingPreferences}
               onChange={(event) =>
                 patchTaskbarTray(
                   "trayIconMode",
@@ -200,7 +286,8 @@ export default function TaskbarTrayTab({
               <label className="settings-switch" key={field}>
                 <input
                   type="checkbox"
-                  checked={settings.taskbarTray[field]}
+                  checked={draft.preferences[field]}
+                  disabled={isSavingPreferences}
                   onChange={(event) => patchTaskbarTray(field, event.target.checked)}
                 />
                 {label}
@@ -217,7 +304,8 @@ export default function TaskbarTrayTab({
           <label className="settings-switch">
             <input
               type="checkbox"
-              checked={settings.taskbarTray.hideStatusSurfacesInFullscreen}
+              checked={draft.preferences.hideStatusSurfacesInFullscreen}
+              disabled={isSavingPreferences}
               onChange={(event) =>
                 patchTaskbarTray(
                   "hideStatusSurfacesInFullscreen",
