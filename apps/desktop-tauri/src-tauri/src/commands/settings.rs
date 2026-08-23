@@ -8,9 +8,12 @@ use codexbar::storage::SettingsPatch;
 use tauri::Emitter;
 
 use super::bridge::{AppSettingsDto, CodexCompatibilityDto, SettingsPatchDto};
-use crate::state::AppState;
+use crate::{
+    notification_controller::{NotificationController, WindowsToastSink},
+    state::AppState,
+};
 
-fn settings_repository(
+pub(crate) fn settings_repository(
     state: &tauri::State<'_, Mutex<AppState>>,
 ) -> Result<codexbar::storage::SettingsRepository, String> {
     let guard = state
@@ -47,7 +50,9 @@ fn split_surface_patch(
 
 fn storage_error_code(error: codexbar::storage::StorageError) -> String {
     match error.code() {
-        "SETTINGS_SURFACE_OPACITY_INVALID" => error.code().to_string(),
+        "SETTINGS_SURFACE_OPACITY_INVALID" | "SETTINGS_NOTIFICATION_THRESHOLDS_INVALID" => {
+            error.code().to_string()
+        }
         _ => "SETTINGS_SAVE_FAILED".to_string(),
     }
 }
@@ -116,6 +121,23 @@ pub async fn update_settings(
 }
 
 #[tauri::command]
+pub fn send_test_notification(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, Mutex<AppState>>,
+    controller: tauri::State<'_, Mutex<NotificationController<WindowsToastSink>>>,
+) -> Result<(), String> {
+    if crate::proof_harness::is_proof_mode(&app) {
+        return Ok(());
+    }
+    let repository = settings_repository(&state)?;
+    controller
+        .lock()
+        .map_err(|_| "NOTIFICATION_TEST_FAILED".to_string())?
+        .send_test(&repository)
+        .map_err(|_| "NOTIFICATION_TEST_FAILED".to_string())
+}
+
+#[tauri::command]
 pub fn validate_codex_executable(
     app: tauri::AppHandle,
     state: tauri::State<'_, Mutex<AppState>>,
@@ -175,7 +197,10 @@ pub fn validate_codex_executable(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use codexbar::storage::{DisplayMode, LanguagePreference, ThemePreference};
+    use crate::commands::bridge::NotificationPreferencesPatchDto;
+    use codexbar::storage::{
+        DisplayMode, LanguagePreference, NotificationPreferencesPatch, ThemePreference,
+    };
 
     #[test]
     fn surface_fields_are_removed_before_generic_repository_update() {
@@ -250,6 +275,18 @@ mod tests {
             taskbar_status_opacity: Some(0),
             float_ball_opacity: Some(80),
             float_ball_glow: Some(40),
+            notifications: Some(NotificationPreferencesPatchDto {
+                enabled: Some(true),
+                play_sound: Some(false),
+                warning_enabled: Some(false),
+                danger_enabled: Some(true),
+                weekly_reset_enabled: Some(false),
+                reset_credit_increase_enabled: Some(true),
+                refresh_failure_enabled: Some(false),
+                update_available_enabled: Some(true),
+                warning_remaining_percent: Some(66),
+                danger_remaining_percent: Some(33),
+            }),
         };
         let settings = patch.into_patch().unwrap();
         assert_eq!(settings.start_at_login, Some(true));
@@ -266,6 +303,21 @@ mod tests {
         assert_eq!(settings.taskbar_status_opacity, Some(0));
         assert_eq!(settings.float_ball_opacity, Some(80));
         assert_eq!(settings.float_ball_glow, Some(40));
+        assert_eq!(
+            settings.notifications,
+            Some(NotificationPreferencesPatch {
+                enabled: Some(true),
+                play_sound: Some(false),
+                warning_enabled: Some(false),
+                danger_enabled: Some(true),
+                weekly_reset_enabled: Some(false),
+                reset_credit_increase_enabled: Some(true),
+                refresh_failure_enabled: Some(false),
+                update_available_enabled: Some(true),
+                warning_remaining_percent: Some(66),
+                danger_remaining_percent: Some(33),
+            })
+        );
     }
 
     #[test]
@@ -292,5 +344,41 @@ mod tests {
         assert_eq!(dto.taskbar_status_opacity, 20);
         assert_eq!(dto.float_ball_opacity, 20);
         assert_eq!(dto.float_ball_glow, 20);
+        assert!(!dto.notifications.enabled);
+        assert!(dto.notifications.play_sound);
+        assert_eq!(dto.notifications.warning_remaining_percent, 66);
+        assert_eq!(dto.notifications.danger_remaining_percent, 33);
+    }
+
+    #[test]
+    fn notification_patch_rejects_out_of_range_threshold_before_storage() {
+        let patch = SettingsPatchDto {
+            notifications: Some(NotificationPreferencesPatchDto {
+                warning_remaining_percent: Some(101),
+                ..Default::default()
+            }),
+            ..SettingsPatchDto::default()
+        };
+
+        assert_eq!(
+            patch.into_patch().unwrap_err(),
+            "notification threshold must be between 0 and 100"
+        );
+    }
+
+    #[test]
+    fn notification_threshold_error_code_is_preserved_for_inline_feedback() {
+        let patch = SettingsPatch {
+            notifications: Some(NotificationPreferencesPatch {
+                warning_remaining_percent: Some(101),
+                ..NotificationPreferencesPatch::default()
+            }),
+            ..SettingsPatch::default()
+        };
+
+        assert_eq!(
+            prepare_settings_update(patch).unwrap_err(),
+            "SETTINGS_NOTIFICATION_THRESHOLDS_INVALID"
+        );
     }
 }

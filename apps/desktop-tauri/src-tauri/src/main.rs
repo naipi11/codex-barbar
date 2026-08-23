@@ -7,6 +7,7 @@ mod events;
 mod float_ball;
 mod float_ball_motion;
 mod geometry_store;
+mod notification_controller;
 mod proof_harness;
 mod shell;
 mod state;
@@ -106,8 +107,17 @@ fn main() {
         initial_state.account_service = Some(service);
     }
 
+    let notification_paths = codexbar::app_paths::AppPaths::discover().unwrap_or_else(|_| {
+        codexbar::app_paths::AppPaths::from_local_app_data(&std::env::temp_dir())
+    });
+    let notification_controller = notification_controller::NotificationController::new(
+        codexbar::notifications::v1::V1NotificationEngine::load(&notification_paths),
+        notification_controller::WindowsToastSink,
+    );
+
     tauri::Builder::default()
         .manage(Mutex::new(initial_state))
+        .manage(Mutex::new(notification_controller))
         .manage(Mutex::new(status_surfaces::StatusSurfaceState::default()))
         .plugin(tauri_plugin_single_instance::init(|_app, _args, _cwd| {
             // Second instances only focus/toggle the existing tray flyout and
@@ -119,6 +129,7 @@ fn main() {
             float_ball_motion::get_float_ball_motion,
             commands::get_settings_snapshot,
             commands::update_settings,
+            commands::send_test_notification,
             commands::set_status_surface_enabled,
             commands::set_float_ball_expanded,
             commands::set_taskbar_status_width,
@@ -159,6 +170,7 @@ fn main() {
                 .and_then(|state| state.account_service.clone())
             {
                 let handle = app.handle().clone();
+                let settings_repository = service.repositories().settings.clone();
                 tauri::async_runtime::spawn(async move {
                     let mut events = service.subscribe();
                     while let Ok(event) = events.recv().await {
@@ -194,6 +206,36 @@ fn main() {
                             codexbar::accounts::model::AccountServiceEvent::UsageStateChanged(
                                 state,
                             ) => {
+                                if !crate::proof_harness::is_proof_mode(&handle)
+                                    && state.current_error.is_none()
+                                {
+                                    let account_marker =
+                                        notification_controller::account_marker_for_profile(
+                                            &service,
+                                            state.profile_id,
+                                        );
+                                    let controller = handle.state::<Mutex<
+                                        notification_controller::NotificationController<
+                                            notification_controller::WindowsToastSink,
+                                        >,
+                                    >>();
+                                    if let Ok(mut controller) = controller.lock()
+                                        && controller
+                                            .observe_usage(
+                                                &settings_repository,
+                                                state.profile_id,
+                                                account_marker.as_deref(),
+                                                &state,
+                                                None,
+                                            )
+                                            .is_err()
+                                    {
+                                        tracing::warn!(
+                                            code = "NOTIFICATION_USAGE_DISPATCH_FAILED",
+                                            "usage notification was not delivered"
+                                        );
+                                    }
+                                }
                                 let _ = handle.emit(
                                     crate::events::PROFILE_USAGE_STATE_CHANGED,
                                     commands::ProfileUsageStateDto::from_state(&state),
@@ -210,6 +252,41 @@ fn main() {
                                         "status": commands::refresh_status_name(status),
                                     }),
                                 );
+                            }
+                            codexbar::accounts::model::AccountServiceEvent::RefreshCompleted {
+                                profile_id,
+                                success,
+                            } => {
+                                if !crate::proof_harness::is_proof_mode(&handle) {
+                                    let account_marker =
+                                        notification_controller::account_marker_for_profile(
+                                            &service, profile_id,
+                                        );
+                                    let controller = handle.state::<Mutex<
+                                        notification_controller::NotificationController<
+                                            notification_controller::WindowsToastSink,
+                                        >,
+                                    >>();
+                                    if let Ok(mut controller) = controller.lock() {
+                                        let event = codexbar::accounts::model::AccountServiceEvent::RefreshCompleted {
+                                            profile_id,
+                                            success,
+                                        };
+                                        if controller
+                                            .observe_account_service_event(
+                                                &settings_repository,
+                                                account_marker.as_deref(),
+                                                &event,
+                                            )
+                                            .is_err()
+                                        {
+                                            tracing::warn!(
+                                                code = "NOTIFICATION_REFRESH_DISPATCH_FAILED",
+                                                "refresh notification was not delivered"
+                                            );
+                                        }
+                                    }
+                                }
                             }
                         }
                     }
@@ -233,6 +310,7 @@ fn main() {
             status_surfaces::apply_status_surface_settings_non_fatal(app.handle(), &settings);
             status_surfaces::start_monitor(app.handle().clone());
             auto_refresh::start(app.handle().clone());
+            notification_controller::start_update_check_loop(app.handle().clone());
             tracing::debug!(
                 milestones = ?coordinator.trace_names(),
                 planned = ?app_coordinator::cached_start_steps()

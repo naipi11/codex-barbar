@@ -9,12 +9,18 @@ describe("AboutTab", () => {
     invokeMock.mockReset();
   });
 
+  it("renders the installed version from its typed prop", () => {
+    render(<AboutTab version="1.0.24" copy={settingsCopy("en-US")} />);
+    expect(screen.getByText("Version 1.0.24")).toBeInTheDocument();
+    expect(screen.queryByText(/1\.0\.0/)).not.toBeInTheDocument();
+  });
+
   it("maps update-check failures to Chinese friendly copy", async () => {
     invokeMock.mockImplementation(async (command: string) => {
       if (command === "check_for_updates") throw new Error("RAW_UPDATE_ERROR");
       return undefined;
     });
-    render(<AboutTab copy={settingsCopy("zh-CN")} />);
+    render(<AboutTab version="—" copy={settingsCopy("zh-CN")} />);
     fireEvent.click(screen.getByRole("button", { name: "检查更新" }));
     expect(await screen.findByText("暂时无法检查更新。", { exact: false })).toBeInTheDocument();
     expect(screen.queryByText(/RAW_UPDATE_ERROR/)).not.toBeInTheDocument();
@@ -27,7 +33,7 @@ describe("AboutTab", () => {
       }
       return undefined;
     });
-    render(<AboutTab copy={settingsCopy("zh-CN")} />);
+    render(<AboutTab version="—" copy={settingsCopy("zh-CN")} />);
     fireEvent.click(screen.getByRole("button", { name: "检查更新" }));
     expect(await screen.findByText("有可用更新：v2.0.0")).toBeInTheDocument();
   });
@@ -40,7 +46,7 @@ describe("AboutTab", () => {
       if (command === "check_for_updates") return { status, currentVersion: "1.0.0" };
       return undefined;
     });
-    render(<AboutTab copy={settingsCopy("zh-CN")} />);
+    render(<AboutTab version="—" copy={settingsCopy("zh-CN")} />);
     fireEvent.click(screen.getByRole("button", { name: "检查更新" }));
     expect(await screen.findByText(expected)).toBeInTheDocument();
   });
@@ -57,7 +63,7 @@ describe("AboutTab", () => {
       return undefined;
     });
 
-    render(<AboutTab />);
+    render(<AboutTab version="—" copy={settingsCopy("en-US")} />);
     fireEvent.click(screen.getByRole("button", { name: /check for updates/i }));
 
     expect(await screen.findByText(/v0\.1\.1/)).toBeInTheDocument();
@@ -67,7 +73,7 @@ describe("AboutTab", () => {
   });
 
   it("opens the fixed releases page without a download control", async () => {
-    render(<AboutTab />);
+    render(<AboutTab version="—" copy={settingsCopy("en-US")} />);
     fireEvent.click(screen.getByRole("button", { name: /open releases/i }));
 
     await waitFor(() => {
@@ -89,7 +95,7 @@ describe("AboutTab", () => {
       return undefined;
     });
 
-    render(<AboutTab />);
+    render(<AboutTab version="—" copy={settingsCopy("en-US")} />);
     fireEvent.click(screen.getByRole("button", { name: /check for updates/i }));
 
     expect(

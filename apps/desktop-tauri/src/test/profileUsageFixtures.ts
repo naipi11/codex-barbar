@@ -19,6 +19,18 @@ export const defaultSettings: AppSettingsDto = {
   taskbarStatusOpacity: 20,
   floatBallOpacity: 20,
   floatBallGlow: 20,
+  notifications: {
+    enabled: false,
+    playSound: true,
+    warningEnabled: true,
+    dangerEnabled: true,
+    weeklyResetEnabled: true,
+    resetCreditIncreaseEnabled: true,
+    refreshFailureEnabled: true,
+    updateAvailableEnabled: true,
+    warningRemainingPercent: 66,
+    dangerRemainingPercent: 33,
+  },
 };
 
 export function currentCliProfile(

@@ -19,6 +19,7 @@ export const commands = {
   getBootstrapState: "get_bootstrap_state",
   getSettingsSnapshot: "get_settings_snapshot",
   updateSettings: "update_settings",
+  sendTestNotification: "send_test_notification",
   setStatusSurfaceEnabled: "set_status_surface_enabled",
   setFloatBallExpanded: "set_float_ball_expanded",
   setTaskbarStatusWidth: "set_taskbar_status_width",
@@ -77,6 +78,9 @@ export const updateSettings = (patch: SettingsPatchDto) =>
   invoke<AppSettingsDto>(commands.updateSettings, {
     patch: patch as Record<string, unknown>,
   });
+
+export const sendTestNotification = () =>
+  invoke<void>(commands.sendTestNotification);
 
 export const setStatusSurfaceEnabled = (
   surface: StatusSurfaceKind,

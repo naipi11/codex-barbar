@@ -52,6 +52,7 @@ describe("V1 bridge contract", () => {
       getBootstrapState: "get_bootstrap_state",
       getSettingsSnapshot: "get_settings_snapshot",
       updateSettings: "update_settings",
+      sendTestNotification: "send_test_notification",
       setStatusSurfaceEnabled: "set_status_surface_enabled",
       setFloatBallExpanded: "set_float_ball_expanded",
       setTaskbarStatusWidth: "set_taskbar_status_width",
@@ -190,6 +191,18 @@ describe("V1 bridge contract", () => {
       taskbarStatusOpacity: 0,
       floatBallOpacity: 80,
       floatBallGlow: 40,
+      notifications: {
+        enabled: false,
+        playSound: true,
+        warningEnabled: true,
+        dangerEnabled: true,
+        weeklyResetEnabled: true,
+        resetCreditIncreaseEnabled: true,
+        refreshFailureEnabled: true,
+        updateAvailableEnabled: true,
+        warningRemainingPercent: 66,
+        dangerRemainingPercent: 33,
+      },
     } satisfies AppSettingsDto;
 
     expect(profile.accountDisplayName).toBe("Ming Zhao");
@@ -199,5 +212,17 @@ describe("V1 bridge contract", () => {
     expect(settings.taskbarStatusOpacity).toBe(0);
     expect(settings.floatBallOpacity).toBe(80);
     expect(settings.floatBallGlow).toBe(40);
+    expect(settings.notifications).toEqual({
+      enabled: false,
+      playSound: true,
+      warningEnabled: true,
+      dangerEnabled: true,
+      weeklyResetEnabled: true,
+      resetCreditIncreaseEnabled: true,
+      refreshFailureEnabled: true,
+      updateAvailableEnabled: true,
+      warningRemainingPercent: 66,
+      dangerRemainingPercent: 33,
+    });
   });
 });

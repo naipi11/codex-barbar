@@ -14,6 +14,7 @@ pub struct AppPaths {
     pub runtime: PathBuf,
     pub logs: PathBuf,
     pub identity_cache: PathBuf,
+    pub notification_state: PathBuf,
 }
 
 impl AppPaths {
@@ -30,6 +31,7 @@ impl AppPaths {
             runtime: root.join("runtime"),
             logs: root.join("logs"),
             identity_cache: root.join("identity").join("profiles.json"),
+            notification_state: root.join("runtime").join("notification-state.json"),
             root,
         }
     }
@@ -52,6 +54,10 @@ mod tests {
         assert_eq!(paths.vault, paths.root.join("vault"));
         assert_eq!(paths.runtime, paths.root.join("runtime"));
         assert_eq!(paths.logs, paths.root.join("logs"));
+        assert_eq!(
+            paths.notification_state,
+            paths.root.join("runtime").join("notification-state.json")
+        );
     }
 
     #[test]

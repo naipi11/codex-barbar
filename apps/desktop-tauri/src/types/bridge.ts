@@ -34,6 +34,19 @@ export interface AppErrorDto {
   retryAfter: string | null;
 }
 
+export interface NotificationPreferencesDto {
+  enabled: boolean;
+  playSound: boolean;
+  warningEnabled: boolean;
+  dangerEnabled: boolean;
+  weeklyResetEnabled: boolean;
+  resetCreditIncreaseEnabled: boolean;
+  refreshFailureEnabled: boolean;
+  updateAvailableEnabled: boolean;
+  warningRemainingPercent: number;
+  dangerRemainingPercent: number;
+}
+
 export interface AppSettingsDto {
   autostartEnabled: boolean;
   refreshIntervalSeconds: 0 | 60 | 300 | 900 | 1800;
@@ -46,6 +59,7 @@ export interface AppSettingsDto {
   taskbarStatusOpacity: number;
   floatBallOpacity: number;
   floatBallGlow: number;
+  notifications: NotificationPreferencesDto;
 }
 
 export type StatusSurfaceKind = "taskbarStatus" | "floatBall";
@@ -60,7 +74,10 @@ export interface StatusSurfaceFeedbackChangedDto {
   closeFailed: boolean;
 }
 
-export type SettingsPatchDto = Partial<AppSettingsDto>;
+export interface SettingsPatchDto
+  extends Partial<Omit<AppSettingsDto, "notifications">> {
+  notifications?: Partial<NotificationPreferencesDto>;
+}
 
 export interface ProfileSummaryDto {
   id: string;

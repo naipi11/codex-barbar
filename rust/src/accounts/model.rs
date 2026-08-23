@@ -105,6 +105,10 @@ pub enum AccountServiceEvent {
         profile_id: ProfileId,
         status: crate::core::RefreshStatus,
     },
+    RefreshCompleted {
+        profile_id: ProfileId,
+        success: bool,
+    },
 }
 
 /// Errors returned by the account lifecycle service.

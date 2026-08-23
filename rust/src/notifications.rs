@@ -4,6 +4,8 @@
 
 #![allow(dead_code)]
 
+pub mod v1;
+
 use crate::core::ProviderId;
 use crate::core::{RateWindow, UsagePace};
 use crate::locale::{self, LocaleKey};
