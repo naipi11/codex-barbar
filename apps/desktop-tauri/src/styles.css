@@ -340,6 +340,90 @@ html:has(.float-ball-shell) {
   font-weight: 600;
 }
 
+.settings-preference-groups {
+  display: grid;
+  gap: 10px;
+}
+
+.settings-preference-group {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+  margin: 0;
+  padding: 10px 12px 12px;
+  border: 1px solid var(--app-border);
+  border-radius: 10px;
+  background: var(--app-surface);
+}
+
+.settings-preference-group legend {
+  padding: 0 6px;
+  color: var(--app-fg);
+  font-weight: 650;
+  font-size: 14px;
+}
+
+.settings-preference-group__description,
+.settings-preference-group__hint,
+.settings-preference-group__subheading,
+.settings-preference-group__error {
+  margin: 0;
+}
+
+.settings-preference-group__description,
+.settings-preference-group__hint {
+  color: var(--app-muted);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.settings-preference-group__subheading {
+  color: var(--app-fg);
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.settings-preference-group__error {
+  color: #ffd4d9;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.settings-switch--primary {
+  font-weight: 650;
+}
+
+.settings-preference-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  gap: 6px 12px;
+}
+
+.settings-preference-grid--controls {
+  align-items: start;
+  padding-top: 2px;
+}
+
+.settings-compact-field {
+  display: grid;
+  gap: 4px;
+  align-content: start;
+  font-size: 12px;
+}
+
+.settings-compact-field select {
+  min-height: 30px;
+  padding: 4px 7px;
+  border: 1px solid var(--app-border);
+  border-radius: 6px;
+  background: var(--app-surface);
+  color: var(--app-fg);
+}
+
+.settings-compact-field--range {
+  min-width: 0;
+}
+
 .settings-panel input[type="range"]:focus-visible {
   outline: 2px solid var(--app-accent);
   outline-offset: 3px;

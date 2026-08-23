@@ -180,19 +180,6 @@ export default function GeneralTab({
         </label>
       </p>
       <StatusCard
-        title={copy.general.taskbarTitle}
-        description={copy.general.taskbarDescription}
-        enabled={settings.taskbarStatusEnabled}
-        enabledLabel={copy.general.taskbarEnabled}
-        surface="taskbarStatus"
-        opacity={settings.taskbarStatusOpacity}
-        opacityLabel={copy.general.taskbarOpacity}
-        saveError={copy.general.surfaceSaveFailed}
-        opacityField="taskbarStatusOpacity"
-        update={update}
-        setSurfaceEnabled={setSurfaceEnabled}
-      />
-      <StatusCard
         title={copy.general.floatBallTitle}
         description={copy.general.floatBallDescription}
         enabled={settings.floatBallEnabled}

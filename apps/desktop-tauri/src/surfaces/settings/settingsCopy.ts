@@ -11,10 +11,6 @@ export interface SettingsCopy {
   general: {
     title: string;
     autostart: string;
-    taskbarTitle: string;
-    taskbarDescription: string;
-    taskbarEnabled: string;
-    taskbarOpacity: string;
     floatBallTitle: string;
     floatBallDescription: string;
     floatBallEnabled: string;
@@ -40,6 +36,36 @@ export interface SettingsCopy {
     resetCustom: string;
     system: string;
     simplifiedChinese: string;
+  };
+  taskbarTray: {
+    title: string;
+    taskbarLegend: string;
+    taskbarDescription: string;
+    taskbarEnabled: string;
+    showIcon: string;
+    showAccount: string;
+    showWeeklyLabel: string;
+    showWeeklyPercent: string;
+    showResetDate: string;
+    keepOneVisible: string;
+    density: string;
+    densityOptions: readonly [string, string];
+    transparency: string;
+    transparencyValue: (value: number) => string;
+    transparencyHelp: string;
+    transparencySaveFailed: string;
+    trayLegend: string;
+    trayDescription: string;
+    trayIconMode: string;
+    trayIconOptions: readonly [string, string];
+    tooltipRows: string;
+    tooltipAccount: string;
+    tooltipWeekly: string;
+    tooltipResetDate: string;
+    tooltipUpdatedAt: string;
+    fullscreenLegend: string;
+    fullscreenDescription: string;
+    hideInFullscreen: string;
   };
   notifications: {
     title: string;
@@ -131,10 +157,40 @@ export interface SettingsCopy {
 
 const english: SettingsCopy = {
   title: "codex-barbar Settings", close: "Close", navigation: "Settings sections",
-  tabs: { general: "General", providers: "Accounts", notifications: "Notifications", menuBar: "Menu bar", menu: "Menu", usageSpend: "Usage & spend", advanced: "Advanced", about: "About" },
+  tabs: { general: "General", providers: "Accounts", notifications: "Notifications", menuBar: "Taskbar & Tray", menu: "Menu", usageSpend: "Usage & spend", advanced: "Advanced", about: "About" },
   placeholder: "This settings section is reserved for a later release.",
   general: {
-    title: "General", autostart: "Start at login", taskbarTitle: "Taskbar status", taskbarDescription: "Show a compact usage status in the taskbar.", taskbarEnabled: "Show status in taskbar", taskbarOpacity: "Taskbar status transparency", floatBallTitle: "Floating status ball", floatBallDescription: "Show a movable usage status ball.", floatBallEnabled: "Show floating status ball", floatBallOpacity: "Floating status ball transparency", surfaceSaveFailed: "Transparency could not be saved. Try again.", floatBallGlow: "Floating status ball glow", refreshInterval: "Refresh interval", displayMode: "Display mode", theme: "Theme", language: "Language", refreshOptions: ["Off", "1 minute", "5 minutes", "15 minutes", "30 minutes"], displayOptions: ["Remaining", "Used"], themeOptions: ["System", "Ink Green", "VS Code", "macOS", "Pink", "Blue", "Custom"], customTheme: "Custom skin", customMode: "Mode", customBg: "Background", customSurface: "Surface", customFg: "Text", customMuted: "Muted text", customAccent: "Accent", customRadius: "Corner radius", applyCustom: "Apply custom skin", resetCustom: "Reset custom skin", system: "System", simplifiedChinese: "Simplified Chinese",
+    title: "General", autostart: "Start at login", floatBallTitle: "Floating status ball", floatBallDescription: "Show a movable usage status ball.", floatBallEnabled: "Show floating status ball", floatBallOpacity: "Floating status ball transparency", surfaceSaveFailed: "Transparency could not be saved. Try again.", floatBallGlow: "Floating status ball glow", refreshInterval: "Refresh interval", displayMode: "Display mode", theme: "Theme", language: "Language", refreshOptions: ["Off", "1 minute", "5 minutes", "15 minutes", "30 minutes"], displayOptions: ["Remaining", "Used"], themeOptions: ["System", "Ink Green", "VS Code", "macOS", "Pink", "Blue", "Custom"], customTheme: "Custom skin", customMode: "Mode", customBg: "Background", customSurface: "Surface", customFg: "Text", customMuted: "Muted text", customAccent: "Accent", customRadius: "Corner radius", applyCustom: "Apply custom skin", resetCustom: "Reset custom skin", system: "System", simplifiedChinese: "Simplified Chinese",
+  },
+  taskbarTray: {
+    title: "Taskbar & Tray",
+    taskbarLegend: "Taskbar status",
+    taskbarDescription: "Choose the compact usage readout that stays visible while you work.",
+    taskbarEnabled: "Show taskbar status",
+    showIcon: "Show product icon",
+    showAccount: "Show account name",
+    showWeeklyLabel: "Show weekly label",
+    showWeeklyPercent: "Show remaining percentage",
+    showResetDate: "Show reset date",
+    keepOneVisible: "Keep at least one taskbar item visible while taskbar status is on.",
+    density: "Density",
+    densityOptions: ["Compact", "Standard"],
+    transparency: "Transparency",
+    transparencyValue: (value) => `${value}% transparent`,
+    transparencyHelp: "0% is most opaque; 80% is most transparent.",
+    transparencySaveFailed: "Transparency could not be saved. Try again.",
+    trayLegend: "Tray icon and tooltip",
+    trayDescription: "Set the notification-area icon and the details shown when you point to it.",
+    trayIconMode: "Tray icon style",
+    trayIconOptions: ["Dynamic quota color", "Neutral monochrome"],
+    tooltipRows: "Tooltip rows",
+    tooltipAccount: "Account name",
+    tooltipWeekly: "Weekly remaining",
+    tooltipResetDate: "Reset date",
+    tooltipUpdatedAt: "Last update time",
+    fullscreenLegend: "Full-screen behavior",
+    fullscreenDescription: "Hide glanceable status surfaces over full-screen apps without removing the native tray icon.",
+    hideInFullscreen: "Hide status surfaces during full-screen apps",
   },
   notifications: {
     title: "Notifications",
@@ -175,10 +231,40 @@ const english: SettingsCopy = {
 
 const chinese: SettingsCopy = {
   title: "codex-barbar 设置", close: "关闭", navigation: "设置分类",
-  tabs: { general: "通用", providers: "账户", notifications: "通知", menuBar: "菜单栏", menu: "菜单", usageSpend: "用量与费用", advanced: "高级", about: "关于" },
+  tabs: { general: "通用", providers: "账户", notifications: "通知", menuBar: "任务栏与托盘", menu: "菜单", usageSpend: "用量与费用", advanced: "高级", about: "关于" },
   placeholder: "此设置分类将在后续版本中提供。",
   general: {
-    title: "通用", autostart: "登录时启动", taskbarTitle: "任务栏状态", taskbarDescription: "在任务栏中显示紧凑的用量状态。", taskbarEnabled: "在任务栏中显示状态", taskbarOpacity: "任务栏状态透明度", floatBallTitle: "悬浮状态球", floatBallDescription: "显示可移动的用量状态球。", floatBallEnabled: "显示悬浮状态球", floatBallOpacity: "悬浮状态球透明度", surfaceSaveFailed: "无法保存透明度，请重试。", floatBallGlow: "悬浮状态球荧光亮度", refreshInterval: "刷新间隔", displayMode: "显示模式", theme: "主题", language: "语言", refreshOptions: ["关闭", "1 分钟", "5 分钟", "15 分钟", "30 分钟"], displayOptions: ["剩余", "已使用"], themeOptions: ["系统", "黑绿", "VS Code", "macOS", "粉色", "蓝色", "自定义"], customTheme: "自定义皮肤", customMode: "明暗", customBg: "背景", customSurface: "面板", customFg: "文字", customMuted: "次要文字", customAccent: "强调色", customRadius: "圆角", applyCustom: "应用自定义皮肤", resetCustom: "重置自定义皮肤", system: "系统", simplifiedChinese: "简体中文",
+    title: "通用", autostart: "登录时启动", floatBallTitle: "悬浮状态球", floatBallDescription: "显示可移动的用量状态球。", floatBallEnabled: "显示悬浮状态球", floatBallOpacity: "悬浮状态球透明度", surfaceSaveFailed: "无法保存透明度，请重试。", floatBallGlow: "悬浮状态球荧光亮度", refreshInterval: "刷新间隔", displayMode: "显示模式", theme: "主题", language: "语言", refreshOptions: ["关闭", "1 分钟", "5 分钟", "15 分钟", "30 分钟"], displayOptions: ["剩余", "已使用"], themeOptions: ["系统", "黑绿", "VS Code", "macOS", "粉色", "蓝色", "自定义"], customTheme: "自定义皮肤", customMode: "明暗", customBg: "背景", customSurface: "面板", customFg: "文字", customMuted: "次要文字", customAccent: "强调色", customRadius: "圆角", applyCustom: "应用自定义皮肤", resetCustom: "重置自定义皮肤", system: "系统", simplifiedChinese: "简体中文",
+  },
+  taskbarTray: {
+    title: "任务栏与托盘",
+    taskbarLegend: "任务栏状态",
+    taskbarDescription: "选择工作时持续显示的紧凑用量信息。",
+    taskbarEnabled: "显示任务栏状态",
+    showIcon: "显示产品图标",
+    showAccount: "显示账户名称",
+    showWeeklyLabel: "显示每周标签",
+    showWeeklyPercent: "显示剩余百分比",
+    showResetDate: "显示重置日期",
+    keepOneVisible: "任务栏状态开启时，请至少保留一个可见项目。",
+    density: "密度",
+    densityOptions: ["紧凑", "标准"],
+    transparency: "透明度",
+    transparencyValue: (value) => `${value}% 透明`,
+    transparencyHelp: "0% 最不透明，80% 最透明。",
+    transparencySaveFailed: "无法保存透明度，请重试。",
+    trayLegend: "托盘图标与工具提示",
+    trayDescription: "设置通知区域图标，以及鼠标指向图标时显示的信息。",
+    trayIconMode: "托盘图标样式",
+    trayIconOptions: ["根据额度动态变色", "中性单色"],
+    tooltipRows: "工具提示内容",
+    tooltipAccount: "账户名称",
+    tooltipWeekly: "每周剩余",
+    tooltipResetDate: "重置日期",
+    tooltipUpdatedAt: "上次更新时间",
+    fullscreenLegend: "全屏行为",
+    fullscreenDescription: "全屏应用运行时隐藏状态界面，但保留原生托盘图标。",
+    hideInFullscreen: "全屏应用运行时隐藏状态界面",
   },
   notifications: {
     title: "通知",
