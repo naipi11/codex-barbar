@@ -698,7 +698,6 @@ mod tests {
         assert!(settings.float_ball_enabled);
     }
 
-
     #[test]
     fn old_settings_json_without_menu_layouts_loads_default_registry_orders() {
         let (repository, database) = settings_fixture();
@@ -764,7 +763,13 @@ mod tests {
                 "about".to_string(),
             ]
         );
-        assert!(settings.menu.native_tray.order.contains(&"quit".to_string()));
+        assert!(
+            settings
+                .menu
+                .native_tray
+                .order
+                .contains(&"quit".to_string())
+        );
     }
 
     #[test]

@@ -4,7 +4,7 @@
 //! checked profile-selection items: no logout, delete, token, or cookie action
 //! is available from the tray.
 
-use tauri::menu::{CheckMenuItem, Menu, MenuItem, Submenu};
+use tauri::menu::{CheckMenuItem, Menu, MenuItem, PredefinedMenuItem, Submenu};
 use tauri::{AppHandle, Runtime};
 use uuid::Uuid;
 
@@ -121,14 +121,46 @@ impl TrayMenuLabels {
     }
 }
 
+/// Deterministic native menu plan derived from a normalized visible order.
+///
+/// Separators are generated between neighboring groups; they are never
+/// persisted and unknown IDs are ignored.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MenuPlanEntry {
+    Item(&'static str),
+    Separator,
+}
+
+pub fn native_menu_plan(order: &[String]) -> Vec<MenuPlanEntry> {
+    let mut plan = Vec::new();
+    let mut previous_group: Option<&'static str> = None;
+    for id in order {
+        let (group, item_id) = match id.as_str() {
+            OPEN_PANEL_ID => ("primary", OPEN_PANEL_ID),
+            REFRESH_ID => ("primary", REFRESH_ID),
+            ACCOUNTS_ID => ("primary", ACCOUNTS_ID),
+            OPEN_USAGE_ID => ("primary", OPEN_USAGE_ID),
+            SETTINGS_ID => ("secondary", SETTINGS_ID),
+            ABOUT_ID => ("secondary", ABOUT_ID),
+            QUIT_ID => ("quit", QUIT_ID),
+            _ => continue,
+        };
+        if previous_group.is_some_and(|previous| previous != group) {
+            plan.push(MenuPlanEntry::Separator);
+        }
+        plan.push(MenuPlanEntry::Item(item_id));
+        previous_group = Some(group);
+    }
+    plan
+}
+
 pub fn build_native_menu<R: Runtime>(
     app: &AppHandle<R>,
     profiles: &[TrayProfileMenuItem],
     language: &str,
+    order: &[String],
 ) -> tauri::Result<Menu<R>> {
     let labels = TrayMenuLabels::for_language(language);
-    let open_panel = MenuItem::with_id(app, OPEN_PANEL_ID, labels.open_panel, true, None::<&str>)?;
-    let refresh = MenuItem::with_id(app, REFRESH_ID, labels.refresh, true, None::<&str>)?;
 
     let accounts = Submenu::with_id(app, ACCOUNTS_ID, labels.accounts, !profiles.is_empty())?;
     for profile in profiles {
@@ -143,28 +175,116 @@ pub fn build_native_menu<R: Runtime>(
         accounts.append(&item)?;
     }
 
-    let open_usage = MenuItem::with_id(app, OPEN_USAGE_ID, labels.open_usage, true, None::<&str>)?;
-    let settings = MenuItem::with_id(app, SETTINGS_ID, labels.settings, true, None::<&str>)?;
-    let about = MenuItem::with_id(app, ABOUT_ID, labels.about, true, None::<&str>)?;
-    let quit = MenuItem::with_id(app, QUIT_ID, labels.quit, true, None::<&str>)?;
-
-    Menu::with_items(
-        app,
-        &[
-            &open_panel,
-            &refresh,
-            &accounts,
-            &open_usage,
-            &settings,
-            &about,
-            &quit,
-        ],
-    )
+    let menu = Menu::new(app)?;
+    for entry in native_menu_plan(order) {
+        match entry {
+            MenuPlanEntry::Separator => {
+                let separator = PredefinedMenuItem::separator(app)?;
+                menu.append(&separator)?;
+            }
+            MenuPlanEntry::Item(id) => {
+                if id == ACCOUNTS_ID {
+                    menu.append(&accounts)?;
+                    continue;
+                }
+                let item = match id {
+                    OPEN_PANEL_ID => MenuItem::with_id(
+                        app,
+                        OPEN_PANEL_ID,
+                        labels.open_panel,
+                        true,
+                        None::<&str>,
+                    )?,
+                    REFRESH_ID => {
+                        MenuItem::with_id(app, REFRESH_ID, labels.refresh, true, None::<&str>)?
+                    }
+                    OPEN_USAGE_ID => MenuItem::with_id(
+                        app,
+                        OPEN_USAGE_ID,
+                        labels.open_usage,
+                        true,
+                        None::<&str>,
+                    )?,
+                    SETTINGS_ID => {
+                        MenuItem::with_id(app, SETTINGS_ID, labels.settings, true, None::<&str>)?
+                    }
+                    ABOUT_ID => MenuItem::with_id(app, ABOUT_ID, labels.about, true, None::<&str>)?,
+                    QUIT_ID => MenuItem::with_id(app, QUIT_ID, labels.quit, true, None::<&str>)?,
+                    _ => continue,
+                };
+                menu.append(&item)?;
+            }
+        }
+    }
+    Ok(menu)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn native_menu_plan_generates_separators_between_groups_and_ignores_unknown_ids() {
+        let order = vec![
+            "open_panel".to_string(),
+            "refresh".to_string(),
+            "accounts".to_string(),
+            "open_usage".to_string(),
+            "settings".to_string(),
+            "about".to_string(),
+            "quit".to_string(),
+        ];
+        assert_eq!(
+            native_menu_plan(&order),
+            vec![
+                MenuPlanEntry::Item("open_panel"),
+                MenuPlanEntry::Item("refresh"),
+                MenuPlanEntry::Item("accounts"),
+                MenuPlanEntry::Item("open_usage"),
+                MenuPlanEntry::Separator,
+                MenuPlanEntry::Item("settings"),
+                MenuPlanEntry::Item("about"),
+                MenuPlanEntry::Separator,
+                MenuPlanEntry::Item("quit"),
+            ]
+        );
+    }
+
+    #[test]
+    fn native_menu_plan_skips_unknown_ids_and_separates_group_changes() {
+        let order = vec![
+            "quit".to_string(),
+            "bogus".to_string(),
+            "settings".to_string(),
+        ];
+        assert_eq!(
+            native_menu_plan(&order),
+            vec![
+                MenuPlanEntry::Item("quit"),
+                MenuPlanEntry::Separator,
+                MenuPlanEntry::Item("settings"),
+            ]
+        );
+    }
+
+    #[test]
+    fn native_menu_plan_follows_candidate_order_deterministically() {
+        let order = vec![
+            "settings".to_string(),
+            "open_panel".to_string(),
+            "quit".to_string(),
+        ];
+        assert_eq!(
+            native_menu_plan(&order),
+            vec![
+                MenuPlanEntry::Item("settings"),
+                MenuPlanEntry::Separator,
+                MenuPlanEntry::Item("open_panel"),
+                MenuPlanEntry::Separator,
+                MenuPlanEntry::Item("quit"),
+            ]
+        );
+    }
 
     #[test]
     fn native_menu_order_is_fixed() {

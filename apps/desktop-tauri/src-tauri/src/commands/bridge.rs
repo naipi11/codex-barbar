@@ -17,9 +17,9 @@ use codexbar::core::{
     AppError, AppErrorKind, AuthMode, Freshness, ProfileUsageState, RefreshStatus, UsageWindow,
 };
 use codexbar::storage::{
-    AppSettings, DisplayMode, LanguagePreference, NotificationPreferences,
-    NotificationPreferencesPatch, SettingsPatch, TaskbarDensity, TaskbarTrayPreferences,
-    TaskbarTrayPreferencesPatch, ThemePreference, TrayIconMode,
+    AppSettings, DisplayMode, LanguagePreference, MenuPreferences, MenuPreferencesPatch,
+    NotificationPreferences, NotificationPreferencesPatch, SettingsPatch, TaskbarDensity,
+    TaskbarTrayPreferences, TaskbarTrayPreferencesPatch, ThemePreference, TrayIconMode,
 };
 
 use crate::state::AppState;
@@ -49,6 +49,42 @@ pub struct AppSettingsDto {
     pub float_ball_glow: u8,
     pub notifications: NotificationPreferencesDto,
     pub taskbar_tray: TaskbarTrayPreferencesDto,
+    pub menu: MenuPreferencesDto,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MenuLayoutDto {
+    pub order: Vec<String>,
+    pub hidden: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MenuPreferencesDto {
+    pub native_tray: MenuLayoutDto,
+    pub tray_panel: MenuLayoutDto,
+}
+
+impl MenuPreferencesDto {
+    fn from_preferences(preferences: &MenuPreferences) -> Self {
+        Self {
+            native_tray: MenuLayoutDto {
+                order: preferences.native_tray.order.clone(),
+                hidden: preferences.native_tray.hidden.clone(),
+            },
+            tray_panel: MenuLayoutDto {
+                order: preferences.tray_panel.order.clone(),
+                hidden: preferences.tray_panel.hidden.clone(),
+            },
+        }
+    }
+}
+
+impl Default for MenuPreferencesDto {
+    fn default() -> Self {
+        Self::from_preferences(&MenuPreferences::default())
+    }
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -153,6 +189,7 @@ impl Default for AppSettingsDto {
             float_ball_glow: 20,
             notifications: NotificationPreferencesDto::default(),
             taskbar_tray: TaskbarTrayPreferencesDto::default(),
+            menu: MenuPreferencesDto::default(),
         }
     }
 }
@@ -173,6 +210,39 @@ pub struct SettingsPatchDto {
     pub float_ball_glow: Option<u8>,
     pub notifications: Option<NotificationPreferencesPatchDto>,
     pub taskbar_tray: Option<TaskbarTrayPreferencesPatchDto>,
+}
+
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MenuLayoutPatchDto {
+    pub order: Option<Vec<String>>,
+    pub hidden: Option<Vec<String>>,
+}
+
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MenuPreferencesPatchDto {
+    pub native_tray: Option<MenuLayoutPatchDto>,
+    pub tray_panel: Option<MenuLayoutPatchDto>,
+}
+
+impl MenuPreferencesPatchDto {
+    pub(crate) fn into_patch(self) -> MenuPreferencesPatch {
+        MenuPreferencesPatch {
+            native_tray: self
+                .native_tray
+                .map(|patch| codexbar::storage::MenuLayoutPatch {
+                    order: patch.order,
+                    hidden: patch.hidden,
+                }),
+            tray_panel: self
+                .tray_panel
+                .map(|patch| codexbar::storage::MenuLayoutPatch {
+                    order: patch.order,
+                    hidden: patch.hidden,
+                }),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Default, Deserialize)]
@@ -234,6 +304,7 @@ impl AppSettingsDto {
             float_ball_glow: settings.float_ball_glow,
             notifications: NotificationPreferencesDto::from_preferences(&settings.notifications),
             taskbar_tray: TaskbarTrayPreferencesDto::from_preferences(&settings.taskbar_tray),
+            menu: MenuPreferencesDto::from_preferences(&settings.menu),
         }
     }
 }
@@ -288,6 +359,7 @@ impl SettingsPatchDto {
             float_ball_glow: self.float_ball_glow,
             notifications,
             taskbar_tray,
+            menu: None,
         })
     }
 }

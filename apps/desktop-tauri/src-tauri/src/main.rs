@@ -130,6 +130,7 @@ fn main() {
             commands::get_settings_snapshot,
             commands::get_notification_capability,
             commands::update_settings,
+            commands::apply_menu_preferences,
             commands::send_test_notification,
             commands::set_status_surface_enabled,
             commands::set_float_ball_expanded,

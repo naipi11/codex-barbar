@@ -279,6 +279,58 @@ fn load_presentation(app: &AppHandle) -> TrayPresentation {
     )
 }
 
+fn native_tray_order(app: &AppHandle) -> Vec<String> {
+    let proof = app
+        .state::<Mutex<AppState>>()
+        .lock()
+        .ok()
+        .and_then(|state| state.proof_config.clone());
+    if proof.is_some() {
+        return codexbar::storage::MenuPreferences::default()
+            .native_tray
+            .order;
+    }
+    app.state::<Mutex<AppState>>()
+        .lock()
+        .ok()
+        .and_then(|state| {
+            state
+                .account_service
+                .as_ref()
+                .and_then(|service| service.repositories().settings.load().ok())
+        })
+        .unwrap_or_default()
+        .menu
+        .native_tray
+        .normalized_order(
+            &codexbar::storage::NATIVE_TRAY_ITEMS,
+            &codexbar::storage::REQUIRED_NATIVE_TRAY_ITEMS,
+        )
+}
+
+/// Apply a candidate native menu without touching the persisted settings.
+///
+/// Used by the transactional menu command: the candidate menu is applied
+/// first and only persisted after this call succeeds. On a later persistence
+/// failure the prior settings are re-applied through the same function.
+pub fn apply_candidate_menu(
+    app: &AppHandle,
+    settings: &codexbar::storage::AppSettings,
+) -> tauri::Result<()> {
+    let Some(tray) = app.tray_by_id(TRAY_ID) else {
+        return Ok(());
+    };
+    let presentation = load_presentation(app);
+    let order = settings.menu.native_tray.normalized_order(
+        &codexbar::storage::NATIVE_TRAY_ITEMS,
+        &codexbar::storage::REQUIRED_NATIVE_TRAY_ITEMS,
+    );
+    let menu =
+        tray_menu::build_native_menu(app, &presentation.profiles, &presentation.language, &order)?;
+    tray.set_menu(Some(menu))?;
+    Ok(())
+}
+
 fn tray_image(visual: TrayVisualState, palette: TrayIconPalette) -> tauri::image::Image<'static> {
     let (rgba, width, height) = render_tray_icon_rgba_with_palette(visual, palette);
     tauri::image::Image::new_owned(rgba, width, height)
@@ -286,8 +338,13 @@ fn tray_image(visual: TrayVisualState, palette: TrayIconPalette) -> tauri::image
 
 pub fn setup(app: &mut App) -> tauri::Result<()> {
     let presentation = load_presentation(app.handle());
-    let menu =
-        tray_menu::build_native_menu(app.handle(), &presentation.profiles, &presentation.language)?;
+    let order = native_tray_order(app.handle());
+    let menu = tray_menu::build_native_menu(
+        app.handle(),
+        &presentation.profiles,
+        &presentation.language,
+        &order,
+    )?;
 
     TrayIconBuilder::with_id(TRAY_ID)
         .icon(tray_image(presentation.visual, presentation.icon_palette))
@@ -317,7 +374,9 @@ pub fn rebuild(app: &AppHandle) -> tauri::Result<()> {
     let Some(tray) = app.tray_by_id(TRAY_ID) else {
         return Ok(());
     };
-    let menu = tray_menu::build_native_menu(app, &presentation.profiles, &presentation.language)?;
+    let order = native_tray_order(app);
+    let menu =
+        tray_menu::build_native_menu(app, &presentation.profiles, &presentation.language, &order)?;
     tray.set_icon(Some(tray_image(
         presentation.visual,
         presentation.icon_palette,
