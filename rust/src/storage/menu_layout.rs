@@ -8,13 +8,17 @@ use serde::{Deserialize, Serialize};
 
 /// Native tray right-click menu registry in default order.
 pub const NATIVE_TRAY_ITEMS: [&str; 7] = [
-    "open_panel", "refresh", "accounts", "open_usage", "settings", "about", "quit",
+    "open_panel",
+    "refresh",
+    "accounts",
+    "open_usage",
+    "settings",
+    "about",
+    "quit",
 ];
 
 /// Tray-panel quick-action registry in default order.
-pub const TRAY_PANEL_ACTIONS: [&str; 5] = [
-    "refresh", "open_usage", "settings", "dismiss", "quit",
-];
+pub const TRAY_PANEL_ACTIONS: [&str; 5] = ["refresh", "open_usage", "settings", "dismiss", "quit"];
 
 /// Native items that must always be visible and reachable.
 pub const REQUIRED_NATIVE_TRAY_ITEMS: [&str; 2] = ["settings", "quit"];
@@ -61,20 +65,11 @@ pub fn normalize_layout(
     visible
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
 pub struct MenuLayout {
     pub order: Vec<String>,
     pub hidden: Vec<String>,
-}
-
-impl Default for MenuLayout {
-    fn default() -> Self {
-        Self {
-            order: Vec::new(),
-            hidden: Vec::new(),
-        }
-    }
 }
 
 impl MenuLayout {
@@ -118,8 +113,11 @@ impl Default for MenuPreferences {
 
 impl MenuPreferences {
     pub fn normalize(&mut self) {
-        self.native_tray.order =
-            normalize_layout(&self.native_tray, &NATIVE_TRAY_ITEMS, &REQUIRED_NATIVE_TRAY_ITEMS);
+        self.native_tray.order = normalize_layout(
+            &self.native_tray,
+            &NATIVE_TRAY_ITEMS,
+            &REQUIRED_NATIVE_TRAY_ITEMS,
+        );
         self.native_tray.hidden = self.native_tray.sanitized_hidden(&NATIVE_TRAY_ITEMS);
         self.tray_panel.order = normalize_layout(&self.tray_panel, &TRAY_PANEL_ACTIONS, &[]);
         self.tray_panel.hidden = self.tray_panel.sanitized_hidden(&TRAY_PANEL_ACTIONS);
@@ -181,7 +179,12 @@ mod tests {
                 &REQUIRED_NATIVE_TRAY_ITEMS,
             ),
             vec![
-                "quit", "settings", "open_panel", "accounts", "open_usage", "about"
+                "quit",
+                "settings",
+                "open_panel",
+                "accounts",
+                "open_usage",
+                "about"
             ]
         );
     }
@@ -244,7 +247,10 @@ mod tests {
         let visible = normalize_layout(
             &MenuLayout {
                 order: Vec::new(),
-                hidden: NATIVE_TRAY_ITEMS.iter().map(|id| (*id).to_string()).collect(),
+                hidden: NATIVE_TRAY_ITEMS
+                    .iter()
+                    .map(|id| (*id).to_string())
+                    .collect(),
             },
             &NATIVE_TRAY_ITEMS,
             &REQUIRED_NATIVE_TRAY_ITEMS,
@@ -257,11 +263,17 @@ mod tests {
         let defaults = MenuPreferences::default();
         assert_eq!(
             defaults.native_tray.order,
-            NATIVE_TRAY_ITEMS.iter().map(|id| (*id).to_string()).collect::<Vec<_>>()
+            NATIVE_TRAY_ITEMS
+                .iter()
+                .map(|id| (*id).to_string())
+                .collect::<Vec<_>>()
         );
         assert_eq!(
             defaults.tray_panel.order,
-            TRAY_PANEL_ACTIONS.iter().map(|id| (*id).to_string()).collect::<Vec<_>>()
+            TRAY_PANEL_ACTIONS
+                .iter()
+                .map(|id| (*id).to_string())
+                .collect::<Vec<_>>()
         );
         assert!(defaults.native_tray.hidden.is_empty());
         assert!(defaults.tray_panel.hidden.is_empty());
@@ -278,10 +290,25 @@ mod tests {
         };
         preferences.normalize();
 
-        assert!(preferences.native_tray.order.contains(&"settings".to_string()));
+        assert!(
+            preferences
+                .native_tray
+                .order
+                .contains(&"settings".to_string())
+        );
         assert!(preferences.native_tray.order.contains(&"quit".to_string()));
-        assert!(!preferences.native_tray.order.contains(&"refresh".to_string()));
-        assert!(!preferences.native_tray.order.contains(&"unknown".to_string()));
+        assert!(
+            !preferences
+                .native_tray
+                .order
+                .contains(&"refresh".to_string())
+        );
+        assert!(
+            !preferences
+                .native_tray
+                .order
+                .contains(&"unknown".to_string())
+        );
         assert_eq!(
             preferences.native_tray.hidden,
             vec!["settings".to_string(), "refresh".to_string()]
@@ -302,12 +329,18 @@ mod tests {
 
         assert_eq!(
             preferences.native_tray.order,
-            vec!["quit".to_string(), "about".to_string(), "settings".to_string()]
+            vec![
+                "quit".to_string(),
+                "about".to_string(),
+                "settings".to_string()
+            ]
         );
         assert_eq!(
             preferences.tray_panel.order,
-            TRAY_PANEL_ACTIONS.iter().map(|id| (*id).to_string()).collect::<Vec<_>>()
+            TRAY_PANEL_ACTIONS
+                .iter()
+                .map(|id| (*id).to_string())
+                .collect::<Vec<_>>()
         );
     }
 }
-
