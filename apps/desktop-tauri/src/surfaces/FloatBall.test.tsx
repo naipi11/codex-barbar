@@ -287,8 +287,8 @@ describe("FloatBall", () => {
     expect(screen.getByRole("button", { name: /打开完整面板|Open panel/ })).toHaveAttribute("data-band", "medium");
   });
 
-  it.each([[0, "0"], [20, "0.2"], [80, "0.8"]])(
-    "maps float ball opacity %s to background alpha %s without root opacity",
+  it.each([[0, "1"], [20, "0.8"], [80, "0.2"]])(
+    "maps float ball transparency %s to background alpha %s without root opacity",
     async (opacity, expectedAlpha) => {
       const bootstrap = bootstrapWithTwoProfiles();
       bootstrap.settings.floatBallOpacity = opacity;

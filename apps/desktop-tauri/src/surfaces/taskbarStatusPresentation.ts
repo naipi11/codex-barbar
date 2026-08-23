@@ -3,6 +3,7 @@ import type {
   StatusQuotaMetric,
   TrustState,
 } from "../lib/statusSurfaceViewModel";
+import { surfaceAlphaFromTransparency } from "../lib/surfaceTransparency";
 
 export interface TaskbarStatusPresentation {
   displayName: string;
@@ -16,10 +17,6 @@ export interface TaskbarStatusPresentation {
 
 export function compactTaskbarMetric(metric: StatusQuotaMetric): string {
   return `${metric.shortLabel} ${metric.displayedPercent}%`;
-}
-
-function surfaceAlpha(opacity: number | undefined): string {
-  return String(Math.max(0, Math.min(100, opacity ?? 20)) / 100);
 }
 
 export function buildTaskbarStatusPresentation(
@@ -49,8 +46,10 @@ export function buildTaskbarStatusPresentation(
     reset,
     trustState: surface.trustState,
     ariaLabel,
-    surfaceAlpha: surfaceAlpha(
-      surface.bootstrap?.settings.taskbarStatusOpacity,
+    surfaceAlpha: String(
+      surfaceAlphaFromTransparency(
+        surface.bootstrap?.settings.taskbarStatusOpacity ?? 20,
+      ),
     ),
   };
 }

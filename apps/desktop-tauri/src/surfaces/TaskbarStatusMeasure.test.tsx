@@ -49,7 +49,7 @@ describe("TaskbarStatusMeasure", () => {
     expect(screen.queryByTestId("taskbar-status-visible")).toBeNull();
   });
 
-  it("uses the same runtime alpha on the independent measurement root", async () => {
+  it("uses the same transparency-derived alpha on the independent measurement root", async () => {
     const bootstrap = bootstrapWithTwoProfiles();
     bootstrap.settings.taskbarStatusOpacity = 80;
     invokeMock.mockResolvedValue(bootstrap);
@@ -57,7 +57,7 @@ describe("TaskbarStatusMeasure", () => {
 
     const measurement = await screen.findByTestId("taskbar-status-measurement");
     await waitFor(() =>
-      expect(measurement.style.getPropertyValue("--surface-bg-alpha")).toBe("0.8"),
+      expect(measurement.style.getPropertyValue("--surface-bg-alpha")).toBe("0.2"),
     );
   });
 
@@ -69,7 +69,7 @@ describe("TaskbarStatusMeasure", () => {
 
     const measurement = await screen.findByTestId("taskbar-status-measurement");
     await waitFor(() =>
-      expect(measurement.style.getPropertyValue("--surface-bg-alpha")).toBe("0.8"),
+      expect(measurement.style.getPropertyValue("--surface-bg-alpha")).toBe("0.2"),
     );
     for (const descendant of measurement.querySelectorAll<HTMLElement>("*")) {
       expect(descendant.style.getPropertyValue("--surface-bg-alpha")).toBe("");

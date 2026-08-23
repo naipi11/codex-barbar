@@ -237,8 +237,8 @@ describe("TaskbarStatus", () => {
     expect(main).toHaveAccessibleName(expect.stringContaining("0分钟前"));
   });
 
-  it.each([[0, "0"], [20, "0.2"], [80, "0.8"]])(
-    "attaches taskbar opacity %s to the rendered root as alpha %s",
+  it.each([[0, "1"], [20, "0.8"], [80, "0.2"]])(
+    "attaches taskbar transparency %s to the rendered root as alpha %s",
     async (opacity, expectedAlpha) => {
       const bootstrap = readyTwoWindowFixture();
       bootstrap.settings.taskbarStatusOpacity = opacity;
@@ -264,7 +264,7 @@ describe("TaskbarStatus", () => {
     await waitFor(() =>
       expect(eventHarness.listeners.get(events.settingsChanged)?.size).toBeGreaterThan(0),
     );
-    expect(visible.style.getPropertyValue("--surface-bg-alpha")).toBe("0.2");
+    expect(visible.style.getPropertyValue("--surface-bg-alpha")).toBe("0.8");
 
     act(() => {
       eventHarness.emit(events.settingsChanged, {
@@ -274,7 +274,7 @@ describe("TaskbarStatus", () => {
     });
 
     await waitFor(() =>
-      expect(visible.style.getPropertyValue("--surface-bg-alpha")).toBe("0.8"),
+      expect(visible.style.getPropertyValue("--surface-bg-alpha")).toBe("0.2"),
     );
     expect(
       invokeMock.mock.calls.some(([command]) => command === "set_taskbar_status_width"),

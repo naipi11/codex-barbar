@@ -53,7 +53,7 @@ describe("buildTaskbarStatusPresentation", () => {
     expect(presentation.displayName).toBe("ProofUser");
     expect(presentation.compactIdentity).toBe("ProofU");
     expect(presentation.reset?.resetsAt).toBe("2026-08-20T00:00:00Z");
-    expect(presentation.surfaceAlpha).toBe("0.2");
+    expect(presentation.surfaceAlpha).toBe("0.8");
     expect(presentation.ariaLabel).toBe(
       "打开完整面板，ProofUser，Wk 98%，6天，已更新，8天前",
     );
@@ -118,12 +118,13 @@ describe("buildTaskbarStatusPresentation", () => {
   });
 
   it.each([
-    [-20, "0"],
-    [0, "0"],
-    [20, "0.2"],
-    [100, "1"],
-    [140, "1"],
-  ])("clamps taskbar opacity %s to background alpha %s", (opacity, alpha) => {
+    [-20, "1"],
+    [0, "1"],
+    [20, "0.8"],
+    [80, "0.2"],
+    [100, "0.2"],
+    [140, "0.2"],
+  ])("maps taskbar transparency %s to background alpha %s", (opacity, alpha) => {
     const bootstrap = bootstrapWithTwoProfiles();
     bootstrap.settings.taskbarStatusOpacity = opacity;
 

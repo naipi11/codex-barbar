@@ -1,9 +1,11 @@
-import { fireEvent, render, screen } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { act, fireEvent, render, screen } from "@testing-library/react";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import GeneralTab from "./GeneralTab";
 import { defaultAppSettings } from "../../../hooks/useSettings";
 
 describe("GeneralTab status surfaces", () => {
+  afterEach(() => vi.restoreAllMocks());
+
   it("reflects both opt-in surface settings", () => {
     render(
       <GeneralTab
@@ -52,10 +54,16 @@ describe("GeneralTab status surfaces", () => {
     expect(update).not.toHaveBeenCalled();
   });
 
-  it("updates taskbar and floating status opacity independently", () => {
+  it("previews transparency input frames locally and persists once on pointer release", () => {
     const update = vi.fn().mockResolvedValue(defaultAppSettings);
     const setSurfaceEnabled = vi.fn().mockResolvedValue(defaultAppSettings);
-    render(
+    const frames: FrameRequestCallback[] = [];
+    vi.spyOn(window, "requestAnimationFrame").mockImplementation((callback) => {
+      frames.push(callback);
+      return frames.length;
+    });
+    vi.spyOn(window, "cancelAnimationFrame").mockImplementation(() => undefined);
+    const view = render(
       <GeneralTab
         settings={{
           ...defaultAppSettings,
@@ -69,21 +77,47 @@ describe("GeneralTab status surfaces", () => {
       />,
     );
 
-    const taskbarOpacity = screen.getByRole("slider", {
-      name: "Taskbar status opacity",
+    const taskbarTransparency = screen.getByRole("slider", {
+      name: "Taskbar status transparency",
     });
-    const floatBallOpacity = screen.getByRole("slider", {
-      name: "Floating status ball opacity",
+    const floatBallTransparency = screen.getByRole("slider", {
+      name: "Floating status ball transparency",
     });
-    expect(taskbarOpacity).toHaveValue("20");
-    expect(floatBallOpacity).toHaveValue("60");
-    expect(taskbarOpacity).toBeEnabled();
-    expect(floatBallOpacity).toBeEnabled();
+    expect(taskbarTransparency).toHaveValue("20");
+    expect(floatBallTransparency).toHaveValue("60");
+    expect(taskbarTransparency).toBeEnabled();
+    expect(floatBallTransparency).toBeEnabled();
 
-    fireEvent.change(taskbarOpacity, { target: { value: "35" } });
-    expect(update).toHaveBeenLastCalledWith({ taskbarStatusOpacity: 35 });
-    fireEvent.change(floatBallOpacity, { target: { value: "5" } });
-    expect(update).toHaveBeenLastCalledWith({ floatBallOpacity: 5 });
+    fireEvent.pointerDown(taskbarTransparency, { pointerId: 4 });
+    for (let value = 21; value <= 30; value += 1) {
+      fireEvent.input(taskbarTransparency, { target: { value: String(value) } });
+    }
+    expect(update).not.toHaveBeenCalled();
+    act(() => frames.splice(0).forEach((callback) => callback(0)));
+    expect(taskbarTransparency).toHaveValue("30");
+
+    view.rerender(
+      <GeneralTab
+        settings={{
+          ...defaultAppSettings,
+          taskbarStatusOpacity: 25,
+          floatBallOpacity: 60,
+        }}
+        update={update}
+        setSurfaceEnabled={setSurfaceEnabled}
+      />,
+    );
+    expect(taskbarTransparency).toHaveValue("30");
+    fireEvent.pointerUp(taskbarTransparency, { pointerId: 4 });
+    expect(update).toHaveBeenCalledTimes(1);
+    expect(update).toHaveBeenLastCalledWith({ taskbarStatusOpacity: 30 });
+
+    fireEvent.pointerDown(floatBallTransparency, { pointerId: 5 });
+    fireEvent.input(floatBallTransparency, { target: { value: "5" } });
+    fireEvent.pointerCancel(floatBallTransparency, { pointerId: 5 });
+    expect(floatBallTransparency).toHaveValue("60");
+    expect(update).toHaveBeenCalledTimes(1);
+
     const glow = screen.getByRole("slider", { name: "Floating status ball glow" });
     expect(glow).toHaveValue("20");
     fireEvent.change(glow, { target: { value: "70" } });
@@ -91,6 +125,37 @@ describe("GeneralTab status surfaces", () => {
 
     fireEvent.click(screen.getByRole("checkbox", { name: "Show status in taskbar" }));
     expect(setSurfaceEnabled).toHaveBeenCalledWith("taskbarStatus", true);
+  });
+
+  it("commits keyboard and blur transparency edits once per interaction", () => {
+    const update = vi.fn().mockResolvedValue(defaultAppSettings);
+    const frames: FrameRequestCallback[] = [];
+    vi.spyOn(window, "requestAnimationFrame").mockImplementation((callback) => {
+      frames.push(callback);
+      return frames.length;
+    });
+    vi.spyOn(window, "cancelAnimationFrame").mockImplementation(() => undefined);
+    render(
+      <GeneralTab
+        settings={defaultAppSettings}
+        update={update}
+        setSurfaceEnabled={vi.fn().mockResolvedValue(defaultAppSettings)}
+      />,
+    );
+    const taskbar = screen.getByRole("slider", { name: "Taskbar status transparency" });
+    fireEvent.keyDown(taskbar, { key: "ArrowRight" });
+    fireEvent.input(taskbar, { target: { value: "21" } });
+    act(() => frames.splice(0).forEach((callback) => callback(0)));
+    fireEvent.keyUp(taskbar, { key: "ArrowRight" });
+    fireEvent.blur(taskbar);
+    expect(update).toHaveBeenCalledTimes(1);
+    expect(update).toHaveBeenLastCalledWith({ taskbarStatusOpacity: 21 });
+
+    const floatBall = screen.getByRole("slider", { name: "Floating status ball transparency" });
+    fireEvent.input(floatBall, { target: { value: "40" } });
+    fireEvent.blur(floatBall);
+    expect(update).toHaveBeenCalledTimes(2);
+    expect(update).toHaveBeenLastCalledWith({ floatBallOpacity: 40 });
   });
 });
 

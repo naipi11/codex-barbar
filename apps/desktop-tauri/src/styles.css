@@ -328,7 +328,15 @@ html:has(.float-ball-shell) {
 }
 
 .settings-panel input[type="range"] {
+  width: 100%;
   accent-color: var(--app-accent);
+  cursor: ew-resize;
+  transition: accent-color 180ms ease-out;
+}
+
+.settings-panel input[type="range"]:focus-visible {
+  outline: 2px solid var(--app-accent);
+  outline-offset: 3px;
 }
 
 .settings-custom-skin {
