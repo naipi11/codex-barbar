@@ -70,6 +70,10 @@ body,
   text-align: left;
 }
 
+.taskbar-status__main[data-density="standard"] {
+  gap: 10px;
+}
+
 .taskbar-status__main:hover { color: #fff; }
 
 .taskbar-status__main:focus-visible,

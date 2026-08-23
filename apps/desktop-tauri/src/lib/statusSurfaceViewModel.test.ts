@@ -176,6 +176,12 @@ describe("buildStatusSurfaceViewModel", () => {
     expect(compactIdentity("😀ab😀cd")).toBe("😀ab😀cd");
   });
 
+  it("compacts identities by Unicode grapheme cluster and strips email domains", () => {
+    expect(compactIdentity("👩🏽‍💻abcdefghi")).toBe("👩🏽‍💻abcde");
+    expect(compactIdentity("name@example.com")).toBe("name");
+    expect(compactIdentity("Ming Zhao")).toBe("Ming Z");
+  });
+
   it("identifies five-hour and weekly metrics by duration", () => {
     const bootstrap = readyTwoWindowFixture();
     const profile = bootstrap.profiles[0]!;

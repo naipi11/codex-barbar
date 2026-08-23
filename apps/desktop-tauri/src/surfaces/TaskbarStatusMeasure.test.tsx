@@ -114,6 +114,40 @@ describe("TaskbarStatusMeasure", () => {
     measurementView.unmount();
   });
 
+  it("keeps visible and measurement geometry identical under filtered preferences", async () => {
+    const bootstrap = bootstrapWithTwoProfiles();
+    bootstrap.profiles[0]!.accountDisplayName = "ProofUser";
+    bootstrap.usageByProfile.personal = weeklyOnlyUsage();
+    bootstrap.settings.taskbarTray = {
+      ...bootstrap.settings.taskbarTray,
+      showTaskbarIcon: false,
+      showTaskbarAccount: false,
+      showWeeklyLabel: false,
+      showWeeklyPercent: true,
+      showResetDate: false,
+    };
+    invokeMock.mockResolvedValue(bootstrap);
+
+    const visibleView = render(<TaskbarStatus />);
+    const visible = await screen.findByTestId("taskbar-status-visible");
+    await within(visible).findByText("98%");
+    const geometry = (root: HTMLElement) =>
+      Array.from(
+        root.querySelectorAll(
+          ".taskbar-status__avatar, .taskbar-status__identity, .taskbar-status__metric, .taskbar-status__reset",
+        ),
+      ).map((element) => `${element.className}:${element.textContent}`);
+    const visibleGeometry = geometry(visible);
+    visibleView.unmount();
+
+    const measurementView = render(<TaskbarStatusMeasure />);
+    const measurement = await screen.findByTestId("taskbar-status-measurement");
+    await within(measurement).findByText("98%");
+    expect(geometry(measurement)).toEqual(visibleGeometry);
+    expect(visibleGeometry).toEqual(["taskbar-status__metric:98%"]);
+    measurementView.unmount();
+  });
+
   it("owns the only ResizeObserver and submits a 247px measurement exactly once", async () => {
     class ResizeObserverStub {
       static instances: ResizeObserverStub[] = [];

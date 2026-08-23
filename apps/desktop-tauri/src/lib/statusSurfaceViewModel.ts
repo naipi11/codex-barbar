@@ -91,7 +91,36 @@ export function profileDisplayName(profile: ProfileSummaryDto | null): string {
 }
 
 export function compactIdentity(value: string): string {
-  return Array.from(value.trim()).slice(0, STATUS_LABEL_LENGTH).join("");
+  const trimmed = value.trim();
+  const localPart = emailLocalPart(trimmed) ?? trimmed;
+  return graphemeSlice(localPart, STATUS_LABEL_LENGTH);
+}
+
+function emailLocalPart(value: string): string | null {
+  const at = value.indexOf("@");
+  if (at <= 0) return null;
+  const before = value.slice(0, at);
+  if (before.includes("@") || before.includes(" ")) return null;
+  return before;
+}
+
+function graphemeSlice(value: string, max: number): string {
+  const intlWithSegmenter = Intl as typeof Intl & {
+    Segmenter?: new (
+      locales?: string | string[],
+      options?: { granularity?: string },
+    ) => {
+      segment(input: string): Iterable<{ segment: string }>;
+    };
+  };
+  if (intlWithSegmenter.Segmenter) {
+    const segmenter = new intlWithSegmenter.Segmenter(undefined, {
+      granularity: "grapheme",
+    });
+    const segments = Array.from(segmenter.segment(value), (segment) => segment.segment);
+    return segments.slice(0, max).join("");
+  }
+  return Array.from(value).slice(0, max).join("");
 }
 
 export function quotaBandFor(

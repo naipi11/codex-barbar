@@ -1,10 +1,7 @@
 import type React from "react";
 import type { CSSProperties } from "react";
 import ChatGptMark from "../theme/ChatGptMark";
-import {
-  compactTaskbarMetric,
-  type TaskbarStatusPresentation,
-} from "./taskbarStatusPresentation";
+import { type TaskbarStatusPresentation } from "./taskbarStatusPresentation";
 
 export type TaskbarStatusContentsMode = "visible" | "measurement";
 
@@ -14,12 +11,6 @@ export interface TaskbarStatusContentsProps {
   closeFailed?: boolean;
   onOpen?(): void;
   measurementRef?: React.Ref<HTMLDivElement>;
-}
-
-function resetDate(metric: TaskbarStatusPresentation["reset"]): string {
-  if (!metric?.resetsAt) return "—";
-  const date = new Date(metric.resetsAt);
-  return Number.isNaN(date.valueOf()) ? "—" : `${date.getMonth() + 1}/${date.getDate()}`;
 }
 
 export function TaskbarStatusContents({
@@ -34,10 +25,14 @@ export function TaskbarStatusContents({
   const {
     ariaLabel,
     compactIdentity,
+    density,
     displayName,
-    metrics,
-    reset,
+    resetDateText,
+    showAccount,
+    showIcon,
+    showResetDate,
     trustState,
+    weeklyText,
   } = presentation;
 
   return (
@@ -60,38 +55,44 @@ export function TaskbarStatusContents({
       <button
         type="button"
         className="taskbar-status__main"
+        data-density={density}
         aria-label={visible ? ariaLabel : undefined}
         title={displayName}
         tabIndex={visible ? undefined : -1}
         onClick={visible && onOpen ? () => onOpen() : undefined}
       >
-        <span className="taskbar-status__avatar" aria-hidden="true">
-          <ChatGptMark className="taskbar-status__avatar-mark" />
-        </span>
-        <span className="taskbar-status__identity">{compactIdentity}</span>
-        <span
-          className="taskbar-status__quota-track"
-          data-testid={visible ? "taskbar-status-quota-track" : undefined}
-        >
-          {metrics.map((metric, index) => (
+        {showIcon ? (
+          <span className="taskbar-status__avatar" aria-hidden="true">
+            <ChatGptMark className="taskbar-status__avatar-mark" />
+          </span>
+        ) : null}
+        {showAccount && compactIdentity ? (
+          <span className="taskbar-status__identity">{compactIdentity}</span>
+        ) : null}
+        {weeklyText ? (
+          <span
+            className="taskbar-status__quota-track"
+            data-testid={visible ? "taskbar-status-quota-track" : undefined}
+          >
             <span
-              key={`${index}:${metric.limitId}:${metric.shortLabel}:${metric.resetsAt ?? ""}`}
               className="taskbar-status__metric"
               data-testid={visible ? "taskbar-status-metric" : undefined}
-              data-band={metric.band}
-              title={`${compactTaskbarMetric(metric)}；${metric.resetText}`}
+              data-band={presentation.reset?.band}
+              title={weeklyText}
             >
-              {compactTaskbarMetric(metric)}
+              {weeklyText}
             </span>
-          ))}
-        </span>
-        <span
-          className="taskbar-status__reset"
-          data-testid={visible ? "taskbar-status-reset" : undefined}
-          title={reset?.resetText ?? "无重置时间"}
-        >
-          {resetDate(reset)}
-        </span>
+          </span>
+        ) : null}
+        {showResetDate && resetDateText ? (
+          <span
+            className="taskbar-status__reset"
+            data-testid={visible ? "taskbar-status-reset" : undefined}
+            title={presentation.reset?.resetText ?? "无重置时间"}
+          >
+            {resetDateText}
+          </span>
+        ) : null}
       </button>
     </div>
   );
