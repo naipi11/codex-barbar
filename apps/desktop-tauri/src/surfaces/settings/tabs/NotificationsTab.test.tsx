@@ -35,10 +35,12 @@ const settings: AppSettingsDto = {
 
 function deferred<T>() {
   let resolve!: (value: T) => void;
-  const promise = new Promise<T>((next) => {
+  let reject!: (reason: unknown) => void;
+  const promise = new Promise<T>((next, fail) => {
     resolve = next;
+    reject = fail;
   });
-  return { promise, resolve };
+  return { promise, reject, resolve };
 }
 
 describe("NotificationsTab", () => {
@@ -257,7 +259,7 @@ describe("NotificationsTab", () => {
       await screen.findByText(/notifications for codex-barbar are turned off in windows/i),
     ).toBeInTheDocument();
 
-    window.dispatchEvent(new Event("focus"));
+    act(() => window.dispatchEvent(new Event("focus")));
 
     await waitFor(() => expect(getCapability).toHaveBeenCalledTimes(2));
     await waitFor(() =>
@@ -265,6 +267,109 @@ describe("NotificationsTab", () => {
         screen.queryByText(/notifications for codex-barbar are turned off in windows/i),
       ).not.toBeInTheDocument(),
     );
+  });
+
+  it("disables a previously available test action while a focus refresh is pending", async () => {
+    const focusCapability = deferred<NotificationCapabilityDto>();
+    const getCapability = vi
+      .fn()
+      .mockResolvedValueOnce({ status: "available", canOpenSettings: true })
+      .mockReturnValueOnce(focusCapability.promise);
+    render(
+      <NotificationsTab
+        settings={settings}
+        update={vi.fn().mockResolvedValue(settings)}
+        copy={settingsCopy("en-US")}
+        getCapability={getCapability}
+      />,
+    );
+
+    const sendButton = screen.getByRole("button", { name: "Send test notification" });
+    await waitFor(() => expect(sendButton).toBeEnabled());
+
+    act(() => window.dispatchEvent(new Event("focus")));
+    await waitFor(() => expect(getCapability).toHaveBeenCalledTimes(2));
+    expect(sendButton).toBeDisabled();
+
+    await act(async () => {
+      focusCapability.resolve({ status: "available", canOpenSettings: true });
+    });
+    await waitFor(() => expect(sendButton).toBeEnabled());
+  });
+
+  it("keeps the test action disabled while a disabled-code refresh is pending", async () => {
+    const refreshedCapability = deferred<NotificationCapabilityDto>();
+    const getCapability = vi
+      .fn()
+      .mockResolvedValueOnce({ status: "available", canOpenSettings: true })
+      .mockReturnValueOnce(refreshedCapability.promise);
+    const sendTest = vi.fn().mockRejectedValue("NOTIFICATION_PERMISSION_DISABLED");
+    render(
+      <NotificationsTab
+        settings={settings}
+        update={vi.fn().mockResolvedValue(settings)}
+        copy={settingsCopy("en-US")}
+        getCapability={getCapability}
+        sendTest={sendTest}
+      />,
+    );
+
+    const sendButton = screen.getByRole("button", { name: "Send test notification" });
+    await waitFor(() => expect(sendButton).toBeEnabled());
+    fireEvent.click(sendButton);
+
+    await waitFor(() => expect(getCapability).toHaveBeenCalledTimes(2));
+    expect(sendTest).toHaveBeenCalledTimes(1);
+    expect(sendButton).toBeDisabled();
+    expect(screen.queryByText("Test notification sent.")).not.toBeInTheDocument();
+  });
+
+  it("does not let stale fulfillment or rejection clear loading for a newer request", async () => {
+    const staleFulfillment = deferred<NotificationCapabilityDto>();
+    const staleRejection = deferred<NotificationCapabilityDto>();
+    const newerFocusCapability = deferred<NotificationCapabilityDto>();
+    const getCapability = vi
+      .fn()
+      .mockResolvedValueOnce({ status: "available", canOpenSettings: true })
+      .mockReturnValueOnce(staleFulfillment.promise)
+      .mockReturnValueOnce(staleRejection.promise)
+      .mockReturnValueOnce(newerFocusCapability.promise);
+    render(
+      <NotificationsTab
+        settings={settings}
+        update={vi.fn().mockResolvedValue(settings)}
+        copy={settingsCopy("en-US")}
+        getCapability={getCapability}
+      />,
+    );
+
+    const sendButton = screen.getByRole("button", { name: "Send test notification" });
+    await waitFor(() => expect(sendButton).toBeEnabled());
+
+    act(() => window.dispatchEvent(new Event("focus")));
+    await waitFor(() => expect(getCapability).toHaveBeenCalledTimes(2));
+    act(() => window.dispatchEvent(new Event("focus")));
+    await waitFor(() => expect(getCapability).toHaveBeenCalledTimes(3));
+
+    await act(async () => {
+      staleFulfillment.resolve({ status: "available", canOpenSettings: true });
+    });
+    expect(sendButton).toBeDisabled();
+
+    act(() => window.dispatchEvent(new Event("focus")));
+    await waitFor(() => expect(getCapability).toHaveBeenCalledTimes(4));
+    await act(async () => {
+      staleRejection.reject(new Error("stale capability failure"));
+    });
+    expect(sendButton).toBeDisabled();
+    expect(
+      screen.queryByText(/availability could not be checked/i),
+    ).not.toBeInTheDocument();
+
+    await act(async () => {
+      newerFocusCapability.resolve({ status: "available", canOpenSettings: true });
+    });
+    await waitFor(() => expect(sendButton).toBeEnabled());
   });
 
   it("keeps the newer focus capability when the older mount request resolves last", async () => {
@@ -284,7 +389,7 @@ describe("NotificationsTab", () => {
     );
 
     await waitFor(() => expect(getCapability).toHaveBeenCalledTimes(1));
-    window.dispatchEvent(new Event("focus"));
+    act(() => window.dispatchEvent(new Event("focus")));
     await waitFor(() => expect(getCapability).toHaveBeenCalledTimes(2));
 
     await act(async () => {

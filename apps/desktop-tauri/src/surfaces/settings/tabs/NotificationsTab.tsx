@@ -64,12 +64,14 @@ export default function NotificationsTab({
   const [testing, setTesting] = useState(false);
   const [openingSettings, setOpeningSettings] = useState(false);
   const [capability, setCapability] = useState<NotificationCapabilityDto | null>(null);
+  const [capabilityLoading, setCapabilityLoading] = useState(true);
   const capabilityRequestGeneration = useRef(0);
   const mounted = useRef(false);
   const notifications = settings.notifications;
 
   const refreshCapability = useCallback(() => {
     const requestGeneration = ++capabilityRequestGeneration.current;
+    if (mounted.current) setCapabilityLoading(true);
     void Promise.resolve()
       .then(getCapability)
       .then((next) => {
@@ -79,6 +81,7 @@ export default function NotificationsTab({
           next
         ) {
           setCapability(next);
+          setCapabilityLoading(false);
         }
       })
       .catch(() => {
@@ -87,6 +90,7 @@ export default function NotificationsTab({
           requestGeneration === capabilityRequestGeneration.current
         ) {
           setCapability({ status: "unsupported", canOpenSettings: false });
+          setCapabilityLoading(false);
         }
       });
   }, [getCapability]);
@@ -128,7 +132,7 @@ export default function NotificationsTab({
   const runTest = () => {
     setError(null);
     setTestSent(false);
-    if (capability?.status !== "available") {
+    if (capabilityLoading || capability?.status !== "available") {
       return;
     }
     setTesting(true);
@@ -286,7 +290,9 @@ export default function NotificationsTab({
         ) : null}
         <button
           type="button"
-          disabled={testing || capability?.status !== "available"}
+          disabled={
+            capabilityLoading || capability?.status !== "available" || testing
+          }
           onClick={runTest}
         >
           {copy.notifications.sendTest}
