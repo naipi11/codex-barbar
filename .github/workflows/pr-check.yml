@@ -80,6 +80,10 @@ jobs:
         shell: pwsh
         run: .\scripts\assert-v1-boundaries.ps1
 
+      - name: Release workflow policy guard
+        shell: pwsh
+        run: .\scripts\assert-release-workflow.ps1
+
       - name: Production dependency audit
         run: pnpm --dir apps/desktop-tauri audit --prod --audit-level high
 

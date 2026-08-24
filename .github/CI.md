@@ -49,6 +49,15 @@ tag; it uses only the repository `GITHUB_TOKEN`, never a PAT. Release notes
 mark the build as unsigned when no Authenticode certificate was supplied.
 Winget submission is a separate, manual step outside this workflow.
 
+The Dependabot release gate uses the repository secret
+`DEPENDABOT_ALERTS_TOKEN`, not `GITHUB_TOKEN`: GitHub's automatic Actions
+token cannot reliably read the Dependabot alerts REST endpoint. Configure it
+as a fine-grained token restricted to this repository with **Dependabot
+alerts: Read** permission, then rotate it using `gh secret set
+DEPENDABOT_ALERTS_TOKEN -R naipi11/codex-barbar`. A missing or unreadable
+secret fails the release before artifacts are built; there is no release-time
+bypass for that security gate.
+
 ### Interaction guard — `.github/workflows/interaction-guard.yml`
 
 Runs on `ubuntu-24.04` for untrusted issue/PR authors. Permissions are
