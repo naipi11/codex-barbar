@@ -1,4 +1,4 @@
-//! Fixed V1 native tray menu.
+//! Fixed product native tray menu.
 //!
 //! Top-level order is intentionally stable. The account submenu contains only
 //! checked profile-selection items: no logout, delete, token, or cookie action
@@ -13,21 +13,21 @@ pub const REFRESH_ID: &str = "refresh";
 pub const ACCOUNTS_ID: &str = "accounts";
 pub const OPEN_USAGE_ID: &str = "open_usage";
 pub const SETTINGS_ID: &str = "settings";
-pub const ABOUT_ID: &str = "about";
 pub const QUIT_ID: &str = "quit";
 const PROFILE_PREFIX: &str = "profile:";
 
+pub const FIXED_TRAY_ITEMS: [&str; 6] = [
+    OPEN_PANEL_ID,
+    REFRESH_ID,
+    ACCOUNTS_ID,
+    OPEN_USAGE_ID,
+    SETTINGS_ID,
+    QUIT_ID,
+];
+
 #[allow(dead_code)]
-pub const fn menu_item_ids() -> [&'static str; 7] {
-    [
-        OPEN_PANEL_ID,
-        REFRESH_ID,
-        ACCOUNTS_ID,
-        OPEN_USAGE_ID,
-        SETTINGS_ID,
-        ABOUT_ID,
-        QUIT_ID,
-    ]
+pub const fn menu_item_ids() -> [&'static str; 6] {
+    FIXED_TRAY_ITEMS
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -58,7 +58,6 @@ pub enum TrayMenuAction {
     Refresh,
     OpenUsage,
     Settings,
-    About,
     Quit,
     SelectProfile(Uuid),
     None,
@@ -70,7 +69,6 @@ pub fn menu_action(id: &str) -> TrayMenuAction {
         REFRESH_ID => TrayMenuAction::Refresh,
         OPEN_USAGE_ID => TrayMenuAction::OpenUsage,
         SETTINGS_ID => TrayMenuAction::Settings,
-        ABOUT_ID => TrayMenuAction::About,
         QUIT_ID => TrayMenuAction::Quit,
         _ => id
             .strip_prefix(PROFILE_PREFIX)
@@ -91,7 +89,6 @@ struct TrayMenuLabels {
     accounts: &'static str,
     open_usage: &'static str,
     settings: &'static str,
-    about: &'static str,
     quit: &'static str,
 }
 
@@ -104,7 +101,6 @@ impl TrayMenuLabels {
                 accounts: "账户",
                 open_usage: "打开 Codex 用量",
                 settings: "设置",
-                about: "关于",
                 quit: "退出",
             }
         } else {
@@ -114,37 +110,33 @@ impl TrayMenuLabels {
                 accounts: "Accounts",
                 open_usage: "Open Codex Usage",
                 settings: "Settings",
-                about: "About",
                 quit: "Quit",
             }
         }
     }
 }
 
-/// Deterministic native menu plan derived from a normalized visible order.
-///
-/// Separators are generated between neighboring groups; they are never
-/// persisted and unknown IDs are ignored.
+/// Deterministic native menu plan for the fixed product contract.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MenuPlanEntry {
     Item(&'static str),
     Separator,
 }
 
-pub fn native_menu_plan(order: &[String]) -> Vec<MenuPlanEntry> {
+pub fn native_menu_plan(_legacy_order: &[String]) -> Vec<MenuPlanEntry> {
     let mut plan = Vec::new();
     let mut previous_group: Option<&'static str> = None;
-    for id in order {
-        let (group, item_id) = match id.as_str() {
+    for item_id in FIXED_TRAY_ITEMS {
+        let group = match item_id {
             OPEN_PANEL_ID => ("primary", OPEN_PANEL_ID),
             REFRESH_ID => ("primary", REFRESH_ID),
             ACCOUNTS_ID => ("primary", ACCOUNTS_ID),
             OPEN_USAGE_ID => ("primary", OPEN_USAGE_ID),
             SETTINGS_ID => ("secondary", SETTINGS_ID),
-            ABOUT_ID => ("secondary", ABOUT_ID),
             QUIT_ID => ("quit", QUIT_ID),
-            _ => continue,
+            _ => unreachable!("fixed tray item must have a menu group"),
         };
+        let (group, item_id) = group;
         if previous_group.is_some_and(|previous| previous != group) {
             plan.push(MenuPlanEntry::Separator);
         }
@@ -158,7 +150,6 @@ pub fn build_native_menu<R: Runtime>(
     app: &AppHandle<R>,
     profiles: &[TrayProfileMenuItem],
     language: &str,
-    order: &[String],
 ) -> tauri::Result<Menu<R>> {
     let labels = TrayMenuLabels::for_language(language);
 
@@ -176,7 +167,7 @@ pub fn build_native_menu<R: Runtime>(
     }
 
     let menu = Menu::new(app)?;
-    for entry in native_menu_plan(order) {
+    for entry in native_menu_plan(&[]) {
         match entry {
             MenuPlanEntry::Separator => {
                 let separator = PredefinedMenuItem::separator(app)?;
@@ -208,7 +199,6 @@ pub fn build_native_menu<R: Runtime>(
                     SETTINGS_ID => {
                         MenuItem::with_id(app, SETTINGS_ID, labels.settings, true, None::<&str>)?
                     }
-                    ABOUT_ID => MenuItem::with_id(app, ABOUT_ID, labels.about, true, None::<&str>)?,
                     QUIT_ID => MenuItem::with_id(app, QUIT_ID, labels.quit, true, None::<&str>)?,
                     _ => continue,
                 };
@@ -224,18 +214,10 @@ mod tests {
     use super::*;
 
     #[test]
-    fn native_menu_plan_generates_separators_between_groups_and_ignores_unknown_ids() {
-        let order = vec![
-            "open_panel".to_string(),
-            "refresh".to_string(),
-            "accounts".to_string(),
-            "open_usage".to_string(),
-            "settings".to_string(),
-            "about".to_string(),
-            "quit".to_string(),
-        ];
+    fn native_menu_plan_ignores_legacy_order_and_uses_the_fixed_product_order() {
+        let legacy_order = vec!["quit".to_string(), "settings".to_string()];
         assert_eq!(
-            native_menu_plan(&order),
+            native_menu_plan(&legacy_order),
             vec![
                 MenuPlanEntry::Item("open_panel"),
                 MenuPlanEntry::Item("refresh"),
@@ -243,7 +225,6 @@ mod tests {
                 MenuPlanEntry::Item("open_usage"),
                 MenuPlanEntry::Separator,
                 MenuPlanEntry::Item("settings"),
-                MenuPlanEntry::Item("about"),
                 MenuPlanEntry::Separator,
                 MenuPlanEntry::Item("quit"),
             ]
@@ -251,37 +232,16 @@ mod tests {
     }
 
     #[test]
-    fn native_menu_plan_skips_unknown_ids_and_separates_group_changes() {
-        let order = vec![
-            "quit".to_string(),
-            "bogus".to_string(),
-            "settings".to_string(),
-        ];
+    fn fixed_tray_item_ids_are_exact_and_unconfigurable() {
         assert_eq!(
-            native_menu_plan(&order),
+            menu_item_ids().to_vec(),
             vec![
-                MenuPlanEntry::Item("quit"),
-                MenuPlanEntry::Separator,
-                MenuPlanEntry::Item("settings"),
-            ]
-        );
-    }
-
-    #[test]
-    fn native_menu_plan_follows_candidate_order_deterministically() {
-        let order = vec![
-            "settings".to_string(),
-            "open_panel".to_string(),
-            "quit".to_string(),
-        ];
-        assert_eq!(
-            native_menu_plan(&order),
-            vec![
-                MenuPlanEntry::Item("settings"),
-                MenuPlanEntry::Separator,
-                MenuPlanEntry::Item("open_panel"),
-                MenuPlanEntry::Separator,
-                MenuPlanEntry::Item("quit"),
+                "open_panel",
+                "refresh",
+                "accounts",
+                "open_usage",
+                "settings",
+                "quit"
             ]
         );
     }
@@ -296,7 +256,6 @@ mod tests {
                 "accounts",
                 "open_usage",
                 "settings",
-                "about",
                 "quit",
             ]
         );

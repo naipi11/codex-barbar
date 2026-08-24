@@ -4,10 +4,9 @@ use std::sync::Mutex;
 
 use codexbar::accounts::model::{AccountProfile, ProfileLifecycle};
 use codexbar::core::{
-    AppErrorKind, AuthMode, Freshness, ProfileUsageSnapshot, ProfileUsageState, RefreshStatus,
-    RefreshTrigger, UsageWindow,
+    Freshness, ProfileUsageSnapshot, ProfileUsageState, RefreshTrigger, UsageWindow,
 };
-use codexbar::storage::{TaskbarTrayPreferences, TrayIconMode};
+use codexbar::storage::TaskbarTrayPreferences;
 use codexbar::tray::{TrayIconPalette, TrayVisualState, render_tray_icon_rgba_with_palette};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
 use tauri::{App, AppHandle, Listener, Manager};
@@ -25,17 +24,27 @@ pub struct TrayPresentation {
     pub tooltip: String,
     pub profiles: Vec<TrayProfileMenuItem>,
     pub language: String,
+    username: String,
+    weekly_remaining: Option<u8>,
+    reset_date: Option<String>,
+    updated_at: Option<String>,
 }
 
 impl TrayPresentation {
     fn unavailable(language: impl Into<String>) -> Self {
-        Self {
+        let mut presentation = Self {
             visual: TrayVisualState::Unavailable,
             icon_palette: TrayIconPalette::Dynamic,
-            tooltip: "codex-barbar\nState: Unavailable".to_string(),
+            tooltip: String::new(),
             profiles: Vec::new(),
             language: language.into(),
-        }
+            username: "No account".to_string(),
+            weekly_remaining: None,
+            reset_date: None,
+            updated_at: None,
+        };
+        presentation.tooltip = fixed_tray_tooltip(&presentation);
+        presentation
     }
 }
 
@@ -44,7 +53,17 @@ pub fn presentation_from(
     profiles: &[AccountProfile],
     usage: Option<&ProfileUsageState>,
     language: &str,
-    prefs: &TaskbarTrayPreferences,
+    _legacy_prefs: &TaskbarTrayPreferences,
+) -> TrayPresentation {
+    presentation_from_identity(selected_profile, profiles, usage, language, None)
+}
+
+fn presentation_from_identity(
+    selected_profile: Option<&AccountProfile>,
+    profiles: &[AccountProfile],
+    usage: Option<&ProfileUsageState>,
+    language: &str,
+    presentation_name: Option<&str>,
 ) -> TrayPresentation {
     let selected_profile_id = selected_profile
         .map(|profile| profile.id)
@@ -57,34 +76,42 @@ pub fn presentation_from(
         selected_profile_id,
     );
     let visual = visual_state(selected_profile, usage);
-    let tooltip = build_tooltip(selected_profile, usage, visual, prefs);
-    let icon_palette = if prefs.tray_icon_mode == TrayIconMode::Monochrome {
-        TrayIconPalette::Monochrome
-    } else {
-        TrayIconPalette::Dynamic
-    };
-    TrayPresentation {
+    let snapshot = usage.and_then(|state| state.snapshot.as_ref());
+    let weekly = snapshot.and_then(universal_weekly_window);
+    let mut presentation = TrayPresentation {
         visual,
-        icon_palette,
-        tooltip,
+        icon_palette: TrayIconPalette::Dynamic,
+        tooltip: String::new(),
         profiles,
         language: language.to_string(),
-    }
+        username: compact_presentation_username(
+            presentation_name.or_else(|| selected_profile.map(|profile| profile.label.as_str())),
+        ),
+        weekly_remaining: visual.percent(),
+        reset_date: weekly.and_then(|window| window.resets_at).map(|reset| {
+            reset
+                .with_timezone(&chrono::Local)
+                .format("%m/%d")
+                .to_string()
+        }),
+        updated_at: snapshot.map(|value| {
+            value
+                .fetched_at
+                .with_timezone(&chrono::Local)
+                .format("%Y-%m-%d %H:%M")
+                .to_string()
+        }),
+    };
+    presentation.tooltip = fixed_tray_tooltip(&presentation);
+    presentation
 }
 
 fn visual_state(
     selected_profile: Option<&AccountProfile>,
     usage: Option<&ProfileUsageState>,
 ) -> TrayVisualState {
-    let Some(profile) = selected_profile else {
+    if selected_profile.is_none() {
         return TrayVisualState::Unavailable;
-    };
-    if profile.auth_mode == AuthMode::ApiKey
-        || usage
-            .and_then(|state| state.current_error.as_ref())
-            .is_some_and(|error| error.kind == AppErrorKind::ApiKeyNoQuota)
-    {
-        return TrayVisualState::Api;
     }
 
     let Some(state) = usage else {
@@ -111,101 +138,49 @@ fn universal_weekly_window(snapshot: &ProfileUsageSnapshot) -> Option<&UsageWind
         .find(|window| window.window_duration_minutes == Some(UNIVERSAL_WEEKLY_MINUTES))
 }
 
-fn build_tooltip(
-    selected_profile: Option<&AccountProfile>,
-    usage: Option<&ProfileUsageState>,
-    visual: TrayVisualState,
-    prefs: &TaskbarTrayPreferences,
-) -> String {
-    let profile_label = selected_profile
-        .map(|profile| sanitize_label(&profile.label))
-        .filter(|label| !label.is_empty())
-        .unwrap_or_else(|| "No account".to_string());
-    let mut lines = vec![if prefs.tooltip_account && !profile_label.is_empty() {
-        format!("codex-barbar — {profile_label}")
-    } else {
-        "codex-barbar".to_string()
-    }];
-
-    if prefs.tooltip_weekly {
-        let status = compact_tooltip_status(tooltip_status(usage, visual));
-        if let Some(percent) = visual.percent() {
-            lines.push(format!("Weekly {percent}% {status}"));
-        } else {
-            lines.push(format!("State: {status}"));
-        }
-    }
-
-    if let Some(snapshot) = usage.and_then(|state| state.snapshot.as_ref()) {
-        if prefs.tooltip_reset_date
-            && let Some(window) = universal_weekly_window(snapshot)
-            && let Some(resets_at) = window.resets_at
-        {
-            lines.push(format!(
-                "Resets {}",
-                resets_at.with_timezone(&chrono::Local).format("%m/%d")
-            ));
-        }
-        if prefs.tooltip_updated_at {
-            lines.push(format!(
-                "Updated {}",
-                snapshot
-                    .fetched_at
-                    .with_timezone(&chrono::Local)
-                    .format("%Y-%m-%d %H:%M")
-            ));
-        }
-    }
-
-    lines.join("\n")
+pub fn fixed_tray_tooltip(view: &TrayPresentation) -> String {
+    let weekly = view
+        .weekly_remaining
+        .map(|percent| format!("Weekly {percent}% remaining"))
+        .unwrap_or_else(|| "Weekly unavailable".to_string());
+    let reset = view
+        .reset_date
+        .as_deref()
+        .map(|date| format!("Resets {date}"))
+        .unwrap_or_else(|| "Reset unavailable".to_string());
+    let updated = view
+        .updated_at
+        .as_deref()
+        .map(|timestamp| format!("Updated {timestamp}"))
+        .unwrap_or_else(|| "Updated unavailable".to_string());
+    [
+        format!("codex-barbar — {}", view.username),
+        weekly,
+        reset,
+        updated,
+    ]
+    .join("\n")
 }
 
-fn compact_tooltip_status(status: &'static str) -> &'static str {
-    match status {
-        "Refreshing" => "Busy",
-        status if status.starts_with("Cached") => "Cached",
-        "API key (quota unavailable)" => "API",
-        status => status,
-    }
-}
-
-fn tooltip_status(usage: Option<&ProfileUsageState>, visual: TrayVisualState) -> &'static str {
-    if usage.is_some_and(|state| state.refresh_status == RefreshStatus::Refreshing) {
-        return "Refreshing";
-    }
-    match visual {
-        TrayVisualState::Remaining { .. } => "Fresh",
-        TrayVisualState::Stale { .. } => match usage
-            .and_then(|state| state.current_error.as_ref())
-            .map(|error| error.kind)
-        {
-            Some(AppErrorKind::OfflineOrTimeout) => "Cached (offline or timeout)",
-            Some(AppErrorKind::RateLimited) => "Cached (rate limited)",
-            Some(AppErrorKind::AuthExpired | AppErrorKind::NotSignedIn) => {
-                "Cached (authentication required)"
-            }
-            Some(AppErrorKind::ProtocolMismatch) => "Cached (protocol mismatch)",
-            Some(AppErrorKind::VaultFailure | AppErrorKind::StorageFailure) => {
-                "Cached (local storage error)"
-            }
-            Some(AppErrorKind::CodexNotFound | AppErrorKind::UnsupportedCodexVersion) => {
-                "Cached (Codex unavailable)"
-            }
-            Some(AppErrorKind::ApiKeyNoQuota) | None => "Cached",
-        },
-        TrayVisualState::Api => "API key (quota unavailable)",
-        TrayVisualState::Unavailable => "Unavailable",
-    }
-}
-
-fn sanitize_label(label: &str) -> String {
-    let normalized = label.split_whitespace().collect::<Vec<_>>().join(" ");
+fn compact_presentation_username(value: Option<&str>) -> String {
+    let normalized = value
+        .unwrap_or_default()
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ");
     if normalized.eq_ignore_ascii_case("current cli") {
         return "CLI".to_string();
     }
 
-    // Windows reserves a compact 64-character tooltip buffer. Keep the
-    // profile label bounded so the weekly value and timestamp stay whole.
+    let normalized = normalized
+        .split_once('@')
+        .map_or(normalized.as_str(), |(local_part, _)| local_part);
+    if normalized.is_empty() {
+        return "No account".to_string();
+    }
+
+    // Windows reserves a compact tooltip buffer. Keep only a compact,
+    // presentation-safe username so a persisted email never reaches the tray.
     let mut compact = String::new();
     for character in normalized.chars() {
         if compact.len() + character.len_utf8() > 6 {
@@ -266,69 +241,17 @@ fn load_presentation(app: &AppHandle) -> TrayPresentation {
         .usage
         .load_state(snapshot.selected_profile_id)
         .ok();
-    let prefs = loaded_settings
-        .as_ref()
-        .map(|settings| settings.taskbar_tray.clone())
-        .unwrap_or_default();
-    presentation_from(
+    let identities = service.identity_records().unwrap_or_default();
+    let presentation_name = identities
+        .get(&snapshot.selected_profile_id)
+        .map(|identity| identity.presentation.display_name.as_str());
+    presentation_from_identity(
         selected_profile,
         &snapshot.profiles,
         usage.as_ref(),
         &language,
-        &prefs,
+        presentation_name,
     )
-}
-
-fn native_tray_order(app: &AppHandle) -> Vec<String> {
-    let proof = app
-        .state::<Mutex<AppState>>()
-        .lock()
-        .ok()
-        .and_then(|state| state.proof_config.clone());
-    if proof.is_some() {
-        return codexbar::storage::MenuPreferences::default()
-            .native_tray
-            .order;
-    }
-    app.state::<Mutex<AppState>>()
-        .lock()
-        .ok()
-        .and_then(|state| {
-            state
-                .account_service
-                .as_ref()
-                .and_then(|service| service.repositories().settings.load().ok())
-        })
-        .unwrap_or_default()
-        .menu
-        .native_tray
-        .normalized_order(
-            &codexbar::storage::NATIVE_TRAY_ITEMS,
-            &codexbar::storage::REQUIRED_NATIVE_TRAY_ITEMS,
-        )
-}
-
-/// Apply a candidate native menu without touching the persisted settings.
-///
-/// Used by the transactional menu command: the candidate menu is applied
-/// first and only persisted after this call succeeds. On a later persistence
-/// failure the prior settings are re-applied through the same function.
-pub fn apply_candidate_menu(
-    app: &AppHandle,
-    settings: &codexbar::storage::AppSettings,
-) -> tauri::Result<()> {
-    let Some(tray) = app.tray_by_id(TRAY_ID) else {
-        return Ok(());
-    };
-    let presentation = load_presentation(app);
-    let order = settings.menu.native_tray.normalized_order(
-        &codexbar::storage::NATIVE_TRAY_ITEMS,
-        &codexbar::storage::REQUIRED_NATIVE_TRAY_ITEMS,
-    );
-    let menu =
-        tray_menu::build_native_menu(app, &presentation.profiles, &presentation.language, &order)?;
-    tray.set_menu(Some(menu))?;
-    Ok(())
 }
 
 fn tray_image(visual: TrayVisualState, palette: TrayIconPalette) -> tauri::image::Image<'static> {
@@ -338,13 +261,8 @@ fn tray_image(visual: TrayVisualState, palette: TrayIconPalette) -> tauri::image
 
 pub fn setup(app: &mut App) -> tauri::Result<()> {
     let presentation = load_presentation(app.handle());
-    let order = native_tray_order(app.handle());
-    let menu = tray_menu::build_native_menu(
-        app.handle(),
-        &presentation.profiles,
-        &presentation.language,
-        &order,
-    )?;
+    let menu =
+        tray_menu::build_native_menu(app.handle(), &presentation.profiles, &presentation.language)?;
 
     TrayIconBuilder::with_id(TRAY_ID)
         .icon(tray_image(presentation.visual, presentation.icon_palette))
@@ -374,9 +292,7 @@ pub fn rebuild(app: &AppHandle) -> tauri::Result<()> {
     let Some(tray) = app.tray_by_id(TRAY_ID) else {
         return Ok(());
     };
-    let order = native_tray_order(app);
-    let menu =
-        tray_menu::build_native_menu(app, &presentation.profiles, &presentation.language, &order)?;
+    let menu = tray_menu::build_native_menu(app, &presentation.profiles, &presentation.language)?;
     tray.set_icon(Some(tray_image(
         presentation.visual,
         presentation.icon_palette,
@@ -408,9 +324,6 @@ fn handle_menu_event(app: &AppHandle, event: tauri::menu::MenuEvent) {
         }
         TrayMenuAction::Settings => {
             let _ = crate::shell::settings_window::open_or_focus(app, "general");
-        }
-        TrayMenuAction::About => {
-            let _ = crate::shell::settings_window::open_or_focus(app, "about");
         }
         TrayMenuAction::Quit => {
             crate::commands::quit_app(app.clone(), app.state());
@@ -587,7 +500,7 @@ mod tests {
     }
 
     #[test]
-    fn api_key_without_quota_uses_api_state() {
+    fn api_key_profile_with_weekly_usage_uses_the_shared_weekly_band() {
         let profile = profile(AuthMode::ApiKey);
         let usage = usage(99.0, 34.0, false);
         let presentation = presentation_from(
@@ -597,9 +510,14 @@ mod tests {
             "en-US",
             &TaskbarTrayPreferences::default(),
         );
-        assert_eq!(presentation.visual, codexbar::tray::TrayVisualState::Api);
-        assert!(!presentation.tooltip.contains("Weekly remaining"));
-        assert!(!presentation.tooltip.contains("Weekly:"));
+        assert_eq!(
+            presentation.visual,
+            codexbar::tray::TrayVisualState::Remaining {
+                percent: 66,
+                level: codexbar::tray::TrayLevel::Warning,
+            }
+        );
+        assert!(presentation.tooltip.contains("Weekly 66% remaining"));
     }
 
     #[test]
@@ -626,7 +544,7 @@ mod tests {
     }
 
     #[test]
-    fn tooltip_keeps_updated_timestamp_complete_within_windows_limit() {
+    fn fixed_tray_tooltip_contains_all_required_rows() {
         let mut profile = profile(AuthMode::ChatGpt);
         profile.label = "Current CLI".into();
         let usage = usage(99.0, 34.0, false);
@@ -642,13 +560,12 @@ mod tests {
         assert_eq!(
             presentation.tooltip,
             format!(
-                "codex-barbar — CLI\nWeekly 66% Fresh\nUpdated {}",
+                "codex-barbar — CLI\nWeekly 66% remaining\nReset unavailable\nUpdated {}",
                 updated
                     .with_timezone(&chrono::Local)
                     .format("%Y-%m-%d %H:%M")
             )
         );
-        assert!(presentation.tooltip.len() <= 64);
     }
 
     #[test]
@@ -666,7 +583,7 @@ mod tests {
         assert!(presentation.tooltip.contains("Weekly 61%"));
         assert!(!presentation.tooltip.contains("5-hour"));
         assert!(presentation.tooltip.contains("Weekly"));
-        assert!(presentation.tooltip.contains("Cached"));
+        assert!(presentation.tooltip.contains("Updated"));
         for forbidden in ["user@example.com", "token", "secret", "diagnostic"] {
             assert!(!presentation.tooltip.contains(forbidden));
         }
@@ -704,11 +621,22 @@ mod tests {
     }
 
     #[test]
-    fn tooltip_honors_account_and_updated_preferences() {
-        let profile = profile(AuthMode::ChatGpt);
-        let usage = usage(99.0, 34.0, false);
+    fn legacy_tooltip_preferences_cannot_hide_fixed_safe_rows() {
+        let mut profile = profile(AuthMode::ChatGpt);
+        profile.label = "stack@example.com".into();
+        let mut usage = usage(99.0, 34.0, false);
+        usage
+            .snapshot
+            .as_mut()
+            .unwrap()
+            .secondary
+            .as_mut()
+            .unwrap()
+            .resets_at = Some(Utc.with_ymd_and_hms(2026, 8, 13, 0, 0, 0).unwrap());
         let prefs = TaskbarTrayPreferences {
             tooltip_account: false,
+            tooltip_weekly: false,
+            tooltip_reset_date: false,
             tooltip_updated_at: false,
             ..TaskbarTrayPreferences::default()
         };
@@ -719,9 +647,12 @@ mod tests {
             "en-US",
             &prefs,
         );
-        assert!(!presentation.tooltip.contains("Work"));
-        assert!(!presentation.tooltip.contains("Updated"));
+        assert!(presentation.tooltip.contains("codex-barbar — stack"));
         assert!(presentation.tooltip.contains("Weekly 66%"));
+        assert!(presentation.tooltip.contains("Resets"));
+        assert!(presentation.tooltip.contains("Updated"));
+        assert!(!presentation.tooltip.contains("stack@example.com"));
+        assert!(!presentation.tooltip.contains('@'));
     }
 
     #[test]
@@ -747,7 +678,7 @@ mod tests {
     }
 
     #[test]
-    fn monochrome_preference_selects_neutral_icon_palette() {
+    fn legacy_monochrome_preference_cannot_change_fixed_dynamic_icon() {
         let profile = profile(AuthMode::ChatGpt);
         let usage = usage(99.0, 34.0, false);
         let prefs = TaskbarTrayPreferences {
@@ -763,7 +694,7 @@ mod tests {
         );
         assert_eq!(
             presentation.icon_palette,
-            codexbar::tray::TrayIconPalette::Monochrome
+            codexbar::tray::TrayIconPalette::Dynamic
         );
     }
 }

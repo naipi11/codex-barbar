@@ -62,44 +62,15 @@ fn storage_error_code(error: codexbar::storage::StorageError) -> String {
     }
 }
 
-const MENU_APPLY_FAILED: &str = "MENU_APPLY_FAILED";
-
-/// Apply a candidate native menu, then persist it; roll back on save failure.
-///
-/// The candidate is applied to the real tray before any write. If persistence
-/// then fails, the prior persisted settings are re-applied to restore the last
-/// working native menu.
-pub(crate) fn apply_menu_preferences_with<F, G>(
+/// Persist legacy menu compatibility fields without applying them to the
+/// fixed native tray.
+pub(crate) fn persist_menu_preferences(
     repository: &codexbar::storage::SettingsRepository,
     patch: codexbar::storage::SettingsPatch,
-    apply_candidate: F,
-    rollback_candidate: G,
-) -> Result<codexbar::storage::AppSettings, String>
-where
-    F: FnOnce(&codexbar::storage::AppSettings) -> Result<(), String>,
-    G: FnOnce(&codexbar::storage::AppSettings) -> Result<(), String>,
-{
-    let candidate = repository
-        .preview_update(patch.clone())
-        .map_err(|_| "SETTINGS_SAVE_FAILED".to_string())?;
-    apply_candidate(&candidate).map_err(|_| MENU_APPLY_FAILED.to_string())?;
-    match repository.update(patch) {
-        Ok(updated) => Ok(updated),
-        Err(error) => {
-            tracing::warn!(%error, "menu persistence failed; rolling back native menu");
-            rollback_menu(repository, rollback_candidate);
-            Err("SETTINGS_SAVE_FAILED".to_string())
-        }
-    }
-}
-
-fn rollback_menu<G>(repository: &codexbar::storage::SettingsRepository, rollback_candidate: G)
-where
-    G: FnOnce(&codexbar::storage::AppSettings) -> Result<(), String>,
-{
-    if let Ok(prior) = repository.load() {
-        let _ = rollback_candidate(&prior);
-    }
+) -> Result<codexbar::storage::AppSettings, String> {
+    repository
+        .update(patch)
+        .map_err(|_| "SETTINGS_SAVE_FAILED".to_string())
 }
 
 #[tauri::command]
@@ -113,17 +84,7 @@ pub fn apply_menu_preferences(
         menu: Some(preferences.into_patch()),
         ..codexbar::storage::SettingsPatch::default()
     };
-    let settings = apply_menu_preferences_with(
-        &repository,
-        patch,
-        |candidate| {
-            crate::tray_bridge::apply_candidate_menu(&app, candidate)
-                .map_err(|error| error.to_string())
-        },
-        |prior| {
-            crate::tray_bridge::apply_candidate_menu(&app, prior).map_err(|error| error.to_string())
-        },
-    )?;
+    let settings = persist_menu_preferences(&repository, patch)?;
     let dto = AppSettingsDto::from_settings(&settings);
     let _ = app.emit(crate::events::SETTINGS_CHANGED, &dto);
     Ok(dto)
@@ -336,69 +297,11 @@ mod tests {
     }
 
     #[test]
-    fn native_tray_menu_patch_keeps_the_fixed_default_candidate() {
+    fn legacy_native_tray_menu_patch_never_applies_to_runtime() {
         let (repository, _dir) = shell_settings_fixture();
-        let applied = std::cell::Cell::new(0);
-        let rollbacks = std::cell::Cell::new(0);
-        let saved = apply_menu_preferences_with(
-            &repository,
-            menu_patch(),
-            |candidate| {
-                applied.set(applied.get() + 1);
-                assert_eq!(
-                    candidate.menu.native_tray.order.first().map(String::as_str),
-                    Some("open_panel")
-                );
-                assert!(
-                    candidate
-                        .menu
-                        .native_tray
-                        .order
-                        .contains(&"settings".to_string())
-                );
-                Ok(())
-            },
-            |_| {
-                rollbacks.set(rollbacks.get() + 1);
-                Ok(())
-            },
-        )
-        .unwrap();
+        let saved = persist_menu_preferences(&repository, menu_patch()).unwrap();
 
-        assert_eq!(applied.get(), 1);
-        assert_eq!(rollbacks.get(), 0);
         assert_eq!(repository.load().unwrap(), saved);
-    }
-
-    #[test]
-    fn menu_apply_failure_never_persists() {
-        let (repository, _dir) = shell_settings_fixture();
-        let old = repository.load().unwrap();
-
-        let error = apply_menu_preferences_with(
-            &repository,
-            menu_patch(),
-            |_| Err("native rebuild failed".to_string()),
-            |_| unreachable!("rollback must not run when apply failed"),
-        )
-        .unwrap_err();
-
-        assert_eq!(error, "MENU_APPLY_FAILED");
-        assert_eq!(repository.load().unwrap(), old);
-    }
-
-    #[test]
-    fn menu_persistence_rollback_reapplies_last_working_settings() {
-        let (repository, _dir) = shell_settings_fixture();
-        let prior = repository.load().unwrap();
-        let mut rolled_back: Option<codexbar::storage::AppSettings> = None;
-
-        rollback_menu(&repository, |candidate| {
-            rolled_back = Some(candidate.clone());
-            Ok(())
-        });
-
-        assert_eq!(rolled_back, Some(prior));
     }
 
     #[test]

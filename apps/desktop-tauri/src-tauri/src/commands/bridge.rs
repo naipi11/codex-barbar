@@ -73,15 +73,22 @@ pub struct MenuPreferencesDto {
 impl MenuPreferencesDto {
     fn from_preferences(preferences: &MenuPreferences) -> Self {
         Self {
-            native_tray: MenuLayoutDto {
-                order: preferences.native_tray.order.clone(),
-                hidden: preferences.native_tray.hidden.clone(),
-            },
+            native_tray: fixed_native_tray_layout(),
             tray_panel: MenuLayoutDto {
                 order: preferences.tray_panel.order.clone(),
                 hidden: preferences.tray_panel.hidden.clone(),
             },
         }
+    }
+}
+
+fn fixed_native_tray_layout() -> MenuLayoutDto {
+    MenuLayoutDto {
+        order: crate::tray_menu::FIXED_TRAY_ITEMS
+            .iter()
+            .map(|item| (*item).to_string())
+            .collect(),
+        hidden: Vec::new(),
     }
 }
 
@@ -1094,6 +1101,28 @@ mod tests {
             invalid.into_patch().unwrap_err(),
             "unsupported panel density"
         );
+    }
+
+    #[test]
+    fn settings_dto_hides_legacy_native_tray_customization() {
+        let mut settings = AppSettings::default();
+        settings.menu.native_tray.order = vec!["quit".to_string()];
+        settings.menu.native_tray.hidden = vec!["refresh".to_string()];
+
+        let dto = AppSettingsDto::from_settings(&settings);
+
+        assert_eq!(
+            dto.menu.native_tray.order,
+            vec![
+                "open_panel".to_string(),
+                "refresh".to_string(),
+                "accounts".to_string(),
+                "open_usage".to_string(),
+                "settings".to_string(),
+                "quit".to_string(),
+            ]
+        );
+        assert!(dto.menu.native_tray.hidden.is_empty());
     }
 
     #[test]
