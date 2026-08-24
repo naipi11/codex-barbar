@@ -1,5 +1,6 @@
 //! Profile-scoped avatar validation, download, and local storage.
 
+use std::collections::HashMap;
 use std::fmt::Write as _;
 use std::fs::{self, File, OpenOptions};
 use std::io::{Read, Write};
@@ -18,6 +19,12 @@ use crate::core::ProfileId;
 const PNG_DATA_URL_PREFIX: &str = "data:image/png;base64,";
 const MAX_AVATAR_BYTES: usize = 1024 * 1024;
 const MAX_AVATAR_DIMENSION: u32 = 2048;
+const MAX_DECODED_AVATAR_BYTES: usize =
+    MAX_AVATAR_DIMENSION as usize * MAX_AVATAR_DIMENSION as usize * 4;
+const MAX_INFLATED_AVATAR_BYTES: usize =
+    MAX_AVATAR_DIMENSION as usize * MAX_AVATAR_DIMENSION as usize * 8
+        + MAX_AVATAR_DIMENSION as usize * 7
+        + 64;
 const MAX_AVATAR_URL_BYTES: usize = 2048;
 const DNS_TIMEOUT: Duration = Duration::from_secs(3);
 const DOWNLOAD_TIMEOUT: Duration = Duration::from_secs(5);
@@ -222,12 +229,7 @@ impl AvatarStore {
         };
         let path = self.directory(kind)?.join(format!("{profile_id}.png"));
         match fs::symlink_metadata(&path) {
-            Ok(metadata) => {
-                if !metadata.is_file() || super::windows_acl::is_reparse_point(&metadata) {
-                    return Err(AvatarError::Storage);
-                }
-                fs::remove_file(path).map_err(|_| AvatarError::Storage)
-            }
+            Ok(_) => delete_avatar_leaf(&path),
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
             Err(_) => Err(AvatarError::Storage),
         }
@@ -416,46 +418,39 @@ pub(crate) fn is_public_avatar_ip(ip: IpAddr) -> bool {
 
 fn is_public_ipv4(ip: Ipv4Addr) -> bool {
     let [a, b, c, _d] = ip.octets();
-    match a {
-        1..=9
-        | 11..=99
-        | 101..=126
-        | 128..=168
-        | 170..=171
-        | 173..=191
-        | 193..=197
-        | 199..=202
-        | 204..=223 => true,
-        100 => !(64..=127).contains(&b),
-        169 => b != 254,
-        172 => !(16..=31).contains(&b),
-        192 => !((b == 0 && (c == 0 || c == 2)) || (b == 88 && c == 99) || b == 168),
-        198 => !((b == 18 || b == 19) || (b == 51 && c == 100)),
-        203 => !(b == 0 && c == 113),
-        _ => false,
-    }
+    !(a == 0
+        || ip.is_private()
+        || (a == 100 && b & 0b1100_0000 == 0b0100_0000)
+        || ip.is_loopback()
+        || ip.is_link_local()
+        || (a == 192 && b == 0 && c == 0)
+        || ip.is_documentation()
+        || (a == 192 && b == 31 && c == 196)
+        || (a == 192 && b == 52 && c == 193)
+        || (a == 192 && b == 88 && c == 99)
+        || (a == 192 && b == 175 && c == 48)
+        || (a == 198 && (b == 18 || b == 19))
+        || a >= 224)
 }
 
 fn is_public_ipv6(ip: Ipv6Addr) -> bool {
-    if ip.to_ipv4_mapped().is_some() {
-        return false;
-    }
-    let allocated_global_unicast = ipv6_in_prefix(ip, "2001::".parse().expect("fixed IPv6"), 16)
-        || ipv6_in_prefix(ip, "2003::".parse().expect("fixed IPv6"), 18)
-        || ipv6_in_prefix(ip, "2400::".parse().expect("fixed IPv6"), 12)
-        || ipv6_in_prefix(ip, "2600::".parse().expect("fixed IPv6"), 12)
-        || ipv6_in_prefix(ip, "2800::".parse().expect("fixed IPv6"), 12)
-        || ipv6_in_prefix(ip, "2a00::".parse().expect("fixed IPv6"), 12)
-        || ipv6_in_prefix(ip, "2c00::".parse().expect("fixed IPv6"), 12);
-    allocated_global_unicast
-        && !ipv6_in_prefix(ip, "2001::".parse().expect("fixed IPv6"), 23)
-        && !ipv6_in_prefix(ip, "2001:db8::".parse().expect("fixed IPv6"), 32)
-        && !ipv6_in_prefix(ip, "2620:4f:8000::".parse().expect("fixed IPv6"), 48)
-}
-
-fn ipv6_in_prefix(ip: Ipv6Addr, network: Ipv6Addr, prefix_bits: u32) -> bool {
-    let shift = 128 - prefix_bits;
-    (u128::from(ip) >> shift) == (u128::from(network) >> shift)
+    let segments = ip.segments();
+    !(ip.is_unspecified()
+        || ip.is_loopback()
+        || ip.to_ipv4_mapped().is_some()
+        || matches!(segments, [0x64, 0xff9b, 0, 0, 0, 0, _, _])
+        || matches!(segments, [0x64, 0xff9b, 1, _, _, _, _, _])
+        || matches!(segments, [0x100, 0, 0, 0, _, _, _, _])
+        || matches!(segments, [0x2001, b, _, _, _, _, _, _] if b < 0x200)
+        || matches!(segments, [0x2002, _, _, _, _, _, _, _])
+        || matches!(segments, [0x2001, 0xdb8, _, _, _, _, _, _])
+        || segments[0] & 0xfff0 == 0x3ff0
+        || matches!(segments, [0x5f00, ..])
+        || matches!(segments, [0x2620, 0x4f, 0x8000, _, _, _, _, _])
+        || ip.is_unique_local()
+        || ip.is_unicast_link_local()
+        || (segments[0] & 0xffc0 == 0xfec0)
+        || ip.is_multicast())
 }
 
 fn validate_png(bytes: &[u8]) -> Result<(), AvatarError> {
@@ -468,11 +463,12 @@ fn validate_png(bytes: &[u8]) -> Result<(), AvatarError> {
     }
 
     let mut offset = 8usize;
-    let mut color_type = None;
+    let mut header = None;
     let mut saw_palette = false;
     let mut saw_idat = false;
     let mut saw_nonempty_idat = false;
     let mut idat_ended = false;
+    let mut idat_data = Vec::new();
     while offset < bytes.len() {
         let header_end = offset.checked_add(8).ok_or(AvatarError::Invalid)?;
         if header_end > bytes.len() {
@@ -508,49 +504,52 @@ fn validate_png(bytes: &[u8]) -> Result<(), AvatarError> {
 
         match &chunk_type {
             b"IHDR" => {
-                if offset != 8 || color_type.is_some() || length != 13 {
+                if offset != 8 || header.is_some() || length != 13 {
                     return Err(AvatarError::Invalid);
                 }
-                color_type = Some(validate_ihdr(&bytes[header_end..data_end])?);
+                header = Some(validate_ihdr(&bytes[header_end..data_end])?);
             }
             b"PLTE" => {
-                let Some(kind) = color_type else {
+                let Some(header) = header else {
                     return Err(AvatarError::Invalid);
                 };
+                let palette_entries = length / 3;
                 if saw_palette
                     || saw_idat
                     || length == 0
                     || length > 256 * 3
                     || !length.is_multiple_of(3)
-                    || matches!(kind, 0 | 4)
+                    || matches!(header.color_type, 0 | 4)
+                    || (header.color_type == 3 && palette_entries > (1usize << header.bit_depth))
                 {
                     return Err(AvatarError::Invalid);
                 }
                 saw_palette = true;
             }
             b"IDAT" => {
-                let Some(kind) = color_type else {
+                let Some(header) = header else {
                     return Err(AvatarError::Invalid);
                 };
-                if idat_ended || (kind == 3 && !saw_palette) {
+                if idat_ended || (header.color_type == 3 && !saw_palette) {
                     return Err(AvatarError::Invalid);
                 }
                 saw_idat = true;
                 saw_nonempty_idat |= length > 0;
+                idat_data.extend_from_slice(&bytes[header_end..data_end]);
             }
             b"IEND" => {
-                if length != 0
-                    || color_type.is_none()
-                    || !saw_idat
-                    || !saw_nonempty_idat
-                    || chunk_end != bytes.len()
-                {
+                let Some(header) = header else {
+                    return Err(AvatarError::Invalid);
+                };
+                if length != 0 || !saw_idat || !saw_nonempty_idat || chunk_end != bytes.len() {
                     return Err(AvatarError::Invalid);
                 }
+                validate_zlib_stream(&idat_data)?;
+                validate_decoded_png(bytes, header)?;
                 return Ok(());
             }
             _ => {
-                if color_type.is_none() || chunk_type[0].is_ascii_uppercase() {
+                if header.is_none() || chunk_type[0].is_ascii_uppercase() {
                     return Err(AvatarError::Invalid);
                 }
                 if saw_idat {
@@ -563,7 +562,15 @@ fn validate_png(bytes: &[u8]) -> Result<(), AvatarError> {
     Err(AvatarError::Invalid)
 }
 
-fn validate_ihdr(data: &[u8]) -> Result<u8, AvatarError> {
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct PngHeader {
+    width: u32,
+    height: u32,
+    bit_depth: u8,
+    color_type: u8,
+}
+
+fn validate_ihdr(data: &[u8]) -> Result<PngHeader, AvatarError> {
     if data.len() != 13 {
         return Err(AvatarError::Invalid);
     }
@@ -588,7 +595,94 @@ fn validate_ihdr(data: &[u8]) -> Result<u8, AvatarError> {
     {
         return Err(AvatarError::Invalid);
     }
-    Ok(color_type)
+    Ok(PngHeader {
+        width,
+        height,
+        bit_depth,
+        color_type,
+    })
+}
+
+#[cfg(windows)]
+fn validate_decoded_png(bytes: &[u8], expected: PngHeader) -> Result<(), AvatarError> {
+    use windows::Win32::Foundation::RPC_E_CHANGED_MODE;
+    use windows::Win32::Graphics::Imaging::{
+        CLSID_WICImagingFactory, GUID_WICPixelFormat32bppRGBA, IWICImagingFactory, IWICPalette,
+        WICBitmapDitherTypeNone, WICBitmapPaletteTypeCustom, WICDecodeMetadataCacheOnLoad,
+    };
+    use windows::Win32::System::Com::{
+        CLSCTX_INPROC_SERVER, COINIT_MULTITHREADED, CoCreateInstance, CoInitializeEx,
+        CoUninitialize,
+    };
+
+    struct ComGuard(bool);
+    impl Drop for ComGuard {
+        fn drop(&mut self) {
+            if self.0 {
+                unsafe { CoUninitialize() };
+            }
+        }
+    }
+
+    let result = unsafe { CoInitializeEx(None, COINIT_MULTITHREADED) };
+    let _com = if result.is_ok() {
+        ComGuard(true)
+    } else if result == RPC_E_CHANGED_MODE {
+        ComGuard(false)
+    } else {
+        return Err(AvatarError::Invalid);
+    };
+
+    let factory: IWICImagingFactory =
+        unsafe { CoCreateInstance(&CLSID_WICImagingFactory, None, CLSCTX_INPROC_SERVER) }
+            .map_err(|_| AvatarError::Invalid)?;
+    let stream = unsafe { factory.CreateStream() }.map_err(|_| AvatarError::Invalid)?;
+    unsafe { stream.InitializeFromMemory(bytes) }.map_err(|_| AvatarError::Invalid)?;
+    let decoder = unsafe {
+        factory.CreateDecoderFromStream(&stream, std::ptr::null(), WICDecodeMetadataCacheOnLoad)
+    }
+    .map_err(|_| AvatarError::Invalid)?;
+    if unsafe { decoder.GetFrameCount() }.map_err(|_| AvatarError::Invalid)? != 1 {
+        return Err(AvatarError::Invalid);
+    }
+    let frame = unsafe { decoder.GetFrame(0) }.map_err(|_| AvatarError::Invalid)?;
+    let mut width = 0;
+    let mut height = 0;
+    unsafe { frame.GetSize(&mut width, &mut height) }.map_err(|_| AvatarError::Invalid)?;
+    if width != expected.width || height != expected.height {
+        return Err(AvatarError::Invalid);
+    }
+    let stride = width.checked_mul(4).ok_or(AvatarError::TooLarge)?;
+    let decoded_length = usize::try_from(stride)
+        .ok()
+        .and_then(|stride| {
+            usize::try_from(height)
+                .ok()
+                .and_then(|height| stride.checked_mul(height))
+        })
+        .filter(|length| *length <= MAX_DECODED_AVATAR_BYTES)
+        .ok_or(AvatarError::TooLarge)?;
+    let converter = unsafe { factory.CreateFormatConverter() }.map_err(|_| AvatarError::Invalid)?;
+    unsafe {
+        converter.Initialize(
+            &frame,
+            &GUID_WICPixelFormat32bppRGBA,
+            WICBitmapDitherTypeNone,
+            None::<&IWICPalette>,
+            0.0,
+            WICBitmapPaletteTypeCustom,
+        )
+    }
+    .map_err(|_| AvatarError::Invalid)?;
+    let mut pixels = vec![0u8; decoded_length];
+    unsafe { converter.CopyPixels(std::ptr::null(), stride, &mut pixels) }
+        .map_err(|_| AvatarError::Invalid)?;
+    Ok(())
+}
+
+#[cfg(not(windows))]
+fn validate_decoded_png(_bytes: &[u8], _expected: PngHeader) -> Result<(), AvatarError> {
+    Ok(())
 }
 
 fn png_chunk_crc(chunk_type: &[u8; 4], data: &[u8]) -> u32 {
@@ -603,6 +697,354 @@ fn png_chunk_crc(chunk_type: &[u8; 4], data: &[u8]) -> u32 {
     !crc
 }
 
+fn validate_zlib_stream(bytes: &[u8]) -> Result<(), AvatarError> {
+    if bytes.len() < 6 {
+        return Err(AvatarError::Invalid);
+    }
+    let cmf = bytes[0];
+    let flags = bytes[1];
+    if cmf & 0x0f != 8
+        || cmf >> 4 > 7
+        || (u16::from(cmf) << 8 | u16::from(flags)) % 31 != 0
+        || flags & 0x20 != 0
+    {
+        return Err(AvatarError::Invalid);
+    }
+    let compressed_end = bytes.len() - 4;
+    let mut reader = DeflateBits::new(&bytes[2..compressed_end]);
+    let mut output = Vec::new();
+    loop {
+        let final_block = reader.read_bits(1)? != 0;
+        match reader.read_bits(2)? {
+            0 => inflate_stored_block(&mut reader, &mut output)?,
+            1 => {
+                let (literal, distance) = fixed_huffman_tables()?;
+                inflate_huffman_block(&mut reader, &mut output, &literal, &distance)?;
+            }
+            2 => {
+                let (literal, distance) = dynamic_huffman_tables(&mut reader)?;
+                inflate_huffman_block(&mut reader, &mut output, &literal, &distance)?;
+            }
+            _ => return Err(AvatarError::Invalid),
+        }
+        if final_block {
+            break;
+        }
+    }
+    if !reader.at_stream_end() || output.len() > MAX_INFLATED_AVATAR_BYTES {
+        return Err(AvatarError::Invalid);
+    }
+    let expected_adler = u32::from_be_bytes(
+        bytes[compressed_end..]
+            .try_into()
+            .map_err(|_| AvatarError::Invalid)?,
+    );
+    if adler32(&output) != expected_adler {
+        return Err(AvatarError::Invalid);
+    }
+    Ok(())
+}
+
+struct DeflateBits<'a> {
+    bytes: &'a [u8],
+    byte_index: usize,
+    bit_index: u8,
+}
+
+impl<'a> DeflateBits<'a> {
+    fn new(bytes: &'a [u8]) -> Self {
+        Self {
+            bytes,
+            byte_index: 0,
+            bit_index: 0,
+        }
+    }
+
+    fn read_bits(&mut self, count: u8) -> Result<u32, AvatarError> {
+        if count > 16 {
+            return Err(AvatarError::Invalid);
+        }
+        let mut value = 0u32;
+        for shift in 0..count {
+            let byte = *self
+                .bytes
+                .get(self.byte_index)
+                .ok_or(AvatarError::Invalid)?;
+            value |= u32::from((byte >> self.bit_index) & 1) << shift;
+            self.bit_index += 1;
+            if self.bit_index == 8 {
+                self.bit_index = 0;
+                self.byte_index += 1;
+            }
+        }
+        Ok(value)
+    }
+
+    fn align_byte(&mut self) {
+        if self.bit_index != 0 {
+            self.bit_index = 0;
+            self.byte_index += 1;
+        }
+    }
+
+    fn read_aligned_bytes(&mut self, count: usize) -> Result<&'a [u8], AvatarError> {
+        if self.bit_index != 0 {
+            return Err(AvatarError::Invalid);
+        }
+        let end = self
+            .byte_index
+            .checked_add(count)
+            .ok_or(AvatarError::Invalid)?;
+        let bytes = self
+            .bytes
+            .get(self.byte_index..end)
+            .ok_or(AvatarError::Invalid)?;
+        self.byte_index = end;
+        Ok(bytes)
+    }
+
+    fn at_stream_end(&self) -> bool {
+        self.byte_index == self.bytes.len()
+            || (self.bit_index != 0 && self.byte_index + 1 == self.bytes.len())
+    }
+}
+
+struct DeflateHuffman {
+    codes: Vec<HashMap<u16, u16>>,
+    max_bits: u8,
+}
+
+impl DeflateHuffman {
+    fn from_lengths(lengths: &[u8]) -> Result<Self, AvatarError> {
+        let max_bits = lengths.iter().copied().max().unwrap_or(0);
+        if max_bits > 15 {
+            return Err(AvatarError::Invalid);
+        }
+        let mut counts = [0u16; 16];
+        for &length in lengths {
+            if length > 15 {
+                return Err(AvatarError::Invalid);
+            }
+            if length != 0 {
+                counts[usize::from(length)] += 1;
+            }
+        }
+        let mut left = 1i32;
+        for &count in counts.iter().skip(1) {
+            left = (left << 1) - i32::from(count);
+            if left < 0 {
+                return Err(AvatarError::Invalid);
+            }
+        }
+        let mut next_code = [0u16; 16];
+        let mut code = 0u16;
+        for bits in 1..=15 {
+            code = (code + counts[bits - 1]) << 1;
+            next_code[bits] = code;
+        }
+        let mut codes = (0..=usize::from(max_bits))
+            .map(|_| HashMap::new())
+            .collect::<Vec<_>>();
+        for (symbol, &length) in lengths.iter().enumerate() {
+            if length == 0 {
+                continue;
+            }
+            let canonical = next_code[usize::from(length)];
+            next_code[usize::from(length)] += 1;
+            let reversed = canonical.reverse_bits() >> (16 - length);
+            if codes[usize::from(length)]
+                .insert(
+                    reversed,
+                    u16::try_from(symbol).map_err(|_| AvatarError::Invalid)?,
+                )
+                .is_some()
+            {
+                return Err(AvatarError::Invalid);
+            }
+        }
+        Ok(Self { codes, max_bits })
+    }
+
+    fn decode(&self, reader: &mut DeflateBits<'_>) -> Result<u16, AvatarError> {
+        let mut code = 0u16;
+        for length in 1..=self.max_bits {
+            code |= u16::try_from(reader.read_bits(1)?).map_err(|_| AvatarError::Invalid)?
+                << (length - 1);
+            if let Some(symbol) = self.codes[usize::from(length)].get(&code) {
+                return Ok(*symbol);
+            }
+        }
+        Err(AvatarError::Invalid)
+    }
+}
+
+fn inflate_stored_block(
+    reader: &mut DeflateBits<'_>,
+    output: &mut Vec<u8>,
+) -> Result<(), AvatarError> {
+    reader.align_byte();
+    let header = reader.read_aligned_bytes(4)?;
+    let length = u16::from_le_bytes([header[0], header[1]]);
+    let inverse = u16::from_le_bytes([header[2], header[3]]);
+    if length != !inverse {
+        return Err(AvatarError::Invalid);
+    }
+    let bytes = reader.read_aligned_bytes(usize::from(length))?;
+    extend_inflated(output, bytes)
+}
+
+fn fixed_huffman_tables() -> Result<(DeflateHuffman, DeflateHuffman), AvatarError> {
+    let mut literal_lengths = vec![0u8; 288];
+    literal_lengths[..144].fill(8);
+    literal_lengths[144..256].fill(9);
+    literal_lengths[256..280].fill(7);
+    literal_lengths[280..].fill(8);
+    let distance_lengths = vec![5u8; 32];
+    Ok((
+        DeflateHuffman::from_lengths(&literal_lengths)?,
+        DeflateHuffman::from_lengths(&distance_lengths)?,
+    ))
+}
+
+fn dynamic_huffman_tables(
+    reader: &mut DeflateBits<'_>,
+) -> Result<(DeflateHuffman, DeflateHuffman), AvatarError> {
+    const ORDER: [usize; 19] = [
+        16, 17, 18, 0, 8, 7, 9, 6, 10, 5, 11, 4, 12, 3, 13, 2, 14, 1, 15,
+    ];
+    let literal_count =
+        usize::try_from(reader.read_bits(5)?).map_err(|_| AvatarError::Invalid)? + 257;
+    let distance_count =
+        usize::try_from(reader.read_bits(5)?).map_err(|_| AvatarError::Invalid)? + 1;
+    let code_length_count =
+        usize::try_from(reader.read_bits(4)?).map_err(|_| AvatarError::Invalid)? + 4;
+    if literal_count > 286 || distance_count > 32 {
+        return Err(AvatarError::Invalid);
+    }
+    let mut code_lengths = [0u8; 19];
+    for &index in ORDER.iter().take(code_length_count) {
+        code_lengths[index] =
+            u8::try_from(reader.read_bits(3)?).map_err(|_| AvatarError::Invalid)?;
+    }
+    let code_length_table = DeflateHuffman::from_lengths(&code_lengths)?;
+    let total = literal_count + distance_count;
+    let mut lengths = Vec::with_capacity(total);
+    while lengths.len() < total {
+        match code_length_table.decode(reader)? {
+            value @ 0..=15 => lengths.push(value as u8),
+            16 => {
+                let previous = *lengths.last().ok_or(AvatarError::Invalid)?;
+                let count =
+                    usize::try_from(reader.read_bits(2)?).map_err(|_| AvatarError::Invalid)? + 3;
+                append_code_lengths(&mut lengths, previous, count, total)?;
+            }
+            17 => {
+                let count =
+                    usize::try_from(reader.read_bits(3)?).map_err(|_| AvatarError::Invalid)? + 3;
+                append_code_lengths(&mut lengths, 0, count, total)?;
+            }
+            18 => {
+                let count =
+                    usize::try_from(reader.read_bits(7)?).map_err(|_| AvatarError::Invalid)? + 11;
+                append_code_lengths(&mut lengths, 0, count, total)?;
+            }
+            _ => return Err(AvatarError::Invalid),
+        }
+    }
+    if lengths.get(256).copied().unwrap_or(0) == 0 {
+        return Err(AvatarError::Invalid);
+    }
+    let literal = DeflateHuffman::from_lengths(&lengths[..literal_count])?;
+    let distance = DeflateHuffman::from_lengths(&lengths[literal_count..])?;
+    Ok((literal, distance))
+}
+
+fn append_code_lengths(
+    lengths: &mut Vec<u8>,
+    value: u8,
+    count: usize,
+    limit: usize,
+) -> Result<(), AvatarError> {
+    if lengths.len().saturating_add(count) > limit {
+        return Err(AvatarError::Invalid);
+    }
+    lengths.resize(lengths.len() + count, value);
+    Ok(())
+}
+
+fn inflate_huffman_block(
+    reader: &mut DeflateBits<'_>,
+    output: &mut Vec<u8>,
+    literal: &DeflateHuffman,
+    distance: &DeflateHuffman,
+) -> Result<(), AvatarError> {
+    const LENGTH_BASE: [usize; 29] = [
+        3, 4, 5, 6, 7, 8, 9, 10, 11, 13, 15, 17, 19, 23, 27, 31, 35, 43, 51, 59, 67, 83, 99, 115,
+        131, 163, 195, 227, 258,
+    ];
+    const LENGTH_EXTRA: [u8; 29] = [
+        0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 2, 2, 2, 2, 3, 3, 3, 3, 4, 4, 4, 4, 5, 5, 5, 5, 0,
+    ];
+    const DISTANCE_BASE: [usize; 30] = [
+        1, 2, 3, 4, 5, 7, 9, 13, 17, 25, 33, 49, 65, 97, 129, 193, 257, 385, 513, 769, 1025, 1537,
+        2049, 3073, 4097, 6145, 8193, 12289, 16385, 24577,
+    ];
+    const DISTANCE_EXTRA: [u8; 30] = [
+        0, 0, 0, 0, 1, 1, 2, 2, 3, 3, 4, 4, 5, 5, 6, 6, 7, 7, 8, 8, 9, 9, 10, 10, 11, 11, 12, 12,
+        13, 13,
+    ];
+
+    loop {
+        match literal.decode(reader)? {
+            value @ 0..=255 => extend_inflated(output, &[value as u8])?,
+            256 => return Ok(()),
+            value @ 257..=285 => {
+                let length_index = usize::from(value - 257);
+                let length = LENGTH_BASE[length_index]
+                    + usize::try_from(reader.read_bits(LENGTH_EXTRA[length_index])?)
+                        .map_err(|_| AvatarError::Invalid)?;
+                let distance_symbol = usize::from(distance.decode(reader)?);
+                if distance_symbol >= DISTANCE_BASE.len() {
+                    return Err(AvatarError::Invalid);
+                }
+                let back = DISTANCE_BASE[distance_symbol]
+                    + usize::try_from(reader.read_bits(DISTANCE_EXTRA[distance_symbol])?)
+                        .map_err(|_| AvatarError::Invalid)?;
+                if back == 0
+                    || back > output.len()
+                    || output.len().saturating_add(length) > MAX_INFLATED_AVATAR_BYTES
+                {
+                    return Err(AvatarError::Invalid);
+                }
+                for _ in 0..length {
+                    let byte = output[output.len() - back];
+                    output.push(byte);
+                }
+            }
+            _ => return Err(AvatarError::Invalid),
+        }
+    }
+}
+
+fn extend_inflated(output: &mut Vec<u8>, bytes: &[u8]) -> Result<(), AvatarError> {
+    if output.len().saturating_add(bytes.len()) > MAX_INFLATED_AVATAR_BYTES {
+        return Err(AvatarError::TooLarge);
+    }
+    output.extend_from_slice(bytes);
+    Ok(())
+}
+
+fn adler32(bytes: &[u8]) -> u32 {
+    const MODULUS: u32 = 65_521;
+    let mut a = 1u32;
+    let mut b = 0u32;
+    for &byte in bytes {
+        a = (a + u32::from(byte)) % MODULUS;
+        b = (b + a) % MODULUS;
+    }
+    b << 16 | a
+}
+
 fn revision_for(bytes: &[u8]) -> String {
     let digest = Sha256::digest(bytes);
     let mut revision = String::with_capacity(digest.len() * 2);
@@ -613,19 +1055,120 @@ fn revision_for(bytes: &[u8]) -> String {
 }
 
 fn read_validated_png(path: &Path) -> Result<Vec<u8>, AvatarError> {
-    ensure_ordinary_file_if_present(path)?;
-    let metadata = fs::symlink_metadata(path).map_err(|_| AvatarError::Storage)?;
-    if metadata.len() > MAX_AVATAR_BYTES as u64 {
+    #[cfg(windows)]
+    let (file, length) = open_avatar_leaf_for_read(path)?;
+    #[cfg(not(windows))]
+    let (mut file, length) = {
+        ensure_ordinary_file_if_present(path)?;
+        let metadata = fs::symlink_metadata(path).map_err(|_| AvatarError::Storage)?;
+        (
+            File::open(path).map_err(|_| AvatarError::Storage)?,
+            metadata.len(),
+        )
+    };
+    if length > MAX_AVATAR_BYTES as u64 {
         return Err(AvatarError::TooLarge);
     }
-    let mut bytes = Vec::with_capacity(metadata.len() as usize);
-    File::open(path)
-        .map_err(|_| AvatarError::Storage)?
-        .take((MAX_AVATAR_BYTES + 1) as u64)
+    let mut bytes = Vec::with_capacity(length as usize);
+    file.take((MAX_AVATAR_BYTES + 1) as u64)
         .read_to_end(&mut bytes)
         .map_err(|_| AvatarError::Storage)?;
     validate_png(&bytes)?;
     Ok(bytes)
+}
+
+#[cfg(windows)]
+fn validate_avatar_leaf_attributes(attributes: u32) -> Result<(), AvatarError> {
+    use windows::Win32::Storage::FileSystem::{
+        FILE_ATTRIBUTE_DIRECTORY, FILE_ATTRIBUTE_REPARSE_POINT,
+    };
+
+    if attributes & FILE_ATTRIBUTE_DIRECTORY.0 != 0
+        || attributes & FILE_ATTRIBUTE_REPARSE_POINT.0 != 0
+    {
+        return Err(AvatarError::Storage);
+    }
+    Ok(())
+}
+
+#[cfg(windows)]
+fn open_avatar_leaf_handle(
+    path: &Path,
+    desired_access: u32,
+) -> Result<(DirectoryGuard, u64), AvatarError> {
+    use std::os::windows::ffi::OsStrExt;
+    use windows::Win32::Storage::FileSystem::{
+        BY_HANDLE_FILE_INFORMATION, CreateFileW, FILE_FLAG_OPEN_REPARSE_POINT, FILE_SHARE_READ,
+        GetFileInformationByHandle, OPEN_EXISTING,
+    };
+    use windows::core::PCWSTR;
+
+    let wide = path
+        .as_os_str()
+        .encode_wide()
+        .chain(std::iter::once(0))
+        .collect::<Vec<_>>();
+    let handle = unsafe {
+        CreateFileW(
+            PCWSTR::from_raw(wide.as_ptr()),
+            desired_access,
+            FILE_SHARE_READ,
+            None,
+            OPEN_EXISTING,
+            FILE_FLAG_OPEN_REPARSE_POINT,
+            None,
+        )
+    }
+    .map_err(|_| AvatarError::Storage)?;
+    let guard = DirectoryGuard(handle);
+    let mut information = BY_HANDLE_FILE_INFORMATION::default();
+    unsafe { GetFileInformationByHandle(guard.0, &mut information) }
+        .map_err(|_| AvatarError::Storage)?;
+    validate_avatar_leaf_attributes(information.dwFileAttributes)?;
+    let length = u64::from(information.nFileSizeHigh) << 32 | u64::from(information.nFileSizeLow);
+    Ok((guard, length))
+}
+
+#[cfg(windows)]
+fn open_avatar_leaf_for_read(path: &Path) -> Result<(File, u64), AvatarError> {
+    use std::os::windows::io::FromRawHandle;
+    use windows::Win32::Foundation::GENERIC_READ;
+
+    let (guard, length) = open_avatar_leaf_handle(path, GENERIC_READ.0)?;
+    let raw = guard.0.0;
+    std::mem::forget(guard);
+    let file = unsafe { File::from_raw_handle(raw) };
+    Ok((file, length))
+}
+
+#[cfg(windows)]
+fn delete_avatar_leaf(path: &Path) -> Result<(), AvatarError> {
+    use windows::Win32::Foundation::BOOLEAN;
+    use windows::Win32::Storage::FileSystem::{
+        DELETE, FILE_DISPOSITION_INFO, FILE_READ_ATTRIBUTES, FileDispositionInfo,
+        SetFileInformationByHandle,
+    };
+
+    let (guard, _length) = open_avatar_leaf_handle(path, DELETE.0 | FILE_READ_ATTRIBUTES.0)?;
+    let disposition = FILE_DISPOSITION_INFO {
+        DeleteFile: BOOLEAN(1),
+    };
+    unsafe {
+        SetFileInformationByHandle(
+            guard.0,
+            FileDispositionInfo,
+            std::ptr::from_ref(&disposition).cast(),
+            u32::try_from(std::mem::size_of::<FILE_DISPOSITION_INFO>())
+                .map_err(|_| AvatarError::Storage)?,
+        )
+    }
+    .map_err(|_| AvatarError::Storage)
+}
+
+#[cfg(not(windows))]
+fn delete_avatar_leaf(path: &Path) -> Result<(), AvatarError> {
+    ensure_ordinary_file_if_present(path)?;
+    fs::remove_file(path).map_err(|_| AvatarError::Storage)
 }
 
 fn ensure_ordinary_directory(path: &Path) -> Result<(), AvatarError> {
@@ -786,7 +1329,8 @@ mod tests {
 
     use super::{
         AvatarHttpClientBuilder, AvatarKind, AvatarRetryPolicy, AvatarStore, avatar_retry_policy,
-        decode_png_data_url, is_public_avatar_ip, validate_official_avatar_url,
+        decode_png_data_url, is_public_avatar_ip, validate_avatar_leaf_attributes,
+        validate_official_avatar_url,
     };
 
     fn profile_a() -> Uuid {
@@ -808,6 +1352,40 @@ mod tests {
 
     fn header_only_png_bytes() -> Vec<u8> {
         valid_png_bytes()[..33].to_vec()
+    }
+
+    fn png_with_chunks(ihdr: [u8; 13], palette: Option<&[u8]>, idat: &[u8]) -> Vec<u8> {
+        let mut bytes = b"\x89PNG\r\n\x1a\n".to_vec();
+        append_png_chunk(&mut bytes, *b"IHDR", &ihdr);
+        if let Some(palette) = palette {
+            append_png_chunk(&mut bytes, *b"PLTE", palette);
+        }
+        append_png_chunk(&mut bytes, *b"IDAT", idat);
+        append_png_chunk(&mut bytes, *b"IEND", &[]);
+        bytes
+    }
+
+    fn append_png_chunk(bytes: &mut Vec<u8>, chunk_type: [u8; 4], data: &[u8]) {
+        bytes.extend_from_slice(&(data.len() as u32).to_be_bytes());
+        bytes.extend_from_slice(&chunk_type);
+        bytes.extend_from_slice(data);
+        bytes.extend_from_slice(&super::png_chunk_crc(&chunk_type, data).to_be_bytes());
+    }
+
+    fn crc_valid_png_with_invalid_zlib() -> Vec<u8> {
+        png_with_chunks(
+            [0, 0, 0, 1, 0, 0, 0, 1, 8, 6, 0, 0, 0],
+            None,
+            &[0x78, 0x9c, 0xff, 0xff, 0xff, 0xff, 0, 0, 0, 0],
+        )
+    }
+
+    fn indexed_png_with_too_many_palette_entries() -> Vec<u8> {
+        png_with_chunks(
+            [0, 0, 0, 1, 0, 0, 0, 1, 1, 3, 0, 0, 0],
+            Some(&[0, 0, 0, 255, 255, 255, 127, 127, 127]),
+            &[120, 156, 99, 96, 0, 0, 0, 2, 0, 1],
+        )
     }
 
     #[test]
@@ -865,8 +1443,11 @@ mod tests {
             "172.16.0.1",
             "192.0.0.1",
             "192.0.2.1",
+            "192.31.196.1",
+            "192.52.193.1",
             "192.88.99.1",
             "192.168.0.1",
+            "192.175.48.1",
             "198.18.0.1",
             "198.51.100.1",
             "203.0.113.1",
@@ -1001,6 +1582,47 @@ mod tests {
     }
 
     #[test]
+    fn decoded_pixels_and_indexed_palette_limits_are_required_before_store_or_serve() {
+        for (label, bytes) in [
+            ("invalid zlib", crc_valid_png_with_invalid_zlib()),
+            (
+                "oversized indexed palette",
+                indexed_png_with_too_many_palette_entries(),
+            ),
+        ] {
+            let dir = tempdir().unwrap();
+            let store = AvatarStore::for_test(dir.path());
+
+            assert!(
+                store.write_manual(profile_a(), &bytes).is_err(),
+                "stored {label}"
+            );
+            assert!(store.asset_for(profile_a()).unwrap().is_none());
+
+            let manual = dir.path().join("manual");
+            std::fs::create_dir_all(&manual).unwrap();
+            std::fs::write(manual.join(format!("{}.png", profile_a())), &bytes).unwrap();
+            let revision = super::revision_for(&bytes);
+            assert!(
+                store.read_asset(profile_a(), &revision).is_err(),
+                "served {label}"
+            );
+        }
+    }
+
+    #[test]
+    fn dynamic_huffman_zlib_stream_is_fully_decoded() {
+        let compressed = [
+            120, 218, 237, 202, 89, 22, 64, 32, 0, 64, 209, 45, 33, 146, 229, 100, 8, 101, 150, 33,
+            171, 183, 143, 206, 187, 223, 87, 215, 77, 219, 153, 126, 24, 173, 155, 230, 101, 221,
+            246, 227, 244, 215, 253, 188, 225, 75, 210, 76, 228, 133, 44, 85, 165, 57, 28, 14, 135,
+            195, 225, 112, 56, 28, 14, 135, 19, 221, 249, 1, 44, 161, 37, 124,
+        ];
+
+        assert!(super::validate_zlib_stream(&compressed).is_ok());
+    }
+
+    #[test]
     fn reparse_kind_directories_cannot_read_or_delete_outside_avatar_root() {
         for (kind, manual) in [("manual", true), ("official", false)] {
             let dir = tempdir().unwrap();
@@ -1026,6 +1648,28 @@ mod tests {
             assert!(remove.is_err(), "removed through {kind} reparse directory");
             assert_eq!(std::fs::read(outside_asset).unwrap(), bytes);
         }
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn file_reparse_handle_is_rejected_before_serve_or_clear_touches_outside_file() {
+        use windows::Win32::Storage::FileSystem::{
+            FILE_ATTRIBUTE_NORMAL, FILE_ATTRIBUTE_REPARSE_POINT,
+        };
+
+        let dir = tempdir().unwrap();
+        let outside = dir.path().join("outside.png");
+        let bytes = valid_png_bytes();
+        std::fs::write(&outside, &bytes).unwrap();
+
+        assert!(
+            validate_avatar_leaf_attributes(
+                FILE_ATTRIBUTE_NORMAL.0 | FILE_ATTRIBUTE_REPARSE_POINT.0
+            )
+            .is_err()
+        );
+        assert!(validate_avatar_leaf_attributes(FILE_ATTRIBUTE_REPARSE_POINT.0).is_err());
+        assert_eq!(std::fs::read(outside).unwrap(), bytes);
     }
 
     #[test]
