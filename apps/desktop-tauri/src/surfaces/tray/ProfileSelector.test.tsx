@@ -12,6 +12,7 @@ describe("ProfileSelector", () => {
           currentCliProfile({
             label: "Current CLI",
             accountDisplayName: "Ming Zhao",
+            presentationName: "Ming Zhao",
           }),
           managedProfile(),
         ]}
@@ -27,10 +28,38 @@ describe("ProfileSelector", () => {
     expect(option).not.toHaveTextContent("Current CLI");
   });
 
+  it("keeps the full email available only inside the account selector", () => {
+    render(
+      <ProfileSelector
+        profiles={[
+          currentCliProfile({
+            presentationName: "stack",
+            accountDisplayName: "unsafe display",
+            accountEmail: "stack@example.com",
+          }),
+        ]}
+        selectedProfileId="personal"
+        copy={trayCopy("en-US")}
+        onSelect={() => undefined}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: /profile/i }));
+    expect(screen.getByRole("option")).toHaveTextContent("stack");
+    expect(screen.getByRole("option")).toHaveTextContent("stack@example.com");
+    expect(screen.queryByText("unsafe display")).not.toBeInTheDocument();
+  });
+
   it("uses a signed-out label when the current account has no identity", () => {
     render(
       <ProfileSelector
-        profiles={[currentCliProfile({ label: "Current CLI" })]}
+        profiles={[
+          currentCliProfile({
+            label: "Current CLI",
+            presentationName: "",
+            accountStatus: "signedOut",
+          }),
+        ]}
         selectedProfileId="personal"
         copy={trayCopy("en-US")}
         onSelect={() => undefined}

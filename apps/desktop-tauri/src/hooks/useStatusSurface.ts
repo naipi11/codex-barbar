@@ -78,6 +78,16 @@ const EMPTY_BOOTSTRAP: BootstrapDto = {
         hidden: [],
       },
     },
+    panel: {
+      density: "compact",
+      showResetTime: true,
+      showFreshness: true,
+      showAccountStatus: true,
+      actions: {
+        order: ["refresh", "open_usage", "settings", "dismiss", "quit"],
+        hidden: [],
+      },
+    },
     notifications: {
       enabled: false,
       playSound: true,
@@ -115,18 +125,6 @@ const EMPTY_CLOSE_FEEDBACK: Record<StatusSurfaceKind, boolean> = {
   taskbarStatus: false,
   floatBall: false,
 };
-
-export function profileStatusLabel(profile: ProfileSummaryDto | null): string {
-  if (!profile) return "未登录";
-  switch (profile.accountStatus) {
-    case "signedIn":
-      return "已登录";
-    case "signedOut":
-      return "未登录";
-    default:
-      return "账号信息不可用";
-  }
-}
 
 export function useStatusSurface(): UseStatusSurfaceResult {
   const [bootstrap, setBootstrap] = useState<BootstrapDto | null>(null);

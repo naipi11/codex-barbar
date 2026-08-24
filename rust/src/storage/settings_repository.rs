@@ -6,7 +6,7 @@ use rusqlite::{OptionalExtension, params};
 use serde::{Deserialize, Serialize};
 
 use super::{
-    AppDatabase, MenuLayout, MenuPreferences, MenuPreferencesPatch, StorageError,
+    AppDatabase, MenuLayout, MenuLayoutPatch, MenuPreferences, MenuPreferencesPatch, StorageError,
     migrate_settings_json, normalize_panel_actions,
 };
 
@@ -237,6 +237,15 @@ pub struct PanelPreferences {
     pub actions: MenuLayout,
 }
 
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct PanelPreferencesPatch {
+    pub density: Option<PanelDensity>,
+    pub show_reset_time: Option<bool>,
+    pub show_freshness: Option<bool>,
+    pub show_account_status: Option<bool>,
+    pub actions: Option<MenuLayoutPatch>,
+}
+
 impl Default for PanelPreferences {
     fn default() -> Self {
         Self {
@@ -248,6 +257,26 @@ impl Default for PanelPreferences {
                 order: super::default_visible_order(&super::PANEL_ACTIONS),
                 hidden: Vec::new(),
             },
+        }
+    }
+}
+
+impl PanelPreferencesPatch {
+    fn apply_to(self, preferences: &mut PanelPreferences) {
+        if let Some(value) = self.density {
+            preferences.density = value;
+        }
+        if let Some(value) = self.show_reset_time {
+            preferences.show_reset_time = value;
+        }
+        if let Some(value) = self.show_freshness {
+            preferences.show_freshness = value;
+        }
+        if let Some(value) = self.show_account_status {
+            preferences.show_account_status = value;
+        }
+        if let Some(actions) = self.actions {
+            actions.apply_to(&mut preferences.actions);
         }
     }
 }
@@ -336,6 +365,7 @@ pub struct SettingsPatch {
     pub taskbar_tray: Option<TaskbarTrayPreferencesPatch>,
     #[doc(hidden)]
     pub menu: Option<MenuPreferencesPatch>,
+    pub panel: Option<PanelPreferencesPatch>,
 }
 
 #[derive(Clone)]
@@ -607,6 +637,9 @@ impl AppSettings {
         {
             tray_panel.apply_to(&mut self.panel.actions);
         }
+        if let Some(panel) = patch.panel {
+            panel.apply_to(&mut self.panel);
+        }
     }
 
     fn normalize(&mut self) {
@@ -771,6 +804,39 @@ mod tests {
         let (reloaded, changed_again) = migrate_settings_json(migrated).unwrap();
         assert!(!changed_again);
         assert_eq!(reloaded["taskbarTransparencyPercent"], 100);
+    }
+
+    #[test]
+    fn panel_patch_updates_details_without_replacing_peer_settings() {
+        let (repository, _) = settings_fixture();
+        let original = repository.load().unwrap();
+
+        let updated = repository
+            .update(SettingsPatch {
+                panel: Some(PanelPreferencesPatch {
+                    density: Some(PanelDensity::Standard),
+                    show_reset_time: Some(false),
+                    show_freshness: Some(false),
+                    show_account_status: Some(false),
+                    actions: Some(MenuLayoutPatch {
+                        order: Some(vec!["quit".into(), "refresh".into()]),
+                        hidden: Some(vec!["settings".into()]),
+                    }),
+                }),
+                ..SettingsPatch::default()
+            })
+            .unwrap();
+
+        assert_eq!(updated.panel.density, PanelDensity::Standard);
+        assert!(!updated.panel.show_reset_time);
+        assert!(!updated.panel.show_freshness);
+        assert!(!updated.panel.show_account_status);
+        assert_eq!(
+            updated.panel.actions.order.first().map(String::as_str),
+            Some("refresh")
+        );
+        assert_eq!(updated.theme, original.theme);
+        assert_eq!(updated.taskbar_presentation, original.taskbar_presentation);
     }
 
     #[test]

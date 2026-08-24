@@ -1,160 +1,130 @@
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it } from "vitest";
 import { defaultAppSettings } from "../../../hooks/useSettings";
-import { applyMenuPreferences } from "../../../lib/tauri";
+import { invokeMock } from "../../../test/setup";
 import { settingsCopy } from "../settingsCopy";
-import MenuTab, { NATIVE_TRAY_ORDER } from "./MenuTab";
-
-vi.mock("../../../lib/tauri", () => ({
-  applyMenuPreferences: vi.fn(),
-}));
-
-const apply = vi.mocked(applyMenuPreferences);
+import MenuTab from "./MenuTab";
 
 describe("MenuTab", () => {
-  it("renders both editors, localizes rows, and locks required native items", () => {
-    apply.mockResolvedValue(defaultAppSettings);
+  beforeEach(() => {
+    invokeMock.mockReset();
+    invokeMock.mockResolvedValue(defaultAppSettings);
+  });
+
+  it("owns panel presentation and actions without exposing a native-tray editor", () => {
     render(<MenuTab settings={defaultAppSettings} copy={settingsCopy("en-US")} />);
 
     expect(screen.getByRole("heading", { name: "Panel" })).toBeInTheDocument();
-    const trayPanel = screen.getByRole("group", { name: "Tray menu" });
-    const panel = screen.getByRole("group", { name: "Panel quick actions" });
-    expect(trayPanel).toBeInTheDocument();
-    expect(panel).toBeInTheDocument();
-    expect(screen.getByText(/only built-in items can be configured/i)).toBeInTheDocument();
-
-    expect(within(trayPanel).getByRole("checkbox", { name: "Settings" })).toBeChecked();
-    expect(within(trayPanel).getByRole("checkbox", { name: "Settings" })).toBeDisabled();
-    expect(within(trayPanel).getByRole("checkbox", { name: "Quit" })).toBeDisabled();
-    expect(
-      within(trayPanel).getByText("Settings and Quit are required and cannot be hidden."),
-    ).toBeInTheDocument();
-    expect(within(trayPanel).getByRole("checkbox", { name: "About" })).toBeEnabled();
-    expect(within(panel).getByRole("checkbox", { name: "Dismiss" })).toBeEnabled();
+    expect(screen.queryByRole("group", { name: "Tray menu" })).not.toBeInTheDocument();
+    expect(screen.getByRole("group", { name: "Panel layout" })).toBeInTheDocument();
+    const actions = screen.getByRole("group", { name: "Quick actions" });
+    const refresh = within(actions).getByRole("checkbox", { name: "Refresh" });
+    expect(refresh).toBeChecked();
+    expect(refresh).toBeDisabled();
+    expect(within(actions).getAllByRole("checkbox")[0]).toBe(refresh);
+    expect(screen.getByText(/refresh always stays first/i)).toBeInTheDocument();
     expect(screen.queryByRole("textbox")).not.toBeInTheDocument();
   });
 
-  it("reorders native items with keyboard move buttons and emits the exact order", async () => {
-    apply.mockResolvedValue(defaultAppSettings);
+  it("patches density and optional detail lines through update_settings", async () => {
     render(<MenuTab settings={defaultAppSettings} copy={settingsCopy("en-US")} />);
-    const trayPanel = screen.getByRole("group", { name: "Tray menu" });
+
+    fireEvent.change(screen.getByRole("combobox", { name: "Panel density" }), {
+      target: { value: "standard" },
+    });
+    await waitFor(() =>
+      expect(invokeMock).toHaveBeenCalledWith("update_settings", {
+        patch: { panel: { density: "standard" } },
+      }),
+    );
+
+    fireEvent.click(screen.getByRole("checkbox", { name: "Show data freshness" }));
+    await waitFor(() =>
+      expect(invokeMock).toHaveBeenCalledWith("update_settings", {
+        patch: { panel: { showFreshness: false } },
+      }),
+    );
+  });
+
+  it("hides an eligible action while keeping Refresh fixed", async () => {
+    render(<MenuTab settings={defaultAppSettings} copy={settingsCopy("en-US")} />);
+    const actions = screen.getByRole("group", { name: "Quick actions" });
+
+    fireEvent.click(within(actions).getByRole("checkbox", { name: "Settings" }));
+
+    await waitFor(() =>
+      expect(invokeMock).toHaveBeenCalledWith("update_settings", {
+        patch: { panel: { actions: { hidden: ["settings"] } } },
+      }),
+    );
+    expect(within(actions).getByRole("checkbox", { name: "Refresh" })).toBeDisabled();
+  });
+
+  it("reorders eligible actions without moving Refresh", async () => {
+    render(<MenuTab settings={defaultAppSettings} copy={settingsCopy("en-US")} />);
+    const actions = screen.getByRole("group", { name: "Quick actions" });
 
     fireEvent.click(
-      within(trayPanel).getByRole("button", { name: "Move down Refresh" }),
+      within(actions).getByRole("button", { name: "Move down Usage & Spend" }),
     );
 
     await waitFor(() =>
-      expect(apply).toHaveBeenCalledWith({
-        nativeTray: {
-          order: [
-            "open_panel",
-            "accounts",
-            "refresh",
-            "open_usage",
-            "settings",
-            "about",
-            "quit",
-          ],
+      expect(invokeMock).toHaveBeenCalledWith("update_settings", {
+        patch: {
+          panel: {
+            actions: {
+              order: ["refresh", "settings", "open_usage", "dismiss", "quit"],
+            },
+          },
         },
       }),
     );
   });
 
-  it("hides and re-shows an eligible item through the visibility checkbox", async () => {
-    let saved = defaultAppSettings;
-    const view = render(<MenuTab settings={defaultAppSettings} copy={settingsCopy("en-US")} />);
-    apply.mockImplementation(async (patch) => {
-      saved = {
-        ...saved,
-        menu: {
-          nativeTray: patch.nativeTray
-            ? {
-                order: patch.nativeTray.order ?? saved.menu.nativeTray.order,
-                hidden: patch.nativeTray.hidden ?? saved.menu.nativeTray.hidden,
-              }
-            : saved.menu.nativeTray,
-          trayPanel: patch.trayPanel
-            ? {
-                order: patch.trayPanel.order ?? saved.menu.trayPanel.order,
-                hidden: patch.trayPanel.hidden ?? saved.menu.trayPanel.hidden,
-              }
-            : saved.menu.trayPanel,
-        },
-      };
-      view.rerender(<MenuTab settings={saved} copy={settingsCopy("en-US")} />);
-      return saved;
-    });
-    const trayPanel = screen.getByRole("group", { name: "Tray menu" });
-    const about = within(trayPanel).getByRole("checkbox", { name: "About" });
-
-    fireEvent.click(about);
-    await waitFor(() =>
-      expect(apply).toHaveBeenCalledWith({ nativeTray: { hidden: ["about"] } }),
-    );
-
-    fireEvent.click(about);
-    await waitFor(() =>
-      expect(apply).toHaveBeenCalledWith({ nativeTray: { hidden: [] } }),
-    );
-  });
-
-  it("restores defaults for one surface without touching the other", async () => {
-    apply.mockResolvedValue(defaultAppSettings);
+  it("restores the documented panel layout", async () => {
     render(<MenuTab settings={defaultAppSettings} copy={settingsCopy("en-US")} />);
-    const panel = screen.getByRole("group", { name: "Panel quick actions" });
 
-    fireEvent.click(within(panel).getByRole("button", { name: "Restore defaults" }));
+    fireEvent.click(screen.getByRole("button", { name: "Restore panel layout" }));
 
     await waitFor(() =>
-      expect(apply).toHaveBeenCalledWith({
-        trayPanel: {
-          order: ["refresh", "open_usage", "settings", "dismiss", "quit"],
-          hidden: [],
+      expect(invokeMock).toHaveBeenCalledWith("update_settings", {
+        patch: {
+          panel: {
+            density: "compact",
+            showResetTime: true,
+            showFreshness: true,
+            showAccountStatus: true,
+            actions: {
+              order: ["refresh", "open_usage", "settings", "dismiss", "quit"],
+              hidden: [],
+            },
+          },
         },
       }),
     );
   });
 
   it("shows a localized save failure without leaking the raw error", async () => {
-    apply.mockRejectedValue(new Error("raw persistence detail"));
+    invokeMock.mockRejectedValue(new Error("raw persistence detail"));
     render(<MenuTab settings={defaultAppSettings} copy={settingsCopy("en-US")} />);
 
-    fireEvent.click(
-      within(screen.getByRole("group", { name: "Tray menu" })).getByRole("button", {
-        name: "Restore defaults",
-      }),
-    );
+    fireEvent.change(screen.getByRole("combobox", { name: "Panel density" }), {
+      target: { value: "standard" },
+    });
 
     expect(await screen.findByRole("alert")).toHaveTextContent(
-      "Menu settings could not be saved. Try again.",
+      "Panel settings could not be saved. Try again.",
     );
     expect(screen.queryByText("raw persistence detail")).not.toBeInTheDocument();
   });
 
-  it("localizes every editor control in Simplified Chinese", () => {
-    apply.mockResolvedValue(defaultAppSettings);
+  it("localizes the panel controls in Simplified Chinese", () => {
     render(<MenuTab settings={defaultAppSettings} copy={settingsCopy("zh-CN")} />);
 
     expect(screen.getByRole("heading", { name: "面板" })).toBeInTheDocument();
-    expect(screen.getByRole("group", { name: "托盘菜单" })).toBeInTheDocument();
-    expect(screen.getByRole("group", { name: "面板快捷操作" })).toBeInTheDocument();
-    expect(
-      screen.getByText("设置与退出为必选项，无法隐藏。"),
-    ).toBeInTheDocument();
-    expect(
-      screen.getByText("仅可配置内置项，不支持自定义命令、脚本、网址或可执行文件。"),
-    ).toBeInTheDocument();
-  });
-
-  it("restores the exact default native order exported by the registry", () => {
-    expect(NATIVE_TRAY_ORDER).toEqual([
-      "open_panel",
-      "refresh",
-      "accounts",
-      "open_usage",
-      "settings",
-      "about",
-      "quit",
-    ]);
+    expect(screen.getByRole("group", { name: "面板布局" })).toBeInTheDocument();
+    expect(screen.getByRole("group", { name: "快捷操作" })).toBeInTheDocument();
+    expect(screen.getByText(/刷新始终位于首位/)).toBeInTheDocument();
+    expect(screen.queryByText("托盘菜单")).not.toBeInTheDocument();
   });
 });

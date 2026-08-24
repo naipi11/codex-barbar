@@ -38,6 +38,7 @@ function TrayDashboard({ bootstrap }: { bootstrap: BootstrapDto }) {
         ? "en-US"
         : navigator.language || "en-US";
   const timeZone = systemTimeZone();
+  const panel = bootstrap.settings.panel;
 
   const selectedProfile = usage.profiles.find(
     (profile) => profile.id === usage.selectedProfileId,
@@ -46,12 +47,17 @@ function TrayDashboard({ bootstrap }: { bootstrap: BootstrapDto }) {
   const secondary = usage.state.secondary;
 
   return (
-    <main className="tray-panel tray-panel--macos" aria-label="codex-barbar tray panel">
+    <main
+      className={`tray-panel tray-panel--macos tray-panel--${panel.density}`}
+      data-density={panel.density}
+      aria-label="codex-barbar tray panel"
+    >
       <TrayHeader
         productName="codex-barbar"
         version={bootstrap.version}
         profile={selectedProfile ?? null}
         copy={copy}
+        showAccountStatus={panel.showAccountStatus}
         onDismiss={dismissTrayPanel}
       />
 
@@ -71,6 +77,7 @@ function TrayDashboard({ bootstrap }: { bootstrap: BootstrapDto }) {
           copy={copy}
           locale={locale}
           timeZone={timeZone}
+          showResetTime={panel.showResetTime}
         />
       ) : null}
       {secondary ? (
@@ -80,6 +87,7 @@ function TrayDashboard({ bootstrap }: { bootstrap: BootstrapDto }) {
           copy={copy}
           locale={locale}
           timeZone={timeZone}
+          showResetTime={panel.showResetTime}
         />
       ) : null}
 
@@ -90,6 +98,7 @@ function TrayDashboard({ bootstrap }: { bootstrap: BootstrapDto }) {
         isSwitching={usage.isSwitching}
         copy={copy}
         locale={locale}
+        showFreshness={panel.showFreshness}
         onRefresh={usage.refresh}
         onOpenSettings={openSettingsWindow}
         onOpenUsage={openCodexUsagePage}
@@ -97,7 +106,7 @@ function TrayDashboard({ bootstrap }: { bootstrap: BootstrapDto }) {
 
       <TrayActions
         copy={copy}
-        order={bootstrap.settings.menu.trayPanel.order}
+        order={panel.actions.order}
         onRefresh={usage.refresh}
         onOpenUsage={openCodexUsagePage}
         onOpenSettings={openSettingsWindow}
@@ -108,7 +117,7 @@ function TrayDashboard({ bootstrap }: { bootstrap: BootstrapDto }) {
 
       {selectedProfile ? (
         <span className="sr-only" aria-live="polite">
-          {selectedProfile.label}
+          {selectedProfile.presentationName}
         </span>
       ) : null}
     </main>

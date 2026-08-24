@@ -51,6 +51,16 @@ export const defaultAppSettings: AppSettingsDto = {
       hidden: [],
     },
   },
+  panel: {
+    density: "compact",
+    showResetTime: true,
+    showFreshness: true,
+    showAccountStatus: true,
+    actions: {
+      order: ["refresh", "open_usage", "settings", "dismiss", "quit"],
+      hidden: [],
+    },
+  },
   notifications: {
     enabled: false,
     playSound: true,

@@ -6,6 +6,7 @@ interface UsageStatusProps {
   isSwitching: boolean;
   copy: TrayCopy;
   locale: string;
+  showFreshness?: boolean;
   onRefresh(): Promise<void> | void;
   onOpenSettings(): Promise<void> | void;
   onOpenUsage(): Promise<void> | void;
@@ -56,6 +57,7 @@ export default function UsageStatus({
   isSwitching,
   copy,
   locale,
+  showFreshness = true,
   onRefresh,
   onOpenSettings,
   onOpenUsage,
@@ -64,6 +66,16 @@ export default function UsageStatus({
   const error = state.currentError
     ? errorAction(state.currentError.kind, state.currentError.action, copy)
     : null;
+  const showProtocolAnomaly =
+    state.protocolAnomaly && !state.primary && !state.secondary;
+  const showTransientState =
+    isSwitching ||
+    state.refreshStatus === "refreshing" ||
+    state.refreshStatus === "cooldown";
+
+  if (!showFreshness && !showTransientState && !showProtocolAnomaly && !error) {
+    return null;
+  }
 
   return (
     <section className="tray-region usage-status" role="region" aria-label={copy.dataStatus}>
@@ -77,21 +89,21 @@ export default function UsageStatus({
       {state.refreshStatus === "cooldown" ? (
         <p className="usage-status__state">{copy.waitAndRetry}</p>
       ) : null}
-      {state.freshness === "missing" ? (
+      {showFreshness && state.freshness === "missing" ? (
         <p className="usage-status__state">{copy.missing}</p>
       ) : null}
-      {state.freshness === "stale" && !error ? (
+      {showFreshness && state.freshness === "stale" && !error ? (
         <p className="usage-status__state">{copy.cached}</p>
       ) : null}
-      {state.freshness === "fresh" && !error ? (
+      {showFreshness && state.freshness === "fresh" && !error ? (
         <p className="usage-status__state">{copy.fresh}</p>
       ) : null}
-      {updated ? (
+      {showFreshness && updated ? (
         <p className="usage-status__updated">
           {copy.lastUpdated}: {updated}
         </p>
       ) : null}
-      {state.protocolAnomaly && !state.primary && !state.secondary ? (
+      {showProtocolAnomaly ? (
         <p className="usage-status__anomaly">{copy.protocolAnomaly}</p>
       ) : null}
       {error ? (

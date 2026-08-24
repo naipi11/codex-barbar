@@ -522,6 +522,7 @@ mod tests {
                     hide_status_surfaces_in_fullscreen: Some(false),
                 },
             ),
+            panel: None,
         };
         let settings = patch.into_patch().unwrap();
         assert_eq!(settings.start_at_login, Some(true));

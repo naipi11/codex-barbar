@@ -25,8 +25,8 @@ pub use menu_layout::{
 pub use settings_migration::migrate_settings_json;
 pub use settings_repository::{
     AppSettings, DisplayMode, LanguagePreference, NotificationPreferences,
-    NotificationPreferencesPatch, PanelDensity, PanelPreferences, SettingsPatch,
-    SettingsRepository, SurfaceAppearancePreferences, TaskbarDensity,
+    NotificationPreferencesPatch, PanelDensity, PanelPreferences, PanelPreferencesPatch,
+    SettingsPatch, SettingsRepository, SurfaceAppearancePreferences, TaskbarDensity,
     TaskbarPresentationPreferences, TaskbarTrayPreferences, TaskbarTrayPreferencesPatch,
     ThemePreference, TrayIconMode,
 };

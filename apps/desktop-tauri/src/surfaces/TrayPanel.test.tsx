@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { invokeMock } from "../test/setup";
 import {
@@ -253,9 +253,68 @@ describe("TrayPanel", () => {
     expect(screen.getAllByRole("region")).toHaveLength(5);
   });
 
+  it("renders canonical panel density, detail visibility, and quick-action order", async () => {
+    const bootstrap = bootstrapWithTwoProfiles();
+    bootstrap.profiles[0]!.presentationName = "stack";
+    bootstrap.profiles[0]!.accountStatus = "signedIn";
+    Object.assign(bootstrap.settings, {
+      panel: {
+        density: "standard",
+        showResetTime: false,
+        showFreshness: false,
+        showAccountStatus: false,
+        actions: {
+          order: ["refresh", "quit"],
+          hidden: ["open_usage", "settings", "dismiss"],
+        },
+      },
+    });
+    renderTray(bootstrap);
+
+    await waitFor(() =>
+      expect(screen.getByRole("main")).toHaveAttribute("data-density", "standard"),
+    );
+    const panel = screen.getByRole("main");
+    expect(panel.querySelector(".quota-card__reset")).toBeNull();
+    expect(panel.querySelector(".usage-status__updated")).toBeNull();
+    expect(panel.querySelector(".usage-status__state")).toBeNull();
+    expect(panel.querySelector(".tray-panel__identity-status")).toBeNull();
+
+    const actions = screen.getByRole("region", { name: "Actions" });
+    expect(
+      within(actions)
+        .getAllByRole("button")
+        .map((button) => button.textContent),
+    ).toEqual(["Refresh", "Quit"]);
+  });
+
+  it("keeps Refresh first and visible from normalized panel preferences", async () => {
+    const bootstrap = bootstrapWithTwoProfiles();
+    Object.assign(bootstrap.settings, {
+      panel: {
+        density: "compact",
+        showResetTime: true,
+        showFreshness: true,
+        showAccountStatus: true,
+        actions: {
+          order: ["refresh", "settings", "dismiss"],
+          hidden: ["open_usage", "quit"],
+        },
+      },
+    });
+    renderTray(bootstrap);
+
+    const actions = await screen.findByRole("region", { name: "Actions" });
+    expect(within(actions).getAllByRole("button")[0]).toHaveTextContent("Refresh");
+    expect(within(actions).queryByRole("button", { name: "Usage" })).toBeNull();
+    expect(within(actions).queryByRole("button", { name: "Quit" })).toBeNull();
+  });
+
   it("renders a long account label without exposing an email", async () => {
     const bootstrap = bootstrapWithTwoProfiles();
     bootstrap.profiles[0]!.label = "Personal account with a deliberately long label";
+    bootstrap.profiles[0]!.presentationName =
+      "Personal account with a deliberately long label";
     bootstrap.profiles[0]!.email = null;
     renderTray(bootstrap);
     const selector = await screen.findByRole("button", { name: /profile/i });

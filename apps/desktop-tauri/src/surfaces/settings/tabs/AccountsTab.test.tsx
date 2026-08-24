@@ -23,12 +23,15 @@ describe("AccountsTab", () => {
             label: "Current CLI",
             accountDisplayName: "Ming Zhao",
             accountEmail: "ming@example.com",
+            presentationName: "ming",
           }),
         ]}
       />,
     );
 
-    expect(screen.getByText("Ming Zhao")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /ming.*selected/i })).toBeInTheDocument();
+    expect(screen.queryByText("Ming Zhao")).not.toBeInTheDocument();
+    expect(screen.queryByText("ming@example.com")).not.toBeInTheDocument();
     expect(screen.queryByText("Current CLI")).toBeNull();
   });
 
@@ -40,12 +43,14 @@ describe("AccountsTab", () => {
           managedProfile({
             accountDisplayName: null,
             accountEmail: "work@example.com",
+            presentationName: "work-user",
           }),
         ]}
       />,
     );
 
-    expect(screen.getByRole("button", { name: /Work/ })).toBeInTheDocument();
-    expect(screen.getByText("work@example.com")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /work-user/ })).toBeInTheDocument();
+    expect(screen.getByText("work-user")).toBeInTheDocument();
+    expect(screen.queryByText("work@example.com")).not.toBeInTheDocument();
   });
 });

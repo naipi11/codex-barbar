@@ -13,16 +13,12 @@ function profileOptionLabel(
   profile: ProfileSummaryDto,
   copy: TrayCopy,
 ): string {
-  if (profile.kind === "currentCli") {
-    return (
-      cleanIdentity(profile.accountDisplayName) ??
-      cleanIdentity(profile.accountEmail) ??
-      cleanIdentity(profile.email) ??
-      cleanIdentity(profile.label) ??
-      copy.signedOut
-    );
-  }
-  return profile.label;
+  const primary =
+    (profile.kind === "managed" ? cleanIdentity(profile.label) : null) ??
+    cleanIdentity(profile.presentationName) ??
+    copy.signedOut;
+  const email = cleanIdentity(profile.accountEmail) ?? cleanIdentity(profile.email);
+  return email && email !== primary ? `${primary} · ${email}` : primary;
 }
 
 interface ProfileSelectorProps {

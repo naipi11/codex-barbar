@@ -21,6 +21,7 @@ function modelFor(
   const profile = {
     ...bootstrap.profiles[0]!,
     accountDisplayName: "Ming Zhao",
+    presentationName: "Ming Zhao",
     accountStatus: "signedIn" as const,
   };
   return buildStatusSurfaceViewModel({
@@ -32,6 +33,31 @@ function modelFor(
 }
 
 describe("buildStatusSurfaceViewModel", () => {
+  it("uses only the backend presentation identity and carries its local avatar", () => {
+    const bootstrap = readyTwoWindowFixture();
+    const profile = {
+      ...bootstrap.profiles[0]!,
+      accountDisplayName: "unsafe display",
+      accountEmail: "stack@example.com",
+      email: "managed@example.com",
+      presentationName: "stack",
+      avatarKind: "manual" as const,
+      avatarAssetUri: "account-avatar://profile/a?rev=1",
+    };
+
+    const model = buildStatusSurfaceViewModel({
+      profile,
+      state: bootstrap.usageByProfile.personal!,
+      displayMode: "remaining",
+      nowMs: Date.parse("2026-08-06T02:08:00Z"),
+    });
+
+    expect(model.displayName).toBe("stack");
+    expect(model.compactIdentity).toBe("stack");
+    expect(model.avatarKind).toBe("manual");
+    expect(model.avatarAssetUri).toBe("account-avatar://profile/a?rev=1");
+  });
+
   it("returns only the weekly metric when that is the only backend window", () => {
     const state = weeklyOnlyUsage({
       remainingPercent: 98,

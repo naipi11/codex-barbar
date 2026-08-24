@@ -1,23 +1,13 @@
 import { useEffect, useRef, useState } from "react";
-import { applyMenuPreferences } from "../../../lib/tauri";
+import { applyPanelPreferences } from "../../../lib/tauri";
 import type {
   AppSettingsDto,
   MenuLayoutDto,
-  MenuPreferencesPatchDto,
+  PanelPreferencesPatchDto,
 } from "../../../types/bridge";
 import type { SettingsCopy } from "../settingsCopy";
 
-export const NATIVE_TRAY_ORDER = [
-  "open_panel",
-  "refresh",
-  "accounts",
-  "open_usage",
-  "settings",
-  "about",
-  "quit",
-] as const;
-
-export const TRAY_PANEL_ORDER = [
+export const PANEL_ACTION_ORDER = [
   "refresh",
   "open_usage",
   "settings",
@@ -25,44 +15,38 @@ export const TRAY_PANEL_ORDER = [
   "quit",
 ] as const;
 
-const REQUIRED_NATIVE_ITEMS = new Set(["settings", "quit"]);
+const PANEL_DEFAULTS: PanelPreferencesPatchDto = {
+  density: "compact",
+  showResetTime: true,
+  showFreshness: true,
+  showAccountStatus: true,
+  actions: {
+    order: [...PANEL_ACTION_ORDER],
+    hidden: [],
+  },
+};
 
-interface MenuRow {
-  id: string;
+interface ActionRow {
+  id: (typeof PANEL_ACTION_ORDER)[number];
   label: string;
   hidden: boolean;
   required: boolean;
 }
 
-function rowsFor(
+function actionRows(
   layout: MenuLayoutDto,
-  registry: readonly string[],
-  required: ReadonlySet<string>,
   labels: Record<string, string>,
-): MenuRow[] {
+): ActionRow[] {
   const hidden = new Set(layout.hidden);
-  const requiredVisible = registry.filter((id) => required.has(id));
-  const visibleOrder = layout.order.filter(
-    (id) => registry.includes(id) && !hidden.has(id) && !required.has(id),
+  const knownOrder = layout.order.filter((id) =>
+    PANEL_ACTION_ORDER.includes(id as ActionRow["id"]),
   );
-  const hiddenOrder = layout.order.filter(
-    (id) => registry.includes(id) && hidden.has(id) && !required.has(id),
-  );
-  const remainingHidden = registry.filter(
-    (id) => !required.has(id) && !layout.order.includes(id) && hidden.has(id),
-  );
-  const ordered = [...requiredVisible, ...visibleOrder, ...hiddenOrder, ...remainingHidden];
-  const seen = new Set<string>();
-  const uniqueOrdered = ordered.filter((id) => {
-    if (seen.has(id)) return false;
-    seen.add(id);
-    return true;
-  });
-  return uniqueOrdered.map((id) => ({
-    id,
+  const missing = PANEL_ACTION_ORDER.filter((id) => !knownOrder.includes(id));
+  return [...knownOrder, ...missing].map((id) => ({
+    id: id as ActionRow["id"],
     label: labels[id] ?? id,
-    hidden: hidden.has(id) && !required.has(id),
-    required: required.has(id),
+    hidden: hidden.has(id),
+    required: id === "refresh",
   }));
 }
 
@@ -73,7 +57,8 @@ export default function MenuTab({
   settings: AppSettingsDto;
   copy: SettingsCopy;
 }) {
-  const menuCopy = copy.menu;
+  const panelCopy = copy.menu;
+  const panel = settings.panel;
   const [saveError, setSaveError] = useState(false);
   const [saving, setSaving] = useState(false);
   const mounted = useRef(true);
@@ -85,12 +70,12 @@ export default function MenuTab({
     };
   }, []);
 
-  const commit = async (patch: MenuPreferencesPatchDto) => {
+  const commit = async (patch: PanelPreferencesPatchDto) => {
     if (saving) return;
     setSaving(true);
     setSaveError(false);
     try {
-      await applyMenuPreferences(patch);
+      await applyPanelPreferences(patch);
     } catch {
       if (mounted.current) setSaveError(true);
     } finally {
@@ -98,215 +83,171 @@ export default function MenuTab({
     }
   };
 
-  const moveRow = (
-    key: "nativeTray" | "trayPanel",
-    layout: MenuLayoutDto,
-    id: string,
-    direction: -1 | 1,
-  ) => {
-    const order = [...layout.order];
-    const index = order.indexOf(id);
-    const target = index + direction;
-    if (index < 0 || target < 0 || target >= order.length) return;
-    [order[index], order[target]] = [order[target], order[index]];
-    void commit({ [key]: { order } });
-  };
+  const rows = actionRows(panel.actions, panelCopy.itemLabels);
+  const visibleOrder = panel.actions.order.filter(
+    (id): id is ActionRow["id"] =>
+      PANEL_ACTION_ORDER.includes(id as ActionRow["id"]) &&
+      !panel.actions.hidden.includes(id),
+  );
 
-  const reorderRow = (
-    key: "nativeTray" | "trayPanel",
-    layout: MenuLayoutDto,
-    nextVisibleOrder: string[],
-  ) => {
-    const required = key === "nativeTray" ? REQUIRED_NATIVE_ITEMS : new Set<string>();
-    const hidden = new Set(layout.hidden);
-    const visible = nextVisibleOrder.filter(
-      (id) => !required.has(id) && !hidden.has(id) && layout.order.includes(id),
-    );
-    const result: string[] = [];
-    let visibleIndex = 0;
-    for (const id of layout.order) {
-      if (!required.has(id) && !hidden.has(id)) {
-        result.push(visible[visibleIndex] ?? id);
-        visibleIndex += 1;
-      } else {
-        result.push(id);
-      }
-    }
-    void commit({ [key]: { order: result } });
-  };
-
-  const toggleRow = (
-    key: "nativeTray" | "trayPanel",
-    layout: MenuLayoutDto,
-    id: string,
-    visible: boolean,
-  ) => {
-    const hidden = new Set(layout.hidden);
+  const toggleAction = (id: ActionRow["id"], visible: boolean) => {
+    if (id === "refresh") return;
+    const hidden = new Set(panel.actions.hidden);
     if (visible) hidden.delete(id);
     else hidden.add(id);
-    void commit({ [key]: { hidden: [...hidden] } });
+    void commit({ actions: { hidden: [...hidden] } });
   };
 
-  const restoreDefaults = (key: "nativeTray" | "trayPanel", registry: readonly string[]) => {
-    void commit({ [key]: { order: [...registry], hidden: [] } });
+  const moveAction = (id: ActionRow["id"], direction: -1 | 1) => {
+    const index = visibleOrder.indexOf(id);
+    const target = index + direction;
+    if (index <= 0 || target <= 0 || target >= visibleOrder.length) return;
+    const next = [...visibleOrder];
+    [next[index], next[target]] = [next[target], next[index]];
+    void commit({ actions: { order: next } });
   };
 
   return (
-    <section data-testid="menu-tab" aria-label={menuCopy.title}>
-      <h2>{menuCopy.title}</h2>
-      <p className="settings-preference-group__hint">{menuCopy.noCustomCommands}</p>
+    <section data-testid="menu-tab" aria-label={panelCopy.title}>
+      <h2>{panelCopy.title}</h2>
+      <p className="settings-preference-group__hint">
+        {panelCopy.noCustomCommands}
+      </p>
       {saveError ? (
         <p className="settings-preference-group__error" role="alert">
-          {menuCopy.saveFailed}
+          {panelCopy.saveFailed}
         </p>
       ) : null}
 
       <div className="settings-preference-groups">
-        <LayoutEditor
-          legend={menuCopy.nativeTrayLegend}
-          description={menuCopy.nativeTrayDescription}
-          layout={settings.menu.nativeTray}
-          registry={NATIVE_TRAY_ORDER}
-          required={REQUIRED_NATIVE_ITEMS}
-          labels={menuCopy.itemLabels}
-          copy={menuCopy}
-          saving={saving}
-          requiredHint={menuCopy.requiredItems}
-          onMove={(id, direction) =>
-            moveRow("nativeTray", settings.menu.nativeTray, id, direction)
-          }
-          onReorder={(order) => reorderRow("nativeTray", settings.menu.nativeTray, order)}
-          onToggle={(id, visible) =>
-            toggleRow("nativeTray", settings.menu.nativeTray, id, visible)
-          }
-          onRestore={() => restoreDefaults("nativeTray", NATIVE_TRAY_ORDER)}
-        />
-        <LayoutEditor
-          legend={menuCopy.trayPanelLegend}
-          description={menuCopy.trayPanelDescription}
-          layout={settings.menu.trayPanel}
-          registry={TRAY_PANEL_ORDER}
-          required={new Set()}
-          labels={menuCopy.itemLabels}
-          copy={menuCopy}
-          saving={saving}
-          requiredHint={null}
-          onMove={(id, direction) =>
-            moveRow("trayPanel", settings.menu.trayPanel, id, direction)
-          }
-          onReorder={(order) => reorderRow("trayPanel", settings.menu.trayPanel, order)}
-          onToggle={(id, visible) =>
-            toggleRow("trayPanel", settings.menu.trayPanel, id, visible)
-          }
-          onRestore={() => restoreDefaults("trayPanel", TRAY_PANEL_ORDER)}
-        />
+        <fieldset className="settings-preference-group panel-layout-settings">
+          <legend>{panelCopy.layoutLegend}</legend>
+          <p className="settings-preference-group__description">
+            {panelCopy.layoutDescription}
+          </p>
+          <label className="settings-compact-field">
+            <span>{panelCopy.density}</span>
+            <select
+              aria-label={panelCopy.density}
+              value={panel.density}
+              disabled={saving}
+              onChange={(event) =>
+                void commit({
+                  density: event.target.value as "compact" | "standard",
+                })
+              }
+            >
+              <option value="compact">{panelCopy.densityOptions[0]}</option>
+              <option value="standard">{panelCopy.densityOptions[1]}</option>
+            </select>
+          </label>
+          <div className="settings-preference-grid panel-detail-grid">
+            <PanelToggle
+              label={panelCopy.showResetTime}
+              checked={panel.showResetTime}
+              disabled={saving}
+              onChange={(value) => void commit({ showResetTime: value })}
+            />
+            <PanelToggle
+              label={panelCopy.showFreshness}
+              checked={panel.showFreshness}
+              disabled={saving}
+              onChange={(value) => void commit({ showFreshness: value })}
+            />
+            <PanelToggle
+              label={panelCopy.showAccountStatus}
+              checked={panel.showAccountStatus}
+              disabled={saving}
+              onChange={(value) => void commit({ showAccountStatus: value })}
+            />
+          </div>
+        </fieldset>
+
+        <fieldset className="settings-preference-group">
+          <legend>{panelCopy.actionsLegend}</legend>
+          <p className="settings-preference-group__description">
+            {panelCopy.actionsDescription}
+          </p>
+          <p className="settings-preference-group__hint">
+            {panelCopy.refreshRequired}
+          </p>
+          <ul className="panel-action-editor">
+            {rows.map((row) => {
+              const visibleIndex = visibleOrder.indexOf(row.id);
+              const canMoveUp = visibleIndex > 1;
+              const canMoveDown =
+                visibleIndex > 0 && visibleIndex < visibleOrder.length - 1;
+              return (
+                <li key={row.id} data-panel-action={row.id}>
+                  <label className="settings-switch settings-switch--inline">
+                    <input
+                      type="checkbox"
+                      checked={!row.hidden}
+                      disabled={row.required || saving}
+                      aria-label={row.label}
+                      onChange={(event) => toggleAction(row.id, event.target.checked)}
+                    />
+                    {row.label}
+                  </label>
+                  {!row.hidden && !row.required ? (
+                    <span className="panel-action-editor__move">
+                      <button
+                        type="button"
+                        disabled={saving || !canMoveUp}
+                        aria-label={`${panelCopy.moveUp} ${row.label}`}
+                        onClick={() => moveAction(row.id, -1)}
+                      >
+                        {panelCopy.moveUp}
+                      </button>
+                      <button
+                        type="button"
+                        disabled={saving || !canMoveDown}
+                        aria-label={`${panelCopy.moveDown} ${row.label}`}
+                        onClick={() => moveAction(row.id, 1)}
+                      >
+                        {panelCopy.moveDown}
+                      </button>
+                    </span>
+                  ) : null}
+                </li>
+              );
+            })}
+          </ul>
+          <button
+            type="button"
+            className="settings-button"
+            disabled={saving}
+            onClick={() => void commit(PANEL_DEFAULTS)}
+          >
+            {panelCopy.restoreDefaults}
+          </button>
+        </fieldset>
       </div>
     </section>
   );
 }
 
-function LayoutEditor({
-  legend,
-  description,
-  layout,
-  registry,
-  required,
-  labels,
-  copy,
-  saving,
-  requiredHint,
-  onMove,
-  onReorder,
-  onToggle,
-  onRestore,
+function PanelToggle({
+  label,
+  checked,
+  disabled,
+  onChange,
 }: {
-  legend: string;
-  description: string;
-  layout: MenuLayoutDto;
-  registry: readonly string[];
-  required: ReadonlySet<string>;
-  labels: Record<string, string>;
-  copy: SettingsCopy["menu"];
-  saving: boolean;
-  requiredHint: string | null;
-  onMove(id: string, direction: -1 | 1): void;
-  onReorder(order: string[]): void;
-  onToggle(id: string, visible: boolean): void;
-  onRestore(): void;
+  label: string;
+  checked: boolean;
+  disabled: boolean;
+  onChange(value: boolean): void;
 }) {
-  const [draggedId, setDraggedId] = useState<string | null>(null);
-  const rows = rowsFor(layout, registry, required, labels);
-  const visibleCount = rows.filter((row) => !row.hidden).length;
-
-  const dropRow = (targetId: string) => {
-    if (!draggedId || draggedId === targetId) return;
-    const visibleOrder = layout.order.filter(
-      (id) => !required.has(id) && !layout.hidden.includes(id),
-    );
-    const from = visibleOrder.indexOf(draggedId);
-    const to = visibleOrder.indexOf(targetId);
-    if (from < 0 || to < 0) return;
-    const next = [...visibleOrder];
-    next.splice(from, 1);
-    next.splice(to, 0, draggedId);
-    onReorder(next);
-    setDraggedId(null);
-  };
-
   return (
-    <fieldset className="settings-preference-group">
-      <legend>{legend}</legend>
-      <p className="settings-preference-group__description">{description}</p>
-      {requiredHint ? <p className="settings-preference-group__hint">{requiredHint}</p> : null}
-      <ul className="menu-layout-editor">
-        {rows.map((row, index) => (
-          <li
-            key={row.id}
-            data-menu-row={row.id}
-            draggable={!row.hidden && !saving && visibleCount > 1}
-            onDragStart={(event) => {
-              setDraggedId(row.id);
-              event.dataTransfer.effectAllowed = "move";
-            }}
-            onDragOver={(event) => event.preventDefault()}
-            onDrop={() => dropRow(row.id)}
-          >
-            <label className="settings-switch settings-switch--inline">
-              <input
-                type="checkbox"
-                checked={!row.hidden}
-                disabled={row.required || saving}
-                aria-label={row.label}
-                onChange={(event) => onToggle(row.id, event.target.checked)}
-              />
-              {row.label}
-            </label>
-            {!row.hidden ? (
-              <span className="menu-layout-editor__move">
-                <button
-                  type="button"
-                  disabled={saving || index === 0 || visibleCount <= 1}
-                  aria-label={copy.moveUp + " " + row.label}
-                  onClick={() => onMove(row.id, -1)}
-                >
-                  {copy.moveUp}
-                </button>
-                <button
-                  type="button"
-                  disabled={saving || index === rows.length - 1 || visibleCount <= 1}
-                  aria-label={copy.moveDown + " " + row.label}
-                  onClick={() => onMove(row.id, 1)}
-                >
-                  {copy.moveDown}
-                </button>
-              </span>
-            ) : null}
-          </li>
-        ))}
-      </ul>
-      <button type="button" className="settings-button" disabled={saving} onClick={onRestore}>
-        {copy.restoreDefaults}
-      </button>
-    </fieldset>
+    <label className="settings-switch settings-switch--inline">
+      <input
+        type="checkbox"
+        checked={checked}
+        disabled={disabled}
+        aria-label={label}
+        onChange={(event) => onChange(event.target.checked)}
+      />
+      {label}
+    </label>
   );
 }

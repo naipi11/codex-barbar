@@ -61,6 +61,16 @@ const bootstrapFixture = {
         hidden: [],
       },
     },
+    panel: {
+      density: "compact",
+      showResetTime: true,
+      showFreshness: true,
+      showAccountStatus: true,
+      actions: {
+        order: ["refresh", "open_usage", "settings", "dismiss", "quit"],
+        hidden: [],
+      },
+    },
   },
   profiles: [],
   selectedProfileId: "",

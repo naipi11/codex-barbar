@@ -38,6 +38,8 @@ export interface StatusQuotaMetric {
 export interface StatusSurfaceViewModel {
   displayName: string;
   compactIdentity: string;
+  avatarKind: ProfileSummaryDto["avatarKind"];
+  avatarAssetUri: string | null;
   accountStatus: "signedIn" | "signedOut" | "unavailable";
   metrics: StatusQuotaMetric[];
   primaryMetric: StatusQuotaMetric | null;
@@ -82,10 +84,7 @@ function accountStatusFallback(
 export function profileDisplayName(profile: ProfileSummaryDto | null): string {
   if (!profile) return "未登录";
   return (
-    cleanIdentity(profile.accountDisplayName) ??
-    cleanIdentity(profile.accountEmail) ??
-    cleanIdentity(profile.email) ??
-    (profile.kind === "managed" ? cleanIdentity(profile.label) : null) ??
+    cleanIdentity(profile.presentationName) ??
     accountStatusFallback(profile.accountStatus)
   );
 }
@@ -335,6 +334,8 @@ export function buildStatusSurfaceViewModel({
   return {
     displayName,
     compactIdentity: compactIdentity(displayName),
+    avatarKind: profile?.avatarKind ?? "default",
+    avatarAssetUri: profile?.avatarAssetUri ?? null,
     accountStatus: profile?.accountStatus ?? "signedOut",
     metrics,
     primaryMetric: metrics.find((metric) => metric.kind === "fiveHour") ?? null,

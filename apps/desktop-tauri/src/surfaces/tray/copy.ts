@@ -5,7 +5,9 @@ export interface TrayCopy {
   profile: string;
   noProfiles: string;
   currentCli: string;
+  signedIn: string;
   signedOut: string;
+  accountUnavailable: string;
   managed: string;
   remaining: string;
   used: string;
@@ -42,7 +44,9 @@ const english: TrayCopy = {
   profile: "Profile",
   noProfiles: "No profiles",
   currentCli: "Current CLI",
+  signedIn: "Signed in",
   signedOut: "Signed out",
+  accountUnavailable: "Account unavailable",
   managed: "Managed",
   remaining: "remaining",
   used: "used",
@@ -100,7 +104,9 @@ const chinese: TrayCopy = {
   profile: "账户配置",
   noProfiles: "暂无账户",
   currentCli: "当前 CLI",
+  signedIn: "已登录",
   signedOut: "未登录",
+  accountUnavailable: "账户信息不可用",
   managed: "应用账户",
   remaining: "剩余",
   used: "已使用",

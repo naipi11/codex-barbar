@@ -273,6 +273,16 @@ describe("V1 bridge contract", () => {
           hidden: [],
         },
       },
+      panel: {
+        density: "compact",
+        showResetTime: true,
+        showFreshness: true,
+        showAccountStatus: true,
+        actions: {
+          order: ["refresh", "open_usage", "settings", "dismiss", "quit"],
+          hidden: [],
+        },
+      },
       notifications: {
         enabled: false,
         playSound: true,
@@ -305,6 +315,7 @@ describe("V1 bridge contract", () => {
     });
     expect(settings.menu.nativeTray.order).toContain("settings");
     expect(settings.menu.trayPanel.order).toContain("quit");
+    expect(settings.panel.actions.order[0]).toBe("refresh");
     expect(settings.notifications).toEqual({
       enabled: false,
       playSound: true,

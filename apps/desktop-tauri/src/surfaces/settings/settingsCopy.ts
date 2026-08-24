@@ -62,16 +62,20 @@ export interface SettingsCopy {
   };
   menu: {
     title: string;
-    nativeTrayLegend: string;
-    nativeTrayDescription: string;
-    trayPanelLegend: string;
-    trayPanelDescription: string;
+    layoutLegend: string;
+    layoutDescription: string;
+    density: string;
+    densityOptions: readonly [string, string];
+    showResetTime: string;
+    showFreshness: string;
+    showAccountStatus: string;
+    actionsLegend: string;
+    actionsDescription: string;
     itemLabels: Record<string, string>;
-    visible: string;
     moveUp: string;
     moveDown: string;
     restoreDefaults: string;
-    requiredItems: string;
+    refreshRequired: string;
     noCustomCommands: string;
     saveFailed: string;
   };
@@ -242,30 +246,31 @@ const english: SettingsCopy = {
   },
   menu: {
     title: "Panel",
-    nativeTrayLegend: "Tray menu",
-    nativeTrayDescription:
-      "Choose which built-in items appear in the tray right-click menu and in what order. Settings and Quit are always available.",
-    trayPanelLegend: "Panel quick actions",
-    trayPanelDescription:
-      "Choose which quick actions appear in the tray panel and in what order.",
+    layoutLegend: "Panel layout",
+    layoutDescription:
+      "Choose the panel's working density and which non-secret helper lines appear.",
+    density: "Panel density",
+    densityOptions: ["Compact", "Standard"],
+    showResetTime: "Show reset time",
+    showFreshness: "Show data freshness",
+    showAccountStatus: "Show account status",
+    actionsLegend: "Quick actions",
+    actionsDescription:
+      "Choose which eligible panel actions appear and arrange their order.",
     itemLabels: {
-      open_panel: "Open codex-barbar",
       refresh: "Refresh",
-      accounts: "Accounts",
-      open_usage: "Open Codex Usage",
+      open_usage: "Usage & Spend",
       settings: "Settings",
-      about: "About",
       quit: "Quit",
-      dismiss: "Dismiss",
+      dismiss: "Hide panel",
     },
-    visible: "Visible",
     moveUp: "Move up",
     moveDown: "Move down",
-    restoreDefaults: "Restore defaults",
-    requiredItems: "Settings and Quit are required and cannot be hidden.",
+    restoreDefaults: "Restore panel layout",
+    refreshRequired: "Refresh always stays first and cannot be hidden.",
     noCustomCommands:
       "Only built-in items can be configured. Custom commands, scripts, URLs, and executable paths are not supported.",
-    saveFailed: "Menu settings could not be saved. Try again.",
+    saveFailed: "Panel settings could not be saved. Try again.",
   },
 
   usageSpend: {
@@ -391,28 +396,28 @@ const chinese: SettingsCopy = {
   },
   menu: {
     title: "面板",
-    nativeTrayLegend: "托盘菜单",
-    nativeTrayDescription:
-      "选择托盘右键菜单中显示的项及其顺序。设置与退出始终可用。",
-    trayPanelLegend: "面板快捷操作",
-    trayPanelDescription: "选择托盘面板中显示的快捷操作及其顺序。",
+    layoutLegend: "面板布局",
+    layoutDescription: "选择面板的信息密度，以及要显示的非敏感辅助信息。",
+    density: "面板密度",
+    densityOptions: ["紧凑", "标准"],
+    showResetTime: "显示重置时间",
+    showFreshness: "显示数据新鲜度",
+    showAccountStatus: "显示账户状态",
+    actionsLegend: "快捷操作",
+    actionsDescription: "选择要显示的面板操作并调整其顺序。",
     itemLabels: {
-      open_panel: "打开 codex-barbar",
       refresh: "刷新",
-      accounts: "账户",
-      open_usage: "打开 Codex 用量",
+      open_usage: "用量与费用",
       settings: "设置",
-      about: "关于",
       quit: "退出",
-      dismiss: "关闭",
+      dismiss: "隐藏面板",
     },
-    visible: "可见",
     moveUp: "上移",
     moveDown: "下移",
-    restoreDefaults: "恢复默认",
-    requiredItems: "设置与退出为必选项，无法隐藏。",
+    restoreDefaults: "恢复面板布局",
+    refreshRequired: "刷新始终位于首位，且无法隐藏。",
     noCustomCommands: "仅可配置内置项，不支持自定义命令、脚本、网址或可执行文件。",
-    saveFailed: "无法保存菜单设置，请重试。",
+    saveFailed: "无法保存面板设置，请重试。",
   },
 
   usageSpend: {

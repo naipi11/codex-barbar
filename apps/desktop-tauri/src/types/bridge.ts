@@ -72,6 +72,22 @@ export interface MenuPreferencesDto {
   trayPanel: MenuLayoutDto;
 }
 
+export interface PanelPreferencesDto {
+  density: "compact" | "standard";
+  showResetTime: boolean;
+  showFreshness: boolean;
+  showAccountStatus: boolean;
+  actions: MenuLayoutDto;
+}
+
+export interface PanelPreferencesPatchDto {
+  density?: "compact" | "standard";
+  showResetTime?: boolean;
+  showFreshness?: boolean;
+  showAccountStatus?: boolean;
+  actions?: MenuLayoutPatchDto;
+}
+
 export interface MenuLayoutPatchDto {
   order?: string[];
   hidden?: string[];
@@ -97,6 +113,7 @@ export interface AppSettingsDto {
   notifications: NotificationPreferencesDto;
   taskbarPresentation: TaskbarPresentationPreferencesDto;
   menu: MenuPreferencesDto;
+  panel: PanelPreferencesDto;
 }
 
 export type StatusSurfaceKind = "taskbarStatus" | "floatBall";
@@ -112,9 +129,12 @@ export interface StatusSurfaceFeedbackChangedDto {
 }
 
 export interface SettingsPatchDto
-  extends Partial<Omit<AppSettingsDto, "notifications" | "taskbarPresentation" | "menu">> {
+  extends Partial<
+    Omit<AppSettingsDto, "notifications" | "taskbarPresentation" | "menu" | "panel">
+  > {
   notifications?: Partial<NotificationPreferencesDto>;
   taskbarPresentation?: Partial<TaskbarPresentationPreferencesDto>;
+  panel?: PanelPreferencesPatchDto;
 }
 
 export interface ProfileSummaryDto {

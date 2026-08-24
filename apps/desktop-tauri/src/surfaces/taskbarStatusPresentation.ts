@@ -8,6 +8,8 @@ import { surfaceAlphaFromTransparency } from "../lib/surfaceTransparency";
 export interface TaskbarStatusPresentation {
   displayName: string;
   compactIdentity: string | null;
+  avatarKind: "default" | "official" | "manual";
+  avatarAssetUri: string | null;
   showIcon: boolean;
   showAccount: boolean;
   showWeeklyLabel: boolean;
@@ -79,6 +81,8 @@ export function buildTaskbarStatusPresentation(
   return {
     displayName: surface.displayName,
     compactIdentity: showAccount ? surface.compactIdentity : null,
+    avatarKind: surface.avatarKind,
+    avatarAssetUri: surface.avatarAssetUri,
     showIcon,
     showAccount,
     showWeeklyLabel,

@@ -34,6 +34,7 @@ describe("TaskbarStatusMeasure", () => {
   it("renders only inert weekly measurement geometry", async () => {
     const bootstrap = bootstrapWithTwoProfiles();
     bootstrap.profiles[0]!.accountDisplayName = "ProofUser";
+    bootstrap.profiles[0]!.presentationName = "ProofUser";
     bootstrap.usageByProfile.personal = weeklyOnlyUsage();
     invokeMock.mockResolvedValue(bootstrap);
 
@@ -85,6 +86,10 @@ describe("TaskbarStatusMeasure", () => {
   it("renders the exact visible geometry sequence without a close column", async () => {
     const bootstrap = bootstrapWithTwoProfiles();
     bootstrap.profiles[0]!.accountDisplayName = "ProofUser";
+    bootstrap.profiles[0]!.presentationName = "ProofUser";
+    bootstrap.profiles[0]!.avatarKind = "manual";
+    bootstrap.profiles[0]!.avatarAssetUri =
+      "account-avatar://profile/a?rev=1";
     bootstrap.usageByProfile.personal = weeklyOnlyUsage();
     invokeMock.mockResolvedValue(bootstrap);
 
@@ -98,6 +103,10 @@ describe("TaskbarStatusMeasure", () => {
         ),
       ).map((element) => `${element.className}:${element.textContent}`);
     const visibleGeometry = geometry(visible);
+    const visibleAvatar = {
+      kind: visible.querySelector(".account-avatar")?.getAttribute("data-avatar-kind"),
+      src: visible.querySelector("img")?.getAttribute("src"),
+    };
     visibleView.unmount();
 
     const measurementView = render(<TaskbarStatusMeasure />);
@@ -105,6 +114,16 @@ describe("TaskbarStatusMeasure", () => {
     await within(measurement).findByText(/周 98%|Wk 98%/);
     const measurementGeometry = geometry(measurement);
     expect(measurementGeometry).toEqual(visibleGeometry);
+    expect({
+      kind: measurement
+        .querySelector(".account-avatar")
+        ?.getAttribute("data-avatar-kind"),
+      src: measurement.querySelector("img")?.getAttribute("src"),
+    }).toEqual(visibleAvatar);
+    expect(visibleAvatar).toEqual({
+      kind: "manual",
+      src: "account-avatar://profile/a?rev=1",
+    });
     expect(visibleGeometry).toEqual([
       "taskbar-status__avatar:",
       "taskbar-status__identity:ProofU",
@@ -117,6 +136,7 @@ describe("TaskbarStatusMeasure", () => {
   it("keeps visible and measurement geometry identical under filtered preferences", async () => {
     const bootstrap = bootstrapWithTwoProfiles();
     bootstrap.profiles[0]!.accountDisplayName = "ProofUser";
+    bootstrap.profiles[0]!.presentationName = "ProofUser";
     bootstrap.usageByProfile.personal = weeklyOnlyUsage();
     bootstrap.settings.taskbarPresentation = {
       ...bootstrap.settings.taskbarPresentation,

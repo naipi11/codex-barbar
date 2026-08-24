@@ -33,12 +33,9 @@ describe("settings copy parity", () => {
       Object.keys(en.menu.itemLabels).sort(),
     );
     for (const id of [
-      "open_panel",
       "refresh",
-      "accounts",
       "open_usage",
       "settings",
-      "about",
       "quit",
       "dismiss",
     ]) {
@@ -58,4 +55,3 @@ describe("settings copy parity", () => {
     expect(zh.usageSpend.unavailableState).toMatch(/暂无法/);
   });
 });
-

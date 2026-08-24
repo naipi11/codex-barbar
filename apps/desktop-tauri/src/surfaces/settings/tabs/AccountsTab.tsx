@@ -9,7 +9,7 @@ function cleanIdentity(value: string | null): string | null {
 }
 
 function profileIdentity(profile: ProfileSummaryDto): string | null {
-  return cleanIdentity(profile.accountDisplayName) ?? cleanIdentity(profile.accountEmail) ?? cleanIdentity(profile.email);
+  return cleanIdentity(profile.presentationName);
 }
 
 export interface AccountsTabProps {
@@ -28,7 +28,7 @@ export default function AccountsTab({ profiles, selectedProfileId, loginState, o
   const [dialogOpen, setDialogOpen] = useState(false);
   const [newLabel, setNewLabel] = useState(copy.accounts.managed);
   const addButtonRef = useRef<HTMLButtonElement>(null);
-  const profileLabel = (profile: ProfileSummaryDto) => (profile.kind === "currentCli" ? profileIdentity(profile) : null) ?? cleanIdentity(profile.label) ?? (profile.kind === "currentCli" ? copy.accounts.signedOut : copy.accounts.managed);
+  const profileLabel = (profile: ProfileSummaryDto) => profileIdentity(profile) ?? (profile.kind === "currentCli" ? copy.accounts.signedOut : copy.accounts.managed);
 
   return <section aria-label={`${copy.accounts.title} settings`}>
     <h2>{copy.accounts.title}</h2>
@@ -37,13 +37,12 @@ export default function AccountsTab({ profiles, selectedProfileId, loginState, o
         <button type="button" aria-pressed={profile.id === selectedProfileId} onClick={() => onSelect(profile.id)}>
           {profileLabel(profile)}{profile.id === selectedProfileId ? ` (${copy.accounts.selected})` : ""}
         </button>
-        {profile.kind === "currentCli" ? <span className="account-row__hint">{profileIdentity(profile) ?? copy.accounts.signedOut}</span> : <>
-          {profileIdentity(profile) ? <span className="account-row__hint">{profileIdentity(profile)}</span> : null}
+        {profile.kind === "managed" ? <>
           <span className="account-row__actions">
-            <button type="button" onClick={() => { const label = window.prompt(copy.accounts.renamePrompt, profile.label); if (label?.trim()) void onRename(profile.id, label.trim()); }}>{copy.accounts.rename}</button>
-            <button type="button" onClick={() => { if (window.confirm(copy.accounts.removeConfirm(profile.label))) void onRemove(profile.id); }}>{copy.accounts.remove}</button>
+            <button type="button" onClick={() => { const label = window.prompt(copy.accounts.renamePrompt, profileLabel(profile)); if (label?.trim()) void onRename(profile.id, label.trim()); }}>{copy.accounts.rename}</button>
+            <button type="button" onClick={() => { if (window.confirm(copy.accounts.removeConfirm(profileLabel(profile)))) void onRemove(profile.id); }}>{copy.accounts.remove}</button>
           </span>
-        </>}
+        </> : null}
       </li>)}
     </ul>
     <p className="settings-field">

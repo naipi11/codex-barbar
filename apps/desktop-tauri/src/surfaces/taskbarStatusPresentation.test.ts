@@ -42,6 +42,7 @@ function surfaceFrom(
 function weeklySurface(): UseStatusSurfaceResult {
   const bootstrap = bootstrapWithTwoProfiles();
   bootstrap.profiles[0]!.accountDisplayName = "ProofUser";
+  bootstrap.profiles[0]!.presentationName = "ProofUser";
   bootstrap.usageByProfile.personal = weeklyOnlyUsage();
   return surfaceFrom(bootstrap);
 }
@@ -150,6 +151,7 @@ describe("buildTaskbarStatusPresentation", () => {
   it("filters every taskbar field from the shared presentation", () => {
     const bootstrap = bootstrapWithTwoProfiles();
     bootstrap.profiles[0]!.accountDisplayName = "ProofUser";
+    bootstrap.profiles[0]!.presentationName = "ProofUser";
     bootstrap.usageByProfile.personal = weeklyOnlyUsage();
     bootstrap.settings.taskbarPresentation = {
       showTaskbarIcon: false,

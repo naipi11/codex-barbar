@@ -60,6 +60,7 @@ describe("FloatBall", () => {
   it("spins a blossom instead of showing a numeric quota", async () => {
     const bootstrap = bootstrapWithTwoProfiles();
     bootstrap.profiles[0]!.accountDisplayName = "Ming Zhao";
+    bootstrap.profiles[0]!.presentationName = "Ming Zhao";
     bootstrap.usageByProfile.personal = weeklyOnlyUsage({
       remainingPercent: 42,
       usedPercent: 58,
@@ -86,6 +87,7 @@ describe("FloatBall", () => {
   it("renders a circular percent indicator with an identity title", async () => {
     const bootstrap = bootstrapWithTwoProfiles();
     bootstrap.profiles[0]!.accountDisplayName = "Ming Zhao";
+    bootstrap.profiles[0]!.presentationName = "Ming Zhao";
     bootstrap.usageByProfile.personal = weeklyOnlyUsage({
       remainingPercent: 42,
       usedPercent: 58,

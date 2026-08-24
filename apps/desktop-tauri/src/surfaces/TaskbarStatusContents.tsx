@@ -1,6 +1,6 @@
 import type React from "react";
 import type { CSSProperties } from "react";
-import ChatGptMark from "../theme/ChatGptMark";
+import AccountAvatar from "../components/AccountAvatar";
 import { type TaskbarStatusPresentation } from "./taskbarStatusPresentation";
 
 export type TaskbarStatusContentsMode = "visible" | "measurement";
@@ -24,6 +24,8 @@ export function TaskbarStatusContents({
   const inertProps = visible ? {} : ({ inert: "" } as Record<string, string>);
   const {
     ariaLabel,
+    avatarAssetUri,
+    avatarKind,
     compactIdentity,
     density,
     displayName,
@@ -63,7 +65,15 @@ export function TaskbarStatusContents({
       >
         {showIcon ? (
           <span className="taskbar-status__avatar" aria-hidden="true">
-            <ChatGptMark className="taskbar-status__avatar-mark" />
+            <AccountAvatar
+              identity={{
+                presentationName: displayName,
+                avatarKind,
+                avatarAssetUri,
+              }}
+              size={22}
+              decorative
+            />
           </span>
         ) : null}
         {showAccount && compactIdentity ? (

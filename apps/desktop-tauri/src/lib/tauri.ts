@@ -10,6 +10,7 @@ import type {
   ManagedLoginStateDto,
   ManualUpdateResult,
   MenuPreferencesPatchDto,
+  PanelPreferencesPatchDto,
   NotificationCapabilityDto,
   ProfileUsageStateDto,
   StatusSurfaceKind,
@@ -91,6 +92,9 @@ export const updateSettings = (patch: SettingsPatchDto) =>
   invoke<AppSettingsDto>(commands.updateSettings, {
     patch: patch as Record<string, unknown>,
   });
+
+export const applyPanelPreferences = (preferences: PanelPreferencesPatchDto) =>
+  updateSettings({ panel: preferences });
 
 export const applyMenuPreferences = (preferences: MenuPreferencesPatchDto) =>
   invoke<AppSettingsDto>(commands.applyMenuPreferences, {

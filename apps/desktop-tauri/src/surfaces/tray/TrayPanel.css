@@ -804,3 +804,33 @@
   width: 100%;
   height: 100%;
 }
+
+.tray-panel.tray-panel--macos[data-density="compact"] {
+  gap: 6px;
+  padding: 10px;
+}
+
+.tray-panel--macos[data-density="compact"] .tray-panel__header {
+  padding-block: 2px 8px;
+}
+
+.tray-panel--macos[data-density="compact"] .tray-stack .tray-region,
+.tray-panel--macos[data-density="compact"] .usage-status,
+.tray-panel--macos[data-density="compact"] .tray-actions {
+  padding: 8px 10px;
+}
+
+.tray-panel.tray-panel--macos[data-density="standard"] {
+  gap: 12px;
+  padding: 16px;
+}
+
+.tray-panel--macos[data-density="standard"] .tray-panel__header {
+  padding-block: 6px 12px;
+}
+
+.tray-panel--macos[data-density="standard"] .tray-stack .tray-region,
+.tray-panel--macos[data-density="standard"] .usage-status,
+.tray-panel--macos[data-density="standard"] .tray-actions {
+  padding: 12px 14px;
+}

@@ -20,8 +20,9 @@ use codexbar::core::{
 };
 use codexbar::storage::{
     AppSettings, DisplayMode, LanguagePreference, MenuPreferences, MenuPreferencesPatch,
-    NotificationPreferences, NotificationPreferencesPatch, SettingsPatch, TaskbarDensity,
-    TaskbarPresentationPreferences, TaskbarTrayPreferencesPatch, ThemePreference,
+    NotificationPreferences, NotificationPreferencesPatch, PanelDensity, PanelPreferences,
+    PanelPreferencesPatch, SettingsPatch, TaskbarDensity, TaskbarPresentationPreferences,
+    TaskbarTrayPreferencesPatch, ThemePreference,
 };
 
 use crate::state::AppState;
@@ -52,6 +53,7 @@ pub struct AppSettingsDto {
     pub notifications: NotificationPreferencesDto,
     pub taskbar_presentation: TaskbarPresentationPreferencesDto,
     pub menu: MenuPreferencesDto,
+    pub panel: PanelPreferencesDto,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -86,6 +88,40 @@ impl MenuPreferencesDto {
 impl Default for MenuPreferencesDto {
     fn default() -> Self {
         Self::from_preferences(&MenuPreferences::default())
+    }
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PanelPreferencesDto {
+    pub density: &'static str,
+    pub show_reset_time: bool,
+    pub show_freshness: bool,
+    pub show_account_status: bool,
+    pub actions: MenuLayoutDto,
+}
+
+impl PanelPreferencesDto {
+    fn from_preferences(preferences: &PanelPreferences) -> Self {
+        Self {
+            density: match preferences.density {
+                PanelDensity::Compact | PanelDensity::Unknown => "compact",
+                PanelDensity::Standard => "standard",
+            },
+            show_reset_time: preferences.show_reset_time,
+            show_freshness: preferences.show_freshness,
+            show_account_status: preferences.show_account_status,
+            actions: MenuLayoutDto {
+                order: preferences.actions.order.clone(),
+                hidden: preferences.actions.hidden.clone(),
+            },
+        }
+    }
+}
+
+impl Default for PanelPreferencesDto {
+    fn default() -> Self {
+        Self::from_preferences(&PanelPreferences::default())
     }
 }
 
@@ -179,6 +215,7 @@ impl Default for AppSettingsDto {
             notifications: NotificationPreferencesDto::default(),
             taskbar_presentation: TaskbarPresentationPreferencesDto::default(),
             menu: MenuPreferencesDto::default(),
+            panel: PanelPreferencesDto::default(),
         }
     }
 }
@@ -205,6 +242,7 @@ pub struct SettingsPatchDto {
     pub legacy_float_ball_glow: Option<u8>,
     pub notifications: Option<NotificationPreferencesPatchDto>,
     pub taskbar_presentation: Option<TaskbarPresentationPreferencesPatchDto>,
+    pub panel: Option<PanelPreferencesPatchDto>,
 }
 
 #[derive(Debug, Clone, Default, Deserialize)]
@@ -219,6 +257,16 @@ pub struct MenuLayoutPatchDto {
 pub struct MenuPreferencesPatchDto {
     pub native_tray: Option<MenuLayoutPatchDto>,
     pub tray_panel: Option<MenuLayoutPatchDto>,
+}
+
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PanelPreferencesPatchDto {
+    pub density: Option<String>,
+    pub show_reset_time: Option<bool>,
+    pub show_freshness: Option<bool>,
+    pub show_account_status: Option<bool>,
+    pub actions: Option<MenuLayoutPatchDto>,
 }
 
 impl MenuPreferencesPatchDto {
@@ -299,6 +347,7 @@ impl AppSettingsDto {
                 &settings.taskbar_presentation,
             ),
             menu: MenuPreferencesDto::from_preferences(&settings.menu),
+            panel: PanelPreferencesDto::from_preferences(&settings.panel),
         }
     }
 }
@@ -339,6 +388,10 @@ impl SettingsPatchDto {
             .taskbar_presentation
             .map(TaskbarPresentationPreferencesPatchDto::into_patch)
             .transpose()?;
+        let panel = self
+            .panel
+            .map(PanelPreferencesPatchDto::into_patch)
+            .transpose()?;
         Ok(SettingsPatch {
             start_at_login: self.autostart_enabled,
             refresh_interval_seconds: self.refresh_interval_seconds,
@@ -357,6 +410,7 @@ impl SettingsPatchDto {
             notifications,
             taskbar_tray,
             menu: None,
+            panel,
         })
     }
 }
@@ -412,6 +466,31 @@ impl TaskbarPresentationPreferencesPatchDto {
             tooltip_reset_date: None,
             tooltip_updated_at: None,
             hide_status_surfaces_in_fullscreen: self.hide_status_surfaces_in_fullscreen,
+        })
+    }
+}
+
+impl PanelPreferencesPatchDto {
+    fn into_patch(self) -> Result<PanelPreferencesPatch, String> {
+        let density = self
+            .density
+            .map(|value| match value.as_str() {
+                "compact" => Ok(PanelDensity::Compact),
+                "standard" => Ok(PanelDensity::Standard),
+                _ => Err("unsupported panel density".to_string()),
+            })
+            .transpose()?;
+        Ok(PanelPreferencesPatch {
+            density,
+            show_reset_time: self.show_reset_time,
+            show_freshness: self.show_freshness,
+            show_account_status: self.show_account_status,
+            actions: self
+                .actions
+                .map(|patch| codexbar::storage::MenuLayoutPatch {
+                    order: patch.order,
+                    hidden: patch.hidden,
+                }),
         })
     }
 }
@@ -987,6 +1066,33 @@ mod tests {
         assert_eq!(
             invalid_density.into_patch().unwrap_err(),
             "unsupported taskbar density"
+        );
+    }
+
+    #[test]
+    fn panel_preferences_serialize_and_patch_through_the_settings_bridge() {
+        let settings = AppSettingsDto::from_settings(&AppSettings::default());
+        let json = serde_json::to_value(settings).unwrap();
+        assert_eq!(json["panel"]["density"], "compact");
+        assert_eq!(json["panel"]["actions"]["order"][0], "refresh");
+
+        let patch: SettingsPatchDto = serde_json::from_str(
+            r#"{"panel":{"density":"standard","showFreshness":false,"actions":{"order":["quit","refresh"]}}}"#,
+        )
+        .unwrap();
+        let mapped = patch.into_patch().unwrap().panel.unwrap();
+        assert_eq!(mapped.density, Some(PanelDensity::Standard));
+        assert_eq!(mapped.show_freshness, Some(false));
+        assert_eq!(
+            mapped.actions.unwrap().order,
+            Some(vec!["quit".to_string(), "refresh".to_string()])
+        );
+
+        let invalid: SettingsPatchDto =
+            serde_json::from_str(r#"{"panel":{"density":"wide"}}"#).unwrap();
+        assert_eq!(
+            invalid.into_patch().unwrap_err(),
+            "unsupported panel density"
         );
     }
 

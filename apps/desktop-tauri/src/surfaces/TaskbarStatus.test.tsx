@@ -55,24 +55,28 @@ describe("TaskbarStatus", () => {
   it("renders visible weekly content without an in-page measurement replica", async () => {
     const bootstrap = bootstrapWithTwoProfiles();
     bootstrap.profiles[0]!.accountDisplayName = "ProofUser@example.com";
+    bootstrap.profiles[0]!.accountEmail = "stack@example.com";
+    bootstrap.profiles[0]!.presentationName = "stack";
+    bootstrap.profiles[0]!.avatarKind = "official";
+    bootstrap.profiles[0]!.avatarAssetUri =
+      "account-avatar://profile/a?rev=1";
     bootstrap.usageByProfile.personal = weeklyOnlyUsage();
-    let resolveBootstrap!: (value: typeof bootstrap) => void;
-    const bootstrapPromise = new Promise<typeof bootstrap>((resolve) => {
-      resolveBootstrap = resolve;
-    });
-    invokeMock.mockResolvedValue(bootstrapPromise);
+    invokeMock.mockResolvedValue(bootstrap);
     render(<TaskbarStatus />);
 
     const visible = await screen.findByTestId("taskbar-status-visible");
-    resolveBootstrap(bootstrap);
-    const main = await within(visible).findByRole("button", { name: /ProofUser@example\.com/ });
+    const main = await within(visible).findByRole("button", { name: /stack/ });
 
-    expect(within(visible).getByText("ProofU")).toBeVisible();
+    expect(within(visible).getByText("stack")).toBeVisible();
     expect(within(visible).getByText(/周 98%|Wk 98%/)).toBeVisible();
     expect(within(visible).getByText("8/20")).toBeVisible();
     expect(within(visible).queryByText(/5H/)).not.toBeInTheDocument();
-    expect(main).toHaveAttribute("title", "ProofUser@example.com");
-    expect(within(visible).queryByText("ProofUser@example.com")).not.toBeInTheDocument();
+    expect(main).toHaveAttribute("title", "stack");
+    expect(within(visible).queryByText("stack@example.com")).not.toBeInTheDocument();
+    expect(visible.querySelector("img")).toHaveAttribute(
+      "src",
+      "account-avatar://profile/a?rev=1",
+    );
 
     expect(screen.queryByTestId("taskbar-status-measurement")).toBeNull();
     expect(screen.getAllByRole("button")).toHaveLength(1);
@@ -126,6 +130,7 @@ describe("TaskbarStatus", () => {
   it("renders only enabled taskbar fields without phantom gaps", async () => {
     const bootstrap = bootstrapWithTwoProfiles();
     bootstrap.profiles[0]!.accountDisplayName = "ProofUser";
+    bootstrap.profiles[0]!.presentationName = "ProofUser";
     bootstrap.usageByProfile.personal = weeklyOnlyUsage();
     bootstrap.settings.taskbarPresentation = {
       showTaskbarIcon: false,
@@ -155,6 +160,7 @@ describe("TaskbarStatus", () => {
   it("omits account and reset while keeping the weekly metric", async () => {
     const bootstrap = bootstrapWithTwoProfiles();
     bootstrap.profiles[0]!.accountDisplayName = "ProofUser";
+    bootstrap.profiles[0]!.presentationName = "ProofUser";
     bootstrap.usageByProfile.personal = weeklyOnlyUsage();
     bootstrap.settings.taskbarPresentation = {
       ...bootstrap.settings.taskbarPresentation,
@@ -174,6 +180,7 @@ describe("TaskbarStatus", () => {
     window.history.replaceState({}, "", "/?measurement=external");
     const bootstrap = bootstrapWithTwoProfiles();
     bootstrap.profiles[0]!.accountDisplayName = "ProofUser@example.com";
+    bootstrap.profiles[0]!.presentationName = "ProofUser";
     bootstrap.usageByProfile.personal = weeklyOnlyUsage();
     invokeMock.mockResolvedValue(bootstrap);
 

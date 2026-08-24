@@ -10,6 +10,7 @@ interface QuotaCardProps {
   copy: TrayCopy;
   locale: string;
   timeZone: string;
+  showResetTime?: boolean;
 }
 
 function clampPercent(value: number): number {
@@ -29,6 +30,7 @@ export default function QuotaCard({
   copy,
   locale,
   timeZone,
+  showResetTime = true,
 }: QuotaCardProps) {
   const percent = clampPercent(
     displayMode === "remaining" ? window.remainingPercent : window.usedPercent,
@@ -41,17 +43,25 @@ export default function QuotaCard({
     window.windowDurationMinutes === null
       ? null
       : formatDurationMinutes(window.windowDurationMinutes, locale);
-  const accessibleName = [label, displayedPercent + "% " + modeLabel, resetText].join(", ");
+  const accessibleName = [
+    label,
+    displayedPercent + "% " + modeLabel,
+    showResetTime ? resetText : null,
+  ]
+    .filter(Boolean)
+    .join(", ");
 
   return (
     <section className="tray-region quota-card" role="region" aria-label={label}>
       <div className="quota-card__row">
         <div className="quota-card__copy">
           <h2>{label}</h2>
-          <p className="quota-card__reset">
-            {resetText}
-            {duration ? " · " + duration : ""}
-          </p>
+          {showResetTime ? (
+            <p className="quota-card__reset">
+              {resetText}
+              {duration ? " · " + duration : ""}
+            </p>
+          ) : null}
         </div>
         <p className="quota-card__value">
           <strong>{displayedPercent}% {modeLabel}</strong>

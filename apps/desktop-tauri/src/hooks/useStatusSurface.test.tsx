@@ -45,6 +45,7 @@ describe("useStatusSurface", () => {
   it("derives the selected account identity and remaining percentage", async () => {
     const bootstrap = bootstrapWithTwoProfiles();
     bootstrap.profiles[0]!.accountDisplayName = "Ming Zhao";
+    bootstrap.profiles[0]!.presentationName = "Ming Zhao";
     bootstrap.usageByProfile.personal = weeklyOnlyUsage({
       remainingPercent: 42,
       usedPercent: 58,
@@ -59,15 +60,16 @@ describe("useStatusSurface", () => {
     expect(result.current.status).toBe("ready");
   });
 
-  it("falls back from display name to account email", async () => {
+  it("uses the safe presentation name without falling back to account email", async () => {
     const bootstrap = bootstrapWithTwoProfiles();
     bootstrap.profiles[0]!.accountDisplayName = null;
     bootstrap.profiles[0]!.accountEmail = "ming@example.com";
+    bootstrap.profiles[0]!.presentationName = "ming";
     invokeMock.mockResolvedValue(bootstrap);
 
     const { result } = renderHook(() => useStatusSurface());
 
-    await waitFor(() => expect(result.current.displayName).toBe("ming@example.com"));
+    await waitFor(() => expect(result.current.displayName).toBe("ming"));
   });
 
   it("distinguishes a signed-in account with no displayable identity", () => {
@@ -75,6 +77,7 @@ describe("useStatusSurface", () => {
     const profile = bootstrap.profiles[0]!;
     profile.accountDisplayName = null;
     profile.accountEmail = null;
+    profile.presentationName = "";
     profile.accountStatus = "signedIn";
 
     expect(profileDisplayName(profile)).toBe("已登录（名称不可用）");
@@ -83,6 +86,7 @@ describe("useStatusSurface", () => {
   it("uses explicit signed-out and unavailable identity states", () => {
     const bootstrap = bootstrapWithTwoProfiles();
     const profile = bootstrap.profiles[0]!;
+    profile.presentationName = "";
 
     profile.accountStatus = "signedOut";
     expect(profileDisplayName(profile)).toBe("未登录");
