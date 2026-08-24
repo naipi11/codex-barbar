@@ -360,6 +360,7 @@ impl SettingsPatchDto {
             notifications,
             taskbar_tray,
             menu: None,
+            ..SettingsPatch::default()
         })
     }
 }
@@ -993,6 +994,23 @@ mod tests {
             invalid_icon_mode.into_patch().unwrap_err(),
             "unsupported tray icon mode"
         );
+    }
+
+    #[test]
+    fn legacy_surface_patch_keeps_v2_storage_fields_unset() {
+        let patch: SettingsPatchDto = serde_json::from_str(
+            r#"{"taskbarStatusOpacity":20,"floatBallOpacity":40,"floatBallGlow":60}"#,
+        )
+        .unwrap();
+
+        let mapped = patch.into_patch().unwrap();
+
+        assert_eq!(mapped.taskbar_status_opacity, Some(20));
+        assert_eq!(mapped.float_ball_opacity, Some(40));
+        assert_eq!(mapped.float_ball_glow, Some(60));
+        assert_eq!(mapped.taskbar_transparency_percent, None);
+        assert_eq!(mapped.float_ball_transparency_percent, None);
+        assert_eq!(mapped.float_ball_glow_percent, None);
     }
 
     #[test]

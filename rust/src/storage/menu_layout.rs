@@ -17,8 +17,12 @@ pub const NATIVE_TRAY_ITEMS: [&str; 7] = [
     "quit",
 ];
 
-/// Tray-panel quick-action registry in default order.
-pub const TRAY_PANEL_ACTIONS: [&str; 5] = ["refresh", "open_usage", "settings", "dismiss", "quit"];
+/// Panel quick-action registry in default order.
+pub const PANEL_ACTIONS: [&str; 5] = ["refresh", "open_usage", "settings", "dismiss", "quit"];
+
+/// Legacy name retained for compatibility with callers that have not moved to
+/// panel terminology yet.
+pub const TRAY_PANEL_ACTIONS: [&str; 5] = PANEL_ACTIONS;
 
 /// Native items that must always be visible and reachable.
 pub const REQUIRED_NATIVE_TRAY_ITEMS: [&str; 2] = ["settings", "quit"];
@@ -89,6 +93,16 @@ impl MenuLayout {
     }
 }
 
+/// Normalize panel quick actions so Refresh is always visible and first.
+pub fn normalize_panel_actions(layout: &mut MenuLayout) {
+    let mut order = normalize_layout(layout, &PANEL_ACTIONS, &["refresh"]);
+    order.retain(|id| id != "refresh");
+    order.insert(0, "refresh".to_string());
+    layout.order = order;
+    layout.hidden = layout.sanitized_hidden(&PANEL_ACTIONS);
+    layout.hidden.retain(|id| id != "refresh");
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
 pub struct MenuPreferences {
@@ -119,8 +133,7 @@ impl MenuPreferences {
             &REQUIRED_NATIVE_TRAY_ITEMS,
         );
         self.native_tray.hidden = self.native_tray.sanitized_hidden(&NATIVE_TRAY_ITEMS);
-        self.tray_panel.order = normalize_layout(&self.tray_panel, &TRAY_PANEL_ACTIONS, &[]);
-        self.tray_panel.hidden = self.tray_panel.sanitized_hidden(&TRAY_PANEL_ACTIONS);
+        normalize_panel_actions(&mut self.tray_panel);
     }
 }
 
@@ -131,7 +144,7 @@ pub struct MenuLayoutPatch {
 }
 
 impl MenuLayoutPatch {
-    fn apply_to(self, layout: &mut MenuLayout) {
+    pub(crate) fn apply_to(self, layout: &mut MenuLayout) {
         if let Some(order) = self.order {
             layout.order = order;
         }
@@ -148,7 +161,7 @@ pub struct MenuPreferencesPatch {
 }
 
 impl MenuPreferencesPatch {
-    pub(crate) fn apply_to(self, preferences: &mut MenuPreferences) {
+    pub fn apply_to(self, preferences: &mut MenuPreferences) {
         if let Some(native_tray) = self.native_tray {
             native_tray.apply_to(&mut preferences.native_tray);
         }
@@ -161,6 +174,21 @@ impl MenuPreferencesPatch {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn panel_layout_restores_refresh_when_hidden_or_missing() {
+        let mut layout = MenuLayout {
+            order: vec!["quit".into()],
+            hidden: vec!["refresh".into()],
+        };
+
+        normalize_panel_actions(&mut layout);
+
+        assert_eq!(
+            layout.normalized_order(&PANEL_ACTIONS, &["refresh"])[0],
+            "refresh"
+        );
+    }
 
     #[test]
     fn known_order_unknown_ids_duplicates_and_hidden_required_are_normalized() {

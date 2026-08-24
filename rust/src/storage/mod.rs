@@ -4,6 +4,7 @@ pub mod account_repository;
 pub mod database;
 pub mod menu_layout;
 pub mod migrations;
+pub mod settings_migration;
 pub mod settings_repository;
 pub mod usage_repository;
 
@@ -12,16 +13,21 @@ use std::sync::Arc;
 
 use crate::core::ProfileId;
 
+pub const SETTINGS_SCHEMA_VERSION: u8 = 2;
+
 pub use account_repository::AccountRepository;
 pub use database::{AppDatabase, StorageError};
 pub use menu_layout::{
     MenuLayout, MenuLayoutPatch, MenuPreferences, MenuPreferencesPatch, NATIVE_TRAY_ITEMS,
-    REQUIRED_NATIVE_TRAY_ITEMS, TRAY_PANEL_ACTIONS, normalize_layout,
+    PANEL_ACTIONS, REQUIRED_NATIVE_TRAY_ITEMS, TRAY_PANEL_ACTIONS, default_visible_order,
+    normalize_layout, normalize_panel_actions,
 };
+pub use settings_migration::migrate_settings_json;
 pub use settings_repository::{
     AppSettings, DisplayMode, LanguagePreference, NotificationPreferences,
-    NotificationPreferencesPatch, SettingsPatch, SettingsRepository, TaskbarDensity,
-    TaskbarTrayPreferences, TaskbarTrayPreferencesPatch, ThemePreference, TrayIconMode,
+    NotificationPreferencesPatch, PanelDensity, PanelPreferences, SettingsPatch,
+    SettingsRepository, SurfaceAppearancePreferences, TaskbarDensity, TaskbarTrayPreferences,
+    TaskbarTrayPreferencesPatch, ThemePreference, TrayIconMode,
 };
 pub use usage_repository::{SqliteUsageRepository, UsageCacheKey, UsageRepository};
 

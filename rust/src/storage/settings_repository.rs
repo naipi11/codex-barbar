@@ -1,20 +1,23 @@
-//! Persistent V1 application settings.
+//! Persistent V2 application settings.
 
 use std::sync::Arc;
 
 use rusqlite::{OptionalExtension, params};
 use serde::{Deserialize, Serialize};
 
-use super::{AppDatabase, MenuPreferences, MenuPreferencesPatch, StorageError};
+use super::{
+    AppDatabase, MenuLayout, MenuPreferences, MenuPreferencesPatch, StorageError,
+    migrate_settings_json, normalize_panel_actions,
+};
 
 const SETTINGS_KEY: &str = "app_settings";
 const ALLOWED_REFRESH_INTERVALS: [u64; 5] = [0, 60, 300, 900, 1800];
-const DEFAULT_SURFACE_OPACITY: u8 = 20;
-const MAX_SURFACE_OPACITY: u8 = 80;
+const DEFAULT_SURFACE_TRANSPARENCY_PERCENT: u8 = 25;
+const MAX_PERCENT: u8 = 100;
 const MAX_NOTIFICATION_PERCENT: u8 = 100;
 
-const fn default_surface_opacity() -> u8 {
-    DEFAULT_SURFACE_OPACITY
+const fn default_surface_transparency_percent() -> u8 {
+    DEFAULT_SURFACE_TRANSPARENCY_PERCENT
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -165,10 +168,67 @@ pub struct TaskbarTrayPreferencesPatch {
     pub hide_status_surfaces_in_fullscreen: Option<bool>,
 }
 
+/// Visual preferences shared by the taskbar capsule and floating ball.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct SurfaceAppearancePreferences {
+    #[serde(default = "default_surface_transparency_percent")]
+    pub taskbar_transparency_percent: u8,
+    #[serde(default = "default_surface_transparency_percent")]
+    pub float_ball_transparency_percent: u8,
+    #[serde(default = "default_surface_transparency_percent")]
+    pub float_ball_glow_percent: u8,
+}
+
+impl Default for SurfaceAppearancePreferences {
+    fn default() -> Self {
+        Self {
+            taskbar_transparency_percent: DEFAULT_SURFACE_TRANSPARENCY_PERCENT,
+            float_ball_transparency_percent: DEFAULT_SURFACE_TRANSPARENCY_PERCENT,
+            float_ball_glow_percent: DEFAULT_SURFACE_TRANSPARENCY_PERCENT,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum PanelDensity {
+    Compact,
+    Standard,
+    #[serde(other)]
+    Unknown,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct PanelPreferences {
+    pub density: PanelDensity,
+    pub show_reset_time: bool,
+    pub show_freshness: bool,
+    pub show_account_status: bool,
+    pub actions: MenuLayout,
+}
+
+impl Default for PanelPreferences {
+    fn default() -> Self {
+        Self {
+            density: PanelDensity::Compact,
+            show_reset_time: true,
+            show_freshness: true,
+            show_account_status: true,
+            actions: MenuLayout {
+                order: super::default_visible_order(&super::PANEL_ACTIONS),
+                hidden: Vec::new(),
+            },
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 #[serde(default)]
 pub struct AppSettings {
+    pub schema_version: u8,
     pub start_at_login: bool,
     pub refresh_interval_seconds: u64,
     pub display_mode: DisplayMode,
@@ -177,20 +237,26 @@ pub struct AppSettings {
     pub codex_executable_override: Option<String>,
     pub taskbar_status_enabled: bool,
     pub float_ball_enabled: bool,
-    #[serde(default = "default_surface_opacity")]
+    #[serde(flatten)]
+    pub surface_appearance: SurfaceAppearancePreferences,
+    #[doc(hidden)]
     pub taskbar_status_opacity: u8,
-    #[serde(default = "default_surface_opacity")]
+    #[doc(hidden)]
     pub float_ball_opacity: u8,
-    #[serde(default = "default_surface_opacity")]
+    #[doc(hidden)]
     pub float_ball_glow: u8,
     pub notifications: NotificationPreferences,
+    #[doc(hidden)]
     pub taskbar_tray: TaskbarTrayPreferences,
+    #[doc(hidden)]
     pub menu: MenuPreferences,
+    pub panel: PanelPreferences,
 }
 
 impl Default for AppSettings {
     fn default() -> Self {
         Self {
+            schema_version: super::SETTINGS_SCHEMA_VERSION,
             start_at_login: true,
             refresh_interval_seconds: 300,
             display_mode: DisplayMode::Remaining,
@@ -199,12 +265,14 @@ impl Default for AppSettings {
             codex_executable_override: None,
             taskbar_status_enabled: false,
             float_ball_enabled: true,
-            taskbar_status_opacity: DEFAULT_SURFACE_OPACITY,
-            float_ball_opacity: DEFAULT_SURFACE_OPACITY,
-            float_ball_glow: DEFAULT_SURFACE_OPACITY,
+            surface_appearance: SurfaceAppearancePreferences::default(),
+            taskbar_status_opacity: 20,
+            float_ball_opacity: 20,
+            float_ball_glow: 20,
             notifications: NotificationPreferences::default(),
             taskbar_tray: TaskbarTrayPreferences::default(),
             menu: MenuPreferences::default(),
+            panel: PanelPreferences::default(),
         }
     }
 }
@@ -219,11 +287,19 @@ pub struct SettingsPatch {
     pub codex_executable_override: Option<Option<String>>,
     pub taskbar_status_enabled: Option<bool>,
     pub float_ball_enabled: Option<bool>,
+    pub taskbar_transparency_percent: Option<u8>,
+    pub float_ball_transparency_percent: Option<u8>,
+    pub float_ball_glow_percent: Option<u8>,
+    #[doc(hidden)]
     pub taskbar_status_opacity: Option<u8>,
+    #[doc(hidden)]
     pub float_ball_opacity: Option<u8>,
+    #[doc(hidden)]
     pub float_ball_glow: Option<u8>,
     pub notifications: Option<NotificationPreferencesPatch>,
+    #[doc(hidden)]
     pub taskbar_tray: Option<TaskbarTrayPreferencesPatch>,
+    #[doc(hidden)]
     pub menu: Option<MenuPreferencesPatch>,
 }
 
@@ -294,6 +370,16 @@ impl SettingsPatch {
             ));
         }
         for value in [
+            self.taskbar_transparency_percent,
+            self.float_ball_transparency_percent,
+            self.float_ball_glow_percent,
+        ]
+        .into_iter()
+        .flatten()
+        {
+            validate_percent(value, "SETTINGS_SURFACE_TRANSPARENCY_INVALID")?;
+        }
+        for value in [
             self.taskbar_status_opacity,
             self.float_ball_opacity,
             self.float_ball_glow,
@@ -301,7 +387,7 @@ impl SettingsPatch {
         .into_iter()
         .flatten()
         {
-            if value > MAX_SURFACE_OPACITY {
+            if value > 80 {
                 return Err(StorageError::new(
                     crate::core::AppErrorKind::StorageFailure,
                     "SETTINGS_SURFACE_OPACITY_INVALID",
@@ -367,7 +453,7 @@ impl NotificationPreferencesPatch {
 }
 
 impl TaskbarTrayPreferencesPatch {
-    fn apply_to(self, preferences: &mut TaskbarTrayPreferences) {
+    pub fn apply_to(self, preferences: &mut TaskbarTrayPreferences) {
         if let Some(value) = self.show_taskbar_icon {
             preferences.show_taskbar_icon = value;
         }
@@ -434,13 +520,22 @@ impl AppSettings {
             self.float_ball_enabled = value;
         }
         if let Some(value) = patch.taskbar_status_opacity {
-            self.taskbar_status_opacity = value;
+            self.surface_appearance.taskbar_transparency_percent = scale_legacy_percent(value);
         }
         if let Some(value) = patch.float_ball_opacity {
-            self.float_ball_opacity = value;
+            self.surface_appearance.float_ball_transparency_percent = scale_legacy_percent(value);
         }
         if let Some(value) = patch.float_ball_glow {
-            self.float_ball_glow = value;
+            self.surface_appearance.float_ball_glow_percent = scale_legacy_percent(value);
+        }
+        if let Some(value) = patch.taskbar_transparency_percent {
+            self.surface_appearance.taskbar_transparency_percent = value;
+        }
+        if let Some(value) = patch.float_ball_transparency_percent {
+            self.surface_appearance.float_ball_transparency_percent = value;
+        }
+        if let Some(value) = patch.float_ball_glow_percent {
+            self.surface_appearance.float_ball_glow_percent = value;
         }
         if let Some(notifications) = patch.notifications {
             notifications.apply_to(&mut self.notifications);
@@ -454,10 +549,44 @@ impl AppSettings {
     }
 
     fn normalize(&mut self) {
+        self.schema_version = super::SETTINGS_SCHEMA_VERSION;
+        self.surface_appearance.taskbar_transparency_percent = self
+            .surface_appearance
+            .taskbar_transparency_percent
+            .min(MAX_PERCENT);
+        self.surface_appearance.float_ball_transparency_percent = self
+            .surface_appearance
+            .float_ball_transparency_percent
+            .min(MAX_PERCENT);
+        self.surface_appearance.float_ball_glow_percent = self
+            .surface_appearance
+            .float_ball_glow_percent
+            .min(MAX_PERCENT);
+        self.taskbar_status_opacity =
+            scale_v2_percent(self.surface_appearance.taskbar_transparency_percent);
+        self.float_ball_opacity =
+            scale_v2_percent(self.surface_appearance.float_ball_transparency_percent);
+        self.float_ball_glow = scale_v2_percent(self.surface_appearance.float_ball_glow_percent);
         self.menu.normalize();
+        if self.panel.density == PanelDensity::Unknown {
+            self.panel.density = PanelDensity::Compact;
+        }
+        normalize_panel_actions(&mut self.panel.actions);
     }
 
     fn validate(&self) -> Result<(), StorageError> {
+        validate_percent(
+            self.surface_appearance.taskbar_transparency_percent,
+            "SETTINGS_SURFACE_TRANSPARENCY_INVALID",
+        )?;
+        validate_percent(
+            self.surface_appearance.float_ball_transparency_percent,
+            "SETTINGS_SURFACE_TRANSPARENCY_INVALID",
+        )?;
+        validate_percent(
+            self.surface_appearance.float_ball_glow_percent,
+            "SETTINGS_SURFACE_TRANSPARENCY_INVALID",
+        )?;
         if self.notifications.danger_remaining_percent
             >= self.notifications.warning_remaining_percent
             || self.notifications.warning_remaining_percent > MAX_NOTIFICATION_PERCENT
@@ -466,6 +595,24 @@ impl AppSettings {
         }
         Ok(())
     }
+}
+
+fn scale_legacy_percent(value: u8) -> u8 {
+    (((u16::from(value) * 100) + 40) / 80) as u8
+}
+
+fn scale_v2_percent(value: u8) -> u8 {
+    (((u16::from(value) * 80) + 50) / 100) as u8
+}
+
+fn validate_percent(value: u8, code: &'static str) -> Result<(), StorageError> {
+    (value <= MAX_PERCENT).then_some(()).ok_or_else(|| {
+        StorageError::new(
+            crate::core::AppErrorKind::StorageFailure,
+            code,
+            "percentage must be between 0 and 100",
+        )
+    })
 }
 
 fn notification_thresholds_error() -> StorageError {
@@ -488,7 +635,15 @@ fn load_from_connection(connection: &rusqlite::Connection) -> Result<AppSettings
     let Some(value) = value else {
         return Ok(AppSettings::default());
     };
-    let mut settings = serde_json::from_str::<AppSettings>(&value).map_err(|error| {
+    let value = serde_json::from_str(&value).map_err(|error| {
+        StorageError::new(
+            crate::core::AppErrorKind::StorageFailure,
+            "SETTINGS_DECODE_FAILED",
+            error.to_string(),
+        )
+    })?;
+    let (value, _) = migrate_settings_json(value)?;
+    let mut settings = serde_json::from_value::<AppSettings>(value).map_err(|error| {
         StorageError::new(
             crate::core::AppErrorKind::StorageFailure,
             "SETTINGS_DECODE_FAILED",
@@ -510,10 +665,31 @@ fn storage_error(error: rusqlite::Error) -> StorageError {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::storage::MenuLayoutPatch;
+    use crate::storage::{SETTINGS_SCHEMA_VERSION, migrate_settings_json};
     use std::sync::Arc;
+
     #[test]
-    fn expanded_settings_json_round_trips_every_preference() {
+    fn schema_v1_visual_values_scale_once_to_v2() {
+        let input = serde_json::json!({
+            "taskbarStatusOpacity": 80,
+            "floatBallOpacity": 20,
+            "floatBallGlow": 0,
+        });
+
+        let (migrated, changed) = migrate_settings_json(input).unwrap();
+
+        assert!(changed);
+        assert_eq!(migrated["taskbarTransparencyPercent"], 100);
+        assert_eq!(migrated["floatBallTransparencyPercent"], 25);
+        assert_eq!(migrated["floatBallGlowPercent"], 0);
+        assert_eq!(migrated["schemaVersion"], SETTINGS_SCHEMA_VERSION);
+
+        let (reloaded, changed_again) = migrate_settings_json(migrated).unwrap();
+        assert!(!changed_again);
+        assert_eq!(reloaded["taskbarTransparencyPercent"], 100);
+    }
+    #[test]
+    fn expanded_settings_json_round_trips_v2_preferences() {
         let (repository, _) = settings_fixture();
         let updated = repository
             .update(SettingsPatch {
@@ -524,9 +700,9 @@ mod tests {
                 language: Some(LanguagePreference::ZhCn),
                 taskbar_status_enabled: Some(true),
                 float_ball_enabled: Some(false),
-                taskbar_status_opacity: Some(0),
-                float_ball_opacity: Some(80),
-                float_ball_glow: Some(40),
+                taskbar_transparency_percent: Some(0),
+                float_ball_transparency_percent: Some(100),
+                float_ball_glow_percent: Some(50),
                 notifications: Some(NotificationPreferencesPatch {
                     enabled: Some(true),
                     play_sound: Some(false),
@@ -539,27 +715,6 @@ mod tests {
                     warning_remaining_percent: Some(70),
                     danger_remaining_percent: Some(30),
                 }),
-                taskbar_tray: Some(TaskbarTrayPreferencesPatch {
-                    show_taskbar_icon: Some(false),
-                    show_taskbar_account: Some(true),
-                    show_weekly_label: Some(false),
-                    show_weekly_percent: Some(true),
-                    show_reset_date: Some(false),
-                    density: Some(TaskbarDensity::Standard),
-                    tray_icon_mode: Some(TrayIconMode::Monochrome),
-                    tooltip_account: Some(false),
-                    tooltip_weekly: Some(true),
-                    tooltip_reset_date: Some(false),
-                    tooltip_updated_at: Some(true),
-                    hide_status_surfaces_in_fullscreen: Some(false),
-                }),
-                menu: Some(MenuPreferencesPatch {
-                    native_tray: Some(MenuLayoutPatch {
-                        order: Some(vec!["quit".into(), "settings".into()]),
-                        hidden: None,
-                    }),
-                    tray_panel: None,
-                }),
                 ..SettingsPatch::default()
             })
             .unwrap();
@@ -569,17 +724,15 @@ mod tests {
         assert_eq!(reloaded.theme, ThemePreference::Dark);
         assert_eq!(reloaded.language, LanguagePreference::ZhCn);
         assert_eq!(reloaded.notifications.warning_remaining_percent, 70);
+        assert_eq!(reloaded.surface_appearance.float_ball_glow_percent, 50);
         assert_eq!(
-            reloaded.taskbar_tray.tray_icon_mode,
-            TrayIconMode::Monochrome
+            reloaded.panel.actions.order.first().map(String::as_str),
+            Some("refresh")
         );
-        assert!(
-            reloaded
-                .menu
-                .native_tray
-                .order
-                .contains(&"quit".to_string())
-        );
+        let serialized = serde_json::to_value(updated).unwrap();
+        assert_eq!(serialized["taskbarTransparencyPercent"], 0);
+        assert_eq!(serialized["taskbarStatusOpacity"], 0);
+        assert!(serialized.get("menu").is_some());
     }
 
     #[test]
@@ -625,7 +778,7 @@ mod tests {
     }
 
     #[test]
-    fn combined_malformed_menu_layout_normalizes_without_crashing() {
+    fn legacy_panel_layout_normalizes_without_crashing() {
         let (repository, database) = settings_fixture();
         database
             .with_connection(|connection| {
@@ -634,7 +787,7 @@ mod tests {
                         "INSERT INTO app_settings(key, value_json) VALUES (?1, ?2)",
                         params![
                             SETTINGS_KEY,
-                            r#"{"menu":{"nativeTray":{"order":["quit","unknown","refresh","refresh","settings"],"hidden":["settings","refresh","unknown"]},"trayPanel":{"order":["dismiss","quit"],"hidden":["refresh"]}}}"#
+                            r#"{"menu":{"nativeTray":{"order":["quit","unknown"]},"trayPanel":{"order":["dismiss","quit"],"hidden":["refresh"]}}}"#
                         ],
                     )
                     .map_err(storage_error)?;
@@ -643,14 +796,10 @@ mod tests {
             .unwrap();
 
         let settings = repository.load().unwrap();
-        let native = &settings.menu.native_tray;
-        assert!(native.order.contains(&"settings".to_string()));
-        assert!(native.order.contains(&"quit".to_string()));
-        assert!(!native.order.contains(&"unknown".to_string()));
-        assert!(!native.order.contains(&"refresh".to_string()));
         assert_eq!(
-            settings.menu.tray_panel.order,
+            settings.panel.actions.order,
             vec![
+                "refresh".to_string(),
                 "dismiss".to_string(),
                 "quit".to_string(),
                 "open_usage".to_string(),
@@ -660,7 +809,7 @@ mod tests {
     }
 
     #[test]
-    fn v1_settings_defaults_are_exact() {
+    fn v2_settings_defaults_are_exact() {
         let settings = AppSettings::default();
         assert_eq!(settings.refresh_interval_seconds, 300);
         assert_eq!(settings.display_mode, DisplayMode::Remaining);
@@ -669,37 +818,22 @@ mod tests {
         assert!(settings.start_at_login);
         assert!(!settings.taskbar_status_enabled);
         assert!(settings.float_ball_enabled);
-        assert_eq!(settings.taskbar_status_opacity, 20);
-        assert_eq!(settings.float_ball_opacity, 20);
-        assert_eq!(settings.float_ball_glow, 20);
-        assert!(settings.taskbar_tray.show_taskbar_icon);
-        assert!(settings.taskbar_tray.show_taskbar_account);
-        assert!(settings.taskbar_tray.show_weekly_label);
-        assert!(settings.taskbar_tray.show_weekly_percent);
-        assert!(settings.taskbar_tray.show_reset_date);
-        assert_eq!(settings.taskbar_tray.density, TaskbarDensity::Compact);
-        assert_eq!(settings.taskbar_tray.tray_icon_mode, TrayIconMode::Dynamic);
-        assert!(settings.taskbar_tray.tooltip_account);
-        assert!(settings.taskbar_tray.tooltip_weekly);
-        assert!(settings.taskbar_tray.tooltip_reset_date);
-        assert!(settings.taskbar_tray.tooltip_updated_at);
-        assert!(settings.taskbar_tray.hide_status_surfaces_in_fullscreen);
+        assert_eq!(settings.schema_version, SETTINGS_SCHEMA_VERSION);
+        assert_eq!(settings.surface_appearance.taskbar_transparency_percent, 25);
         assert_eq!(
-            settings.menu.native_tray.order,
-            crate::storage::NATIVE_TRAY_ITEMS
+            settings.surface_appearance.float_ball_transparency_percent,
+            25
+        );
+        assert_eq!(settings.surface_appearance.float_ball_glow_percent, 25);
+        assert_eq!(settings.panel.density, PanelDensity::Compact);
+        assert_eq!(
+            settings.panel.actions.order,
+            crate::storage::PANEL_ACTIONS
                 .iter()
                 .map(|id| (*id).to_string())
                 .collect::<Vec<_>>()
         );
-        assert_eq!(
-            settings.menu.tray_panel.order,
-            crate::storage::TRAY_PANEL_ACTIONS
-                .iter()
-                .map(|id| (*id).to_string())
-                .collect::<Vec<_>>()
-        );
-        assert!(settings.menu.native_tray.hidden.is_empty());
-        assert!(settings.menu.tray_panel.hidden.is_empty());
+        assert!(settings.panel.actions.hidden.is_empty());
         assert!(!settings.notifications.enabled);
         assert_eq!(settings.notifications.warning_remaining_percent, 66);
         assert_eq!(settings.notifications.danger_remaining_percent, 33);
@@ -735,13 +869,13 @@ mod tests {
         assert_eq!(notifications.warning_remaining_percent, 66);
         assert_eq!(notifications.danger_remaining_percent, 33);
         assert_eq!(
-            repository.load().unwrap().taskbar_tray,
-            TaskbarTrayPreferences::default()
+            repository.load().unwrap().schema_version,
+            SETTINGS_SCHEMA_VERSION
         );
     }
 
     #[test]
-    fn invalid_taskbar_tray_enum_uses_safe_settings_recovery_path() {
+    fn obsolete_tray_data_is_ignored() {
         let (repository, database) = settings_fixture();
         database
             .with_connection(|connection| {
@@ -755,9 +889,10 @@ mod tests {
             })
             .unwrap();
 
-        let error = repository.load().unwrap_err();
-
-        assert_eq!(error.code(), "SETTINGS_DECODE_FAILED");
+        assert_eq!(
+            repository.load().unwrap().panel,
+            PanelPreferences::default()
+        );
     }
 
     #[test]
@@ -778,36 +913,6 @@ mod tests {
 
         assert_eq!(error.code(), "SETTINGS_NOTIFICATION_THRESHOLDS_INVALID");
         assert_eq!(repository.load().unwrap(), before);
-    }
-
-    #[test]
-    fn partial_taskbar_tray_patch_preserves_unpatched_preferences() {
-        let (repository, _) = settings_fixture();
-        repository
-            .update(SettingsPatch {
-                taskbar_tray: Some(TaskbarTrayPreferencesPatch {
-                    density: Some(TaskbarDensity::Standard),
-                    tooltip_account: Some(false),
-                    ..Default::default()
-                }),
-                ..Default::default()
-            })
-            .unwrap();
-
-        let updated = repository
-            .update(SettingsPatch {
-                taskbar_tray: Some(TaskbarTrayPreferencesPatch {
-                    show_weekly_percent: Some(false),
-                    ..Default::default()
-                }),
-                ..Default::default()
-            })
-            .unwrap();
-
-        assert!(!updated.taskbar_tray.show_weekly_percent);
-        assert_eq!(updated.taskbar_tray.density, TaskbarDensity::Standard);
-        assert!(!updated.taskbar_tray.tooltip_account);
-        assert!(updated.taskbar_tray.show_taskbar_icon);
     }
 
     #[test]
@@ -845,7 +950,7 @@ mod tests {
     }
 
     #[test]
-    fn old_settings_json_without_menu_layouts_loads_default_registry_orders() {
+    fn old_settings_json_without_menu_layouts_loads_default_panel_actions() {
         let (repository, database) = settings_fixture();
         database
             .with_connection(|connection| {
@@ -864,15 +969,8 @@ mod tests {
 
         let settings = repository.load().unwrap();
         assert_eq!(
-            settings.menu.native_tray.order,
-            crate::storage::NATIVE_TRAY_ITEMS
-                .iter()
-                .map(|id| (*id).to_string())
-                .collect::<Vec<_>>()
-        );
-        assert_eq!(
-            settings.menu.tray_panel.order,
-            crate::storage::TRAY_PANEL_ACTIONS
+            settings.panel.actions.order,
+            crate::storage::PANEL_ACTIONS
                 .iter()
                 .map(|id| (*id).to_string())
                 .collect::<Vec<_>>()
@@ -880,7 +978,7 @@ mod tests {
     }
 
     #[test]
-    fn malformed_saved_menu_layouts_are_normalized_on_load_without_crashing() {
+    fn legacy_native_menu_layout_is_ignored_on_load() {
         let (repository, database) = settings_fixture();
         database
             .with_connection(|connection| {
@@ -898,85 +996,7 @@ mod tests {
             .unwrap();
 
         let settings = repository.load().unwrap();
-        assert_eq!(
-            settings.menu.native_tray.order,
-            vec![
-                "quit".to_string(),
-                "settings".to_string(),
-                "open_panel".to_string(),
-                "accounts".to_string(),
-                "open_usage".to_string(),
-                "about".to_string(),
-            ]
-        );
-        assert!(
-            settings
-                .menu
-                .native_tray
-                .order
-                .contains(&"quit".to_string())
-        );
-    }
-
-    #[test]
-    fn partial_menu_patch_preserves_peer_surface_layout_in_repository() {
-        let (repository, _) = settings_fixture();
-        let updated = repository
-            .update(SettingsPatch {
-                menu: Some(MenuPreferencesPatch {
-                    native_tray: Some(MenuLayoutPatch {
-                        order: Some(vec!["quit".into(), "about".into(), "settings".into()]),
-                        hidden: None,
-                    }),
-                    tray_panel: None,
-                }),
-                ..SettingsPatch::default()
-            })
-            .unwrap();
-
-        assert_eq!(
-            updated.menu.native_tray.order,
-            vec![
-                "quit".to_string(),
-                "about".to_string(),
-                "settings".to_string(),
-                "open_panel".to_string(),
-                "refresh".to_string(),
-                "accounts".to_string(),
-                "open_usage".to_string(),
-            ]
-        );
-        assert_eq!(
-            updated.menu.tray_panel.order,
-            crate::storage::TRAY_PANEL_ACTIONS
-                .iter()
-                .map(|id| (*id).to_string())
-                .collect::<Vec<_>>()
-        );
-
-        let reloaded = repository.load().unwrap();
-        assert_eq!(reloaded.menu, updated.menu);
-    }
-
-    #[test]
-    fn menu_preview_update_never_writes_to_storage() {
-        let (repository, _) = settings_fixture();
-        let old = repository.load().unwrap();
-        let candidate = repository
-            .preview_update(SettingsPatch {
-                menu: Some(MenuPreferencesPatch {
-                    native_tray: Some(MenuLayoutPatch {
-                        order: Some(vec!["quit".into(), "settings".into()]),
-                        hidden: None,
-                    }),
-                    tray_panel: None,
-                }),
-                ..SettingsPatch::default()
-            })
-            .unwrap();
-
-        assert_ne!(candidate.menu.native_tray.order, old.menu.native_tray.order);
-        assert_eq!(repository.load().unwrap(), old);
+        assert_eq!(settings.panel.actions, PanelPreferences::default().actions);
     }
 
     fn settings_fixture() -> (SettingsRepository, Arc<AppDatabase>) {
@@ -989,7 +1009,7 @@ mod tests {
     }
 
     #[test]
-    fn old_settings_json_defaults_both_opacities_to_twenty() {
+    fn old_settings_json_defaults_visual_percentages_to_twenty_five() {
         let (repository, database) = settings_fixture();
         database
             .with_connection(|connection| {
@@ -1003,59 +1023,68 @@ mod tests {
             })
             .unwrap();
         let settings = repository.load().unwrap();
-        assert_eq!(settings.taskbar_status_opacity, 20);
-        assert_eq!(settings.float_ball_opacity, 20);
+        assert_eq!(settings.surface_appearance.taskbar_transparency_percent, 25);
+        assert_eq!(
+            settings.surface_appearance.float_ball_transparency_percent,
+            25
+        );
     }
 
     #[test]
-    fn opacity_bounds_are_inclusive_and_invalid_patch_is_atomic() {
+    fn transparency_percent_bounds_are_inclusive_and_invalid_patch_is_atomic() {
         let (repository, _) = settings_fixture();
         let saved = repository
             .update(SettingsPatch {
-                taskbar_status_opacity: Some(0),
-                float_ball_opacity: Some(80),
+                taskbar_transparency_percent: Some(0),
+                float_ball_transparency_percent: Some(100),
                 ..SettingsPatch::default()
             })
             .unwrap();
         assert_eq!(
-            (saved.taskbar_status_opacity, saved.float_ball_opacity),
-            (0, 80)
+            (
+                saved.surface_appearance.taskbar_transparency_percent,
+                saved.surface_appearance.float_ball_transparency_percent,
+            ),
+            (0, 100)
         );
         let error = repository
             .update(SettingsPatch {
-                taskbar_status_opacity: Some(81),
-                float_ball_opacity: Some(10),
+                taskbar_transparency_percent: Some(101),
+                float_ball_transparency_percent: Some(10),
                 ..SettingsPatch::default()
             })
             .unwrap_err();
-        assert_eq!(error.code(), "SETTINGS_SURFACE_OPACITY_INVALID");
+        assert_eq!(error.code(), "SETTINGS_SURFACE_TRANSPARENCY_INVALID");
         let reloaded = repository.load().unwrap();
         assert_eq!(
-            (reloaded.taskbar_status_opacity, reloaded.float_ball_opacity),
-            (0, 80)
+            (
+                reloaded.surface_appearance.taskbar_transparency_percent,
+                reloaded.surface_appearance.float_ball_transparency_percent,
+            ),
+            (0, 100)
         );
     }
 
     #[test]
-    fn partial_opacity_patch_preserves_enable_flags_and_peer_opacity() {
+    fn partial_transparency_patch_preserves_enable_flags_and_peer_value() {
         let (repository, _) = settings_fixture();
         repository
             .update(SettingsPatch {
                 taskbar_status_enabled: Some(true),
                 float_ball_enabled: Some(true),
-                float_ball_opacity: Some(60),
+                float_ball_transparency_percent: Some(60),
                 ..SettingsPatch::default()
             })
             .unwrap();
         let saved = repository
             .update(SettingsPatch {
-                taskbar_status_opacity: Some(35),
+                taskbar_transparency_percent: Some(35),
                 ..SettingsPatch::default()
             })
             .unwrap();
         assert!(saved.taskbar_status_enabled && saved.float_ball_enabled);
-        assert_eq!(saved.taskbar_status_opacity, 35);
-        assert_eq!(saved.float_ball_opacity, 60);
+        assert_eq!(saved.surface_appearance.taskbar_transparency_percent, 35);
+        assert_eq!(saved.surface_appearance.float_ball_transparency_percent, 60);
     }
 
     #[test]
