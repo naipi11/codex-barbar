@@ -435,6 +435,9 @@ fn is_public_ipv4(ip: Ipv4Addr) -> bool {
 
 fn is_public_ipv6(ip: Ipv6Addr) -> bool {
     let segments = ip.segments();
+    if segments[0] & 0xe000 != 0x2000 {
+        return false;
+    }
     !(ip.is_unspecified()
         || ip.is_loopback()
         || ip.to_ipv4_mapped().is_some()
@@ -1456,6 +1459,7 @@ mod tests {
             "255.255.255.255",
             "::",
             "::1",
+            "::808:808",
             "::ffff:127.0.0.1",
             "::ffff:8.8.8.8",
             "64:ff9b::808:808",
@@ -1466,6 +1470,7 @@ mod tests {
             "2001:db8::1",
             "2002:808:808::1",
             "3fff::1",
+            "4000::1",
             "5f00::1",
             "fc00::1",
             "fe80::1",
