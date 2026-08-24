@@ -357,7 +357,6 @@ impl SettingsPatchDto {
             notifications,
             taskbar_tray,
             menu: None,
-            ..SettingsPatch::default()
         })
     }
 }
