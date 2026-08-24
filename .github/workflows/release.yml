@@ -12,11 +12,6 @@ on:
         required: false
         default: false
         type: boolean
-      allow_unreadable_dependabot:
-        description: Allow a manual release when the Dependabot API is unavailable (requires external alert review)
-        required: false
-        default: false
-        type: boolean
   push:
     tags:
       - 'v*'
@@ -104,30 +99,32 @@ jobs:
         shell: pwsh
         run: .\scripts\audit-licenses.ps1
 
+      - name: Release workflow policy guard
+        shell: pwsh
+        run: .\scripts\assert-release-workflow.ps1
+
       - name: Dependabot alert gate
         shell: pwsh
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.DEPENDABOT_ALERTS_TOKEN }}
         run: |
-          $allowUnreadable = $false
-          if ($env:GITHUB_EVENT_NAME -eq 'workflow_dispatch') {
-            $allowUnreadable = [bool]::Parse("${{ inputs.allow_unreadable_dependabot }}")
+          if ([string]::IsNullOrWhiteSpace($env:GH_TOKEN)) {
+            throw "DEPENDABOT_ALERTS_TOKEN is not configured. Add a repository secret with Dependabot alerts: Read."
           }
-          $alerts = gh api "/repos/$env:GITHUB_REPOSITORY/dependabot/alerts" --paginate 2>$null
+
+          $alertsJson = gh api "/repos/$env:GITHUB_REPOSITORY/dependabot/alerts?state=open&per_page=100" --paginate --slurp 2>$null
           if ($LASTEXITCODE -ne 0) {
-            if (-not $allowUnreadable) {
-              throw "Dependabot alerts API is not readable. Enable Dependabot alerts / security-events read access before publishing."
-            }
-            Write-Warning "Dependabot alerts API is unavailable; manual override was explicitly supplied after external alert review."
-            $global:LASTEXITCODE = 0
-          } else {
-            $critical = @($alerts | ConvertFrom-Json | Where-Object {
-              $_.state -eq 'open' -and $_.security_advisory.severity -in @('high', 'critical')
-            })
-            if ($critical.Count -gt 0) {
-              $names = $critical | ForEach-Object { $_.dependency.package.ecosystem + ':' + $_.dependency.package.name } | Sort-Object -Unique
-              throw "Open high/critical Dependabot alerts block release: $($names -join ', ')"
-            }
+            throw "Dependabot alerts API is not readable with DEPENDABOT_ALERTS_TOKEN."
+          }
+
+          $pages = @($alertsJson | ConvertFrom-Json)
+          $alerts = @($pages | ForEach-Object { $_ })
+          $critical = @($alerts | Where-Object {
+            $_.state -eq 'open' -and $_.security_advisory.severity -in @('high', 'critical')
+          })
+          if ($critical.Count -gt 0) {
+            $names = $critical | ForEach-Object { $_.dependency.package.ecosystem + ':' + $_.dependency.package.name } | Sort-Object -Unique
+            throw "Open high/critical Dependabot alerts block release: $($names -join ', ')"
           }
 
       - name: Build release artifacts
