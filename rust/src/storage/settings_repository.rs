@@ -774,6 +774,50 @@ mod tests {
     }
 
     #[test]
+    fn schema_v2_legacy_projections_fill_missing_canonical_values_without_overwriting_v2() {
+        let input = serde_json::json!({
+            "schemaVersion": SETTINGS_SCHEMA_VERSION,
+            "taskbarTransparencyPercent": 61,
+            "floatBallTransparencyPercent": 42,
+            "floatBallGlowPercent": 77,
+            "taskbarTray": {
+                "showTaskbarAccount": false,
+                "density": "standard",
+                "tooltipAccount": false,
+            },
+            "menu": {
+                "nativeTray": {"order": ["quit"], "hidden": []},
+                "trayPanel": {"order": ["quit"], "hidden": ["refresh"]},
+            },
+            "panel": {"density": "standard"},
+        });
+
+        let (migrated, changed) = migrate_settings_json(input).unwrap();
+
+        assert!(changed);
+        assert_eq!(migrated["taskbarTransparencyPercent"], 61);
+        assert_eq!(migrated["floatBallTransparencyPercent"], 42);
+        assert_eq!(migrated["floatBallGlowPercent"], 77);
+        assert_eq!(migrated["taskbarPresentation"]["showTaskbarAccount"], false);
+        assert_eq!(migrated["taskbarPresentation"]["density"], "standard");
+        assert_eq!(migrated["panel"]["density"], "standard");
+        assert_eq!(migrated["panel"]["actions"]["order"][0], "refresh");
+        for legacy_key in [
+            "taskbarStatusOpacity",
+            "floatBallOpacity",
+            "floatBallGlow",
+            "taskbarTray",
+            "menu",
+        ] {
+            assert!(migrated.get(legacy_key).is_none(), "retained {legacy_key}");
+        }
+
+        let (second_pass, changed_again) = migrate_settings_json(migrated.clone()).unwrap();
+        assert!(!changed_again);
+        assert_eq!(second_pass, migrated);
+    }
+
+    #[test]
     fn persisted_v2_settings_exclude_legacy_visual_tray_and_menu_keys() {
         let (repository, database) = settings_fixture();
         repository
