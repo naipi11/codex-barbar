@@ -602,10 +602,10 @@ impl AppSettings {
         if let Some(taskbar_tray) = patch.taskbar_tray {
             taskbar_tray.apply_to_taskbar_presentation(&mut self.taskbar_presentation);
         }
-        if let Some(menu) = patch.menu {
-            if let Some(tray_panel) = menu.tray_panel {
-                tray_panel.apply_to(&mut self.panel.actions);
-            }
+        if let Some(menu) = patch.menu
+            && let Some(tray_panel) = menu.tray_panel
+        {
+            tray_panel.apply_to(&mut self.panel.actions);
         }
     }
 
