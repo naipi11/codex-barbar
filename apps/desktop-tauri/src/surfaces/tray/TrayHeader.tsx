@@ -23,10 +23,11 @@ export default function TrayHeader({
   onDismiss,
 }: TrayHeaderProps) {
   const identity = profileDisplayName(profile);
-  const secondary =
-    profile?.accountStatus === "signedIn"
+  const secondary = !profile
+    ? copy.signedOut
+    : profile.accountStatus === "signedIn"
       ? copy.signedIn
-      : profile?.accountStatus === "signedOut"
+      : profile.accountStatus === "signedOut"
         ? copy.signedOut
         : copy.accountUnavailable;
 

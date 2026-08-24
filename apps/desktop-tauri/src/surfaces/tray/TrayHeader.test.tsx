@@ -55,6 +55,21 @@ describe("TrayHeader", () => {
       />,
     );
 
-    expect(screen.queryByText("已登录")).not.toBeInTheDocument();
+    expect(screen.queryByText("Signed in")).not.toBeInTheDocument();
+  });
+
+  it("shows signed out when no profile is selected", () => {
+    render(
+      <TrayHeader
+        productName="codex-barbar"
+        version="1.0.0"
+        profile={null}
+        copy={trayCopy("en-US")}
+        onDismiss={() => undefined}
+      />,
+    );
+
+    expect(screen.getByText("Signed out")).toBeInTheDocument();
+    expect(screen.queryByText("Account unavailable")).not.toBeInTheDocument();
   });
 });
