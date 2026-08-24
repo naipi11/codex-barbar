@@ -1,5 +1,5 @@
 const DEFAULT_TRANSPARENCY = 20;
-const MAX_TRANSPARENCY = 80;
+const MAX_TRANSPARENCY = 100;
 
 export function surfaceAlphaFromTransparency(value: number): number {
   const finiteValue = Number.isFinite(value) ? value : DEFAULT_TRANSPARENCY;

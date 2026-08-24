@@ -127,18 +127,13 @@ describe("TaskbarStatus", () => {
     const bootstrap = bootstrapWithTwoProfiles();
     bootstrap.profiles[0]!.accountDisplayName = "ProofUser";
     bootstrap.usageByProfile.personal = weeklyOnlyUsage();
-    bootstrap.settings.taskbarTray = {
+    bootstrap.settings.taskbarPresentation = {
       showTaskbarIcon: false,
       showTaskbarAccount: false,
       showWeeklyLabel: false,
       showWeeklyPercent: true,
       showResetDate: false,
       density: "standard",
-      trayIconMode: "dynamic",
-      tooltipAccount: true,
-      tooltipWeekly: true,
-      tooltipResetDate: true,
-      tooltipUpdatedAt: true,
       hideStatusSurfacesInFullscreen: true,
     };
     invokeMock.mockResolvedValue(bootstrap);
@@ -161,8 +156,8 @@ describe("TaskbarStatus", () => {
     const bootstrap = bootstrapWithTwoProfiles();
     bootstrap.profiles[0]!.accountDisplayName = "ProofUser";
     bootstrap.usageByProfile.personal = weeklyOnlyUsage();
-    bootstrap.settings.taskbarTray = {
-      ...bootstrap.settings.taskbarTray,
+    bootstrap.settings.taskbarPresentation = {
+      ...bootstrap.settings.taskbarPresentation,
       showTaskbarAccount: false,
       showResetDate: false,
     };
@@ -293,7 +288,7 @@ describe("TaskbarStatus", () => {
     "attaches taskbar transparency %s to the rendered root as alpha %s",
     async (opacity, expectedAlpha) => {
       const bootstrap = readyTwoWindowFixture();
-      bootstrap.settings.taskbarStatusOpacity = opacity;
+      bootstrap.settings.taskbarTransparencyPercent = opacity;
       invokeMock.mockResolvedValue(bootstrap);
       render(<TaskbarStatus />);
 
@@ -307,7 +302,7 @@ describe("TaskbarStatus", () => {
 
   it("updates the rendered root alpha from settings-changed without requesting a width", async () => {
     const bootstrap = readyTwoWindowFixture();
-    bootstrap.settings.taskbarStatusOpacity = 20;
+    bootstrap.settings.taskbarTransparencyPercent = 20;
     invokeMock.mockResolvedValue(bootstrap);
     render(<TaskbarStatus />);
 
@@ -321,7 +316,7 @@ describe("TaskbarStatus", () => {
     act(() => {
       eventHarness.emit(events.settingsChanged, {
         ...bootstrap.settings,
-        taskbarStatusOpacity: 80,
+        taskbarTransparencyPercent: 80,
       });
     });
 

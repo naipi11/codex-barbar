@@ -47,8 +47,8 @@ describe("useSettings", () => {
     expect(result.current.settings.taskbarStatusEnabled).toBe(false);
     expect(result.current.settings.floatBallEnabled).toBe(true);
     expect(result.current.settings.autostartEnabled).toBe(true);
-    expect(result.current.settings.taskbarStatusOpacity).toBe(20);
-    expect(result.current.settings.floatBallOpacity).toBe(20);
+    expect(result.current.settings.taskbarTransparencyPercent).toBe(20);
+    expect(result.current.settings.floatBallTransparencyPercent).toBe(20);
     expect(result.current.settings.notifications).toEqual({
       enabled: false,
       playSound: true,
@@ -76,16 +76,16 @@ describe("useSettings", () => {
         ...defaultAppSettings,
         taskbarStatusEnabled: true,
         floatBallEnabled: true,
-        taskbarStatusOpacity: 35,
-        floatBallOpacity: 60,
+        taskbarTransparencyPercent: 35,
+        floatBallTransparencyPercent: 60,
       });
     });
 
     expect(events.settingsChanged).toBe("settings-changed");
     expect(result.current.settings.taskbarStatusEnabled).toBe(true);
     expect(result.current.settings.floatBallEnabled).toBe(true);
-    expect(result.current.settings.taskbarStatusOpacity).toBe(35);
-    expect(result.current.settings.floatBallOpacity).toBe(60);
+    expect(result.current.settings.taskbarTransparencyPercent).toBe(35);
+    expect(result.current.settings.floatBallTransparencyPercent).toBe(60);
   });
 
   it("updates hook state from a typed surface toggle response", async () => {

@@ -4,17 +4,15 @@ import { surfaceAlphaFromTransparency } from "./surfaceTransparency";
 describe("surfaceAlphaFromTransparency", () => {
   it.each([
     [0, 1],
-    [20, 0.8],
-    [40, 0.6],
-    [60, 0.4],
-    [80, 0.2],
+    [50, 0.5],
+    [100, 0],
   ])("maps %s%% transparency to %s alpha", (transparency, alpha) => {
     expect(surfaceAlphaFromTransparency(transparency)).toBe(alpha);
   });
 
   it.each([
     [-1, 1],
-    [81, 0.2],
+    [101, 0],
     [Number.NEGATIVE_INFINITY, 0.8],
     [Number.POSITIVE_INFINITY, 0.8],
     [Number.NaN, 0.8],
@@ -23,12 +21,12 @@ describe("surfaceAlphaFromTransparency", () => {
   });
 
   it("decreases monotonically as transparency increases", () => {
-    expect([0, 20, 40, 60, 80].map(surfaceAlphaFromTransparency)).toEqual([
+    expect([0, 25, 50, 75, 100].map(surfaceAlphaFromTransparency)).toEqual([
       1,
-      0.8,
-      0.6,
-      0.4,
-      0.2,
+      0.75,
+      0.5,
+      0.25,
+      0,
     ]);
   });
 });

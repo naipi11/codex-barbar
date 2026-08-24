@@ -24,16 +24,16 @@ describe("settings tab contract", () => {
       "通用",
       "账户",
       "通知",
-      "任务栏与托盘",
-      "菜单",
+      "任务栏与悬浮球",
+      "面板",
       "用量与费用",
       "高级",
       "关于",
     ]);
   });
 
-  it("uses the concrete Taskbar & Tray title without changing the menuBar id", () => {
-    expect(settingsCopy("en-US").tabs.menuBar).toBe("Taskbar & Tray");
-    expect(settingsCopy("zh-CN").tabs.menuBar).toBe("任务栏与托盘");
+  it("uses the concrete Taskbar & Float Ball title without changing the menuBar id", () => {
+    expect(settingsCopy("en-US").tabs.menuBar).toBe("Taskbar & Float Ball");
+    expect(settingsCopy("zh-CN").tabs.menuBar).toBe("任务栏与悬浮球");
   });
 });

@@ -41,8 +41,8 @@ export default function FloatBall() {
   const chinese =
     language === "zh-CN" ||
     (language !== "en-US" && (navigator.language || "").toLowerCase().startsWith("zh"));
-  const glow = clampPercent(surface.bootstrap?.settings.floatBallGlow);
-  const transparency = clampPercent(surface.bootstrap?.settings.floatBallOpacity);
+  const glow = clampPercent(surface.bootstrap?.settings.floatBallGlowPercent);
+  const transparency = clampPercent(surface.bootstrap?.settings.floatBallTransparencyPercent);
   const speedSeconds =
     motion === "fast" ? IDLE_SECONDS / 3 : motion === "thinking" ? IDLE_SECONDS / 2 : IDLE_SECONDS;
   const bodyLabel = `${chinese ? "打开完整面板" : "Open panel"}，${surface.displayName}，${

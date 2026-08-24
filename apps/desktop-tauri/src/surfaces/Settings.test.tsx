@@ -17,9 +17,9 @@ const defaultSettings = {
   codexExecutableOverride: null,
   taskbarStatusEnabled: false,
   floatBallEnabled: false,
-  taskbarStatusOpacity: 20,
-  floatBallOpacity: 20,
-  floatBallGlow: 20,
+  taskbarTransparencyPercent: 20,
+  floatBallTransparencyPercent: 20,
+  floatBallGlowPercent: 20,
   notifications: {
     enabled: false,
     playSound: true,
@@ -52,18 +52,13 @@ const defaultSettings = {
     },
   },
 
-  taskbarTray: {
+  taskbarPresentation: {
     showTaskbarIcon: true,
     showTaskbarAccount: true,
     showWeeklyLabel: true,
     showWeeklyPercent: true,
     showResetDate: true,
     density: "compact",
-    trayIconMode: "dynamic",
-    tooltipAccount: true,
-    tooltipWeekly: true,
-    tooltipResetDate: true,
-    tooltipUpdatedAt: true,
     hideStatusSurfacesInFullscreen: true,
   },
 };
@@ -124,8 +119,8 @@ describe("Settings surface", () => {
       "通用",
       "账户",
       "通知",
-      "任务栏与托盘",
-      "菜单",
+      "任务栏与悬浮球",
+      "面板",
       "用量与费用",
       "高级",
       "关于",
@@ -140,11 +135,11 @@ describe("Settings surface", () => {
     expect(screen.getByRole("checkbox", { name: "启用通知" })).toBeInTheDocument();
   });
 
-  it("renders the concrete Taskbar & Tray pane instead of a placeholder", async () => {
+  it("renders the concrete Taskbar & Float Ball pane instead of a placeholder", async () => {
     renderSettings("en-US");
-    fireEvent.click(await screen.findByRole("button", { name: "Taskbar & Tray" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Taskbar & Float Ball" }));
 
-    expect(screen.getByRole("heading", { name: "Taskbar & Tray" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Taskbar & Float Ball" })).toBeInTheDocument();
     expect(screen.getByRole("group", { name: "Taskbar status" })).toBeInTheDocument();
     expect(screen.queryByText("reserved for a later release", { exact: false })).not.toBeInTheDocument();
   });
@@ -233,8 +228,8 @@ describe("Settings surface", () => {
       ["General", "General"],
       ["Accounts", "Accounts"],
       ["Notifications", "Notifications"],
-      ["Taskbar & Tray", "Taskbar & Tray"],
-      ["Menu", "Menu"],
+      ["Taskbar & Float Ball", "Taskbar & Float Ball"],
+      ["Panel", "Panel"],
       ["Usage & spend", "Usage & Spend"],
       ["Advanced", "Advanced"],
       ["About", "About"],

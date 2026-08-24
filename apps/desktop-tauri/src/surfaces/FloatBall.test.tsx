@@ -291,7 +291,7 @@ describe("FloatBall", () => {
     "maps float ball transparency %s to background alpha %s without root opacity",
     async (opacity, expectedAlpha) => {
       const bootstrap = bootstrapWithTwoProfiles();
-      bootstrap.settings.floatBallOpacity = opacity;
+      bootstrap.settings.floatBallTransparencyPercent = opacity;
       invokeMock.mockResolvedValue(bootstrap);
 
       render(<FloatBall />);
@@ -304,7 +304,7 @@ describe("FloatBall", () => {
 
   it("maps glow brightness onto the blossom without changing spin size", async () => {
     const bootstrap = bootstrapWithTwoProfiles();
-    bootstrap.settings.floatBallGlow = 80;
+    bootstrap.settings.floatBallGlowPercent = 80;
     invokeMock.mockImplementation(async (command: string) => {
       if (command === "get_float_ball_motion") return { thinking: false, fast: true };
       return bootstrap;

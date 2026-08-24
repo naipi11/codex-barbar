@@ -21,7 +21,7 @@ describe("settings copy parity", () => {
       expect(copy.placeholder).toMatch(/later release|后续版本/);
       expect(copy.menu.title).not.toBe(copy.placeholder);
       expect(copy.usageSpend.title).not.toBe(copy.placeholder);
-      expect(copy.taskbarTray.title).not.toBe(copy.placeholder);
+      expect(copy.taskbarPresentation.title).not.toBe(copy.placeholder);
       expect(copy.notifications.title).not.toBe(copy.placeholder);
     }
   });

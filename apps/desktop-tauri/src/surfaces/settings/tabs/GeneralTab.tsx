@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { useCommittedRange } from "../../../hooks/useCommittedRange";
+import { CommittedRangeField } from "../CommittedRangeField";
 import type {
   AppSettingsDto,
   SettingsPatchDto,
@@ -35,95 +35,6 @@ function backendThemeForSkin(skinId: SkinId, custom: CustomSkinDraft): "system" 
   return "dark";
 }
 
-function StatusCard({
-  title,
-  description,
-  enabled,
-  enabledLabel,
-  surface,
-  opacity,
-  opacityLabel,
-  saveError,
-  opacityField,
-  update,
-  setSurfaceEnabled,
-}: {
-  title: string;
-  description: string;
-  enabled: boolean;
-  enabledLabel: string;
-  surface: StatusSurfaceKind;
-  opacity: number;
-  opacityLabel: string;
-  saveError: string;
-  opacityField: "taskbarStatusOpacity" | "floatBallOpacity";
-  update(patch: SettingsPatchDto): Promise<AppSettingsDto>;
-  setSurfaceEnabled(surface: StatusSurfaceKind, enabled: boolean): Promise<AppSettingsDto>;
-}) {
-  const [hasSaveError, setHasSaveError] = useState(false);
-  const inputId = `${surface}-opacity`;
-  const transparency = useCommittedRange({
-    value: opacity,
-    min: 0,
-    max: 80,
-    onCommit: async (nextValue) => {
-      const saved = await update({ [opacityField]: nextValue });
-      return saved[opacityField];
-    },
-    onError: () => setHasSaveError(true),
-    onSuccess: () => setHasSaveError(false),
-  });
-  return (
-    <article className="settings-status-card">
-      <div className="settings-status-card__heading">
-        <h3>{title}</h3>
-        <p>{description}</p>
-      </div>
-      <label className="settings-switch">
-        <input
-          type="checkbox"
-          checked={enabled}
-          onChange={(event) => void setSurfaceEnabled(surface, event.target.checked)}
-        />
-        {enabledLabel}
-      </label>
-      <label className="settings-range" htmlFor={inputId}>
-        <span>{opacityLabel}</span>
-        <output htmlFor={inputId}>{transparency.value}%</output>
-      </label>
-      <input
-        id={inputId}
-        type="range"
-        min="0"
-        max="80"
-        step="1"
-        value={transparency.value}
-        aria-label={opacityLabel}
-        aria-valuetext={`${transparency.value}%`}
-        onChange={() => undefined}
-        onInput={transparency.onInput}
-        onPointerDown={transparency.onPointerDown}
-        onPointerUp={transparency.onPointerUp}
-        onPointerCancel={transparency.onPointerCancel}
-        onKeyDown={transparency.onKeyDown}
-        onKeyUp={transparency.onKeyUp}
-        onBlur={transparency.onBlur}
-      />
-      <div className="settings-range__ticks" aria-hidden="true">
-        <span>0</span><span>20</span><span>40</span><span>60</span><span>80</span>
-      </div>
-      {hasSaveError ? (
-        <p
-          className="settings-status-card__error"
-          role="alert"
-        >
-          {saveError}
-        </p>
-      ) : null}
-    </article>
-  );
-}
-
 function ColorField({
   id,
   label,
@@ -147,7 +58,7 @@ function ColorField({
 export default function GeneralTab({
   settings,
   update,
-  setSurfaceEnabled,
+  setSurfaceEnabled: _setSurfaceEnabled,
   copy = settingsCopy("en-US"),
 }: {
   settings: AppSettingsDto;
@@ -179,39 +90,6 @@ export default function GeneralTab({
           {copy.general.autostart}
         </label>
       </p>
-      <StatusCard
-        title={copy.general.floatBallTitle}
-        description={copy.general.floatBallDescription}
-        enabled={settings.floatBallEnabled}
-        enabledLabel={copy.general.floatBallEnabled}
-        surface="floatBall"
-        opacity={settings.floatBallOpacity}
-        opacityLabel={copy.general.floatBallOpacity}
-        saveError={copy.general.surfaceSaveFailed}
-        opacityField="floatBallOpacity"
-        update={update}
-        setSurfaceEnabled={setSurfaceEnabled}
-      />
-      <article className="settings-status-card">
-        <label className="settings-range" htmlFor="float-ball-glow">
-          <span>{copy.general.floatBallGlow}</span>
-          <output htmlFor="float-ball-glow">{settings.floatBallGlow}%</output>
-        </label>
-        <input
-          id="float-ball-glow"
-          type="range"
-          min="0"
-          max="80"
-          step="1"
-          value={settings.floatBallGlow}
-          aria-label={copy.general.floatBallGlow}
-          aria-valuetext={`${settings.floatBallGlow}%`}
-          onChange={(event) => void update({ floatBallGlow: Number.parseInt(event.target.value, 10) })}
-        />
-        <div className="settings-range__ticks" aria-hidden="true">
-          <span>0</span><span>20</span><span>40</span><span>60</span><span>80</span>
-        </div>
-      </article>
       <p className="settings-field">
         <label htmlFor="refresh-interval">{copy.general.refreshInterval}</label>
         <select id="refresh-interval" value={settings.refreshIntervalSeconds} onChange={(event) => void update({ refreshIntervalSeconds: refreshOption(Number(event.target.value)) })}>
@@ -258,19 +136,20 @@ export default function GeneralTab({
             <ColorField id="custom-muted" label={copy.general.customMuted} value={custom.muted} onChange={(muted) => setCustom({ ...custom, muted })} />
             <ColorField id="custom-accent" label={copy.general.customAccent} value={custom.accent} onChange={(accent) => setCustom({ ...custom, accent })} />
           </div>
-          <label className="settings-range" htmlFor="custom-radius">
-            <span>{copy.general.customRadius}</span>
-            <output htmlFor="custom-radius">{custom.radius}px</output>
-          </label>
-          <input
+          <CommittedRangeField
             id="custom-radius"
-            type="range"
-            min="4"
-            max="28"
-            step="1"
+            label={copy.general.customRadius}
             value={custom.radius}
-            aria-label={copy.general.customRadius}
-            onChange={(event) => setCustom({ ...custom, radius: Number.parseInt(event.target.value, 10) })}
+            min={4}
+            max={28}
+            tickValues={[4, 10, 16, 22, 28]}
+            valueText={(value) => `${value}px`}
+            onCommit={async (radius) => {
+              const next = { ...custom, radius };
+              setCustom(next);
+              writeStoredCustomSkin(next);
+              return radius;
+            }}
           />
           <div className="settings-custom-skin__actions">
             <button type="button" onClick={() => applySkin("custom", custom)}>{copy.general.applyCustom}</button>

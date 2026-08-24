@@ -237,21 +237,16 @@ describe("V1 bridge contract", () => {
       codexExecutableOverride: null,
       taskbarStatusEnabled: true,
       floatBallEnabled: false,
-      taskbarStatusOpacity: 0,
-      floatBallOpacity: 80,
-      floatBallGlow: 40,
-      taskbarTray: {
+      taskbarTransparencyPercent: 0,
+      floatBallTransparencyPercent: 80,
+      floatBallGlowPercent: 40,
+      taskbarPresentation: {
         showTaskbarIcon: true,
         showTaskbarAccount: true,
         showWeeklyLabel: true,
         showWeeklyPercent: true,
         showResetDate: true,
         density: "compact",
-        trayIconMode: "dynamic",
-        tooltipAccount: true,
-        tooltipWeekly: true,
-        tooltipResetDate: true,
-        tooltipUpdatedAt: true,
         hideStatusSurfacesInFullscreen: true,
       },
       menu: {
@@ -290,21 +285,16 @@ describe("V1 bridge contract", () => {
     expect(profile.accountEmail).toContain("@");
     expect(settings.taskbarStatusEnabled).toBe(true);
     expect(settings.floatBallEnabled).toBe(false);
-    expect(settings.taskbarStatusOpacity).toBe(0);
-    expect(settings.floatBallOpacity).toBe(80);
-    expect(settings.floatBallGlow).toBe(40);
-    expect(settings.taskbarTray).toEqual({
+    expect(settings.taskbarTransparencyPercent).toBe(0);
+    expect(settings.floatBallTransparencyPercent).toBe(80);
+    expect(settings.floatBallGlowPercent).toBe(40);
+    expect(settings.taskbarPresentation).toEqual({
       showTaskbarIcon: true,
       showTaskbarAccount: true,
       showWeeklyLabel: true,
       showWeeklyPercent: true,
       showResetDate: true,
       density: "compact",
-      trayIconMode: "dynamic",
-      tooltipAccount: true,
-      tooltipWeekly: true,
-      tooltipResetDate: true,
-      tooltipUpdatedAt: true,
       hideStatusSurfacesInFullscreen: true,
     });
     expect(settings.menu.nativeTray.order).toContain("settings");

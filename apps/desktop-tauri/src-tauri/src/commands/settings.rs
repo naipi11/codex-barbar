@@ -308,7 +308,7 @@ mod tests {
     };
     use codexbar::storage::{
         DisplayMode, LanguagePreference, NotificationPreferencesPatch, TaskbarDensity,
-        TaskbarTrayPreferencesPatch, ThemePreference, TrayIconMode,
+        TaskbarTrayPreferencesPatch, ThemePreference,
     };
     use std::sync::Arc;
 
@@ -336,7 +336,7 @@ mod tests {
     }
 
     #[test]
-    fn menu_transaction_applies_candidate_then_persists() {
+    fn native_tray_menu_patch_keeps_the_fixed_default_candidate() {
         let (repository, _dir) = shell_settings_fixture();
         let applied = std::cell::Cell::new(0);
         let rollbacks = std::cell::Cell::new(0);
@@ -347,7 +347,7 @@ mod tests {
                 applied.set(applied.get() + 1);
                 assert_eq!(
                     candidate.menu.native_tray.order.first().map(String::as_str),
-                    Some("quit")
+                    Some("open_panel")
                 );
                 assert!(
                     candidate
@@ -493,9 +493,12 @@ mod tests {
             codex_executable_override: Some(Some(r"C:\Codex\codex.exe".to_string())),
             taskbar_status_enabled: Some(true),
             float_ball_enabled: Some(false),
-            taskbar_status_opacity: Some(0),
-            float_ball_opacity: Some(80),
-            float_ball_glow: Some(40),
+            taskbar_transparency_percent: Some(0),
+            float_ball_transparency_percent: Some(100),
+            float_ball_glow_percent: Some(50),
+            legacy_taskbar_status_opacity: None,
+            legacy_float_ball_opacity: None,
+            legacy_float_ball_glow: None,
             notifications: Some(NotificationPreferencesPatchDto {
                 enabled: Some(true),
                 play_sound: Some(false),
@@ -508,20 +511,17 @@ mod tests {
                 warning_remaining_percent: Some(66),
                 danger_remaining_percent: Some(33),
             }),
-            taskbar_tray: Some(crate::commands::bridge::TaskbarTrayPreferencesPatchDto {
-                show_taskbar_icon: Some(false),
-                show_taskbar_account: Some(true),
-                show_weekly_label: Some(false),
-                show_weekly_percent: Some(true),
-                show_reset_date: Some(false),
-                density: Some("standard".to_string()),
-                tray_icon_mode: Some("monochrome".to_string()),
-                tooltip_account: Some(false),
-                tooltip_weekly: Some(true),
-                tooltip_reset_date: Some(false),
-                tooltip_updated_at: Some(true),
-                hide_status_surfaces_in_fullscreen: Some(false),
-            }),
+            taskbar_presentation: Some(
+                crate::commands::bridge::TaskbarPresentationPreferencesPatchDto {
+                    show_taskbar_icon: Some(false),
+                    show_taskbar_account: Some(true),
+                    show_weekly_label: Some(false),
+                    show_weekly_percent: Some(true),
+                    show_reset_date: Some(false),
+                    density: Some("standard".to_string()),
+                    hide_status_surfaces_in_fullscreen: Some(false),
+                },
+            ),
         };
         let settings = patch.into_patch().unwrap();
         assert_eq!(settings.start_at_login, Some(true));
@@ -535,9 +535,9 @@ mod tests {
         );
         assert_eq!(settings.taskbar_status_enabled, Some(true));
         assert_eq!(settings.float_ball_enabled, Some(false));
-        assert_eq!(settings.taskbar_status_opacity, Some(0));
-        assert_eq!(settings.float_ball_opacity, Some(80));
-        assert_eq!(settings.float_ball_glow, Some(40));
+        assert_eq!(settings.taskbar_transparency_percent, Some(0));
+        assert_eq!(settings.float_ball_transparency_percent, Some(100));
+        assert_eq!(settings.float_ball_glow_percent, Some(50));
         assert_eq!(
             settings.taskbar_tray,
             Some(TaskbarTrayPreferencesPatch {
@@ -547,11 +547,11 @@ mod tests {
                 show_weekly_percent: Some(true),
                 show_reset_date: Some(false),
                 density: Some(TaskbarDensity::Standard),
-                tray_icon_mode: Some(TrayIconMode::Monochrome),
-                tooltip_account: Some(false),
-                tooltip_weekly: Some(true),
-                tooltip_reset_date: Some(false),
-                tooltip_updated_at: Some(true),
+                tray_icon_mode: None,
+                tooltip_account: None,
+                tooltip_weekly: None,
+                tooltip_reset_date: None,
+                tooltip_updated_at: None,
                 hide_status_surfaces_in_fullscreen: Some(false),
             })
         );
@@ -593,9 +593,9 @@ mod tests {
         assert_eq!(dto.codex_executable_override, None);
         assert!(!dto.taskbar_status_enabled);
         assert!(dto.float_ball_enabled);
-        assert_eq!(dto.taskbar_status_opacity, 20);
-        assert_eq!(dto.float_ball_opacity, 20);
-        assert_eq!(dto.float_ball_glow, 20);
+        assert_eq!(dto.taskbar_transparency_percent, 25);
+        assert_eq!(dto.float_ball_transparency_percent, 25);
+        assert_eq!(dto.float_ball_glow_percent, 25);
         assert!(!dto.notifications.enabled);
         assert!(dto.notifications.play_sound);
         assert_eq!(dto.notifications.warning_remaining_percent, 66);

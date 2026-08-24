@@ -52,18 +52,13 @@ export interface NotificationCapabilityDto {
   canOpenSettings: boolean;
 }
 
-export interface TaskbarTrayPreferencesDto {
+export interface TaskbarPresentationPreferencesDto {
   showTaskbarIcon: boolean;
   showTaskbarAccount: boolean;
   showWeeklyLabel: boolean;
   showWeeklyPercent: boolean;
   showResetDate: boolean;
   density: "compact" | "standard";
-  trayIconMode: "dynamic" | "monochrome";
-  tooltipAccount: boolean;
-  tooltipWeekly: boolean;
-  tooltipResetDate: boolean;
-  tooltipUpdatedAt: boolean;
   hideStatusSurfacesInFullscreen: boolean;
 }
 
@@ -96,11 +91,11 @@ export interface AppSettingsDto {
   codexExecutableOverride: string | null;
   taskbarStatusEnabled: boolean;
   floatBallEnabled: boolean;
-  taskbarStatusOpacity: number;
-  floatBallOpacity: number;
-  floatBallGlow: number;
+  taskbarTransparencyPercent: number;
+  floatBallTransparencyPercent: number;
+  floatBallGlowPercent: number;
   notifications: NotificationPreferencesDto;
-  taskbarTray: TaskbarTrayPreferencesDto;
+  taskbarPresentation: TaskbarPresentationPreferencesDto;
   menu: MenuPreferencesDto;
 }
 
@@ -117,9 +112,9 @@ export interface StatusSurfaceFeedbackChangedDto {
 }
 
 export interface SettingsPatchDto
-  extends Partial<Omit<AppSettingsDto, "notifications" | "taskbarTray" | "menu">> {
+  extends Partial<Omit<AppSettingsDto, "notifications" | "taskbarPresentation" | "menu">> {
   notifications?: Partial<NotificationPreferencesDto>;
-  taskbarTray?: Partial<TaskbarTrayPreferencesDto>;
+  taskbarPresentation?: Partial<TaskbarPresentationPreferencesDto>;
 }
 
 export interface ProfileSummaryDto {

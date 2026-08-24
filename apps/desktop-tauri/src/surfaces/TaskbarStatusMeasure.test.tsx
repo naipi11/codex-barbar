@@ -51,7 +51,7 @@ describe("TaskbarStatusMeasure", () => {
 
   it("uses the same transparency-derived alpha on the independent measurement root", async () => {
     const bootstrap = bootstrapWithTwoProfiles();
-    bootstrap.settings.taskbarStatusOpacity = 80;
+    bootstrap.settings.taskbarTransparencyPercent = 80;
     invokeMock.mockResolvedValue(bootstrap);
     render(<TaskbarStatusMeasure />);
 
@@ -63,7 +63,7 @@ describe("TaskbarStatusMeasure", () => {
 
   it("keeps the rendered root alpha from being shadowed by a descendant fallback", async () => {
     const bootstrap = bootstrapWithTwoProfiles();
-    bootstrap.settings.taskbarStatusOpacity = 80;
+    bootstrap.settings.taskbarTransparencyPercent = 80;
     invokeMock.mockResolvedValue(bootstrap);
     render(<TaskbarStatusMeasure />);
 
@@ -118,8 +118,8 @@ describe("TaskbarStatusMeasure", () => {
     const bootstrap = bootstrapWithTwoProfiles();
     bootstrap.profiles[0]!.accountDisplayName = "ProofUser";
     bootstrap.usageByProfile.personal = weeklyOnlyUsage();
-    bootstrap.settings.taskbarTray = {
-      ...bootstrap.settings.taskbarTray,
+    bootstrap.settings.taskbarPresentation = {
+      ...bootstrap.settings.taskbarPresentation,
       showTaskbarIcon: false,
       showTaskbarAccount: false,
       showWeeklyLabel: false,

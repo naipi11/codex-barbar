@@ -122,11 +122,11 @@ describe("buildTaskbarStatusPresentation", () => {
     [0, "1"],
     [20, "0.8"],
     [80, "0.2"],
-    [100, "0.2"],
-    [140, "0.2"],
+    [100, "0"],
+    [140, "0"],
   ])("maps taskbar transparency %s to background alpha %s", (opacity, alpha) => {
     const bootstrap = bootstrapWithTwoProfiles();
-    bootstrap.settings.taskbarStatusOpacity = opacity;
+    bootstrap.settings.taskbarTransparencyPercent = opacity;
 
     expect(
       buildTaskbarStatusPresentation(surfaceFrom(bootstrap)).surfaceAlpha,
@@ -151,18 +151,13 @@ describe("buildTaskbarStatusPresentation", () => {
     const bootstrap = bootstrapWithTwoProfiles();
     bootstrap.profiles[0]!.accountDisplayName = "ProofUser";
     bootstrap.usageByProfile.personal = weeklyOnlyUsage();
-    bootstrap.settings.taskbarTray = {
+    bootstrap.settings.taskbarPresentation = {
       showTaskbarIcon: false,
       showTaskbarAccount: false,
       showWeeklyLabel: false,
       showWeeklyPercent: false,
       showResetDate: false,
       density: "standard",
-      trayIconMode: "dynamic",
-      tooltipAccount: true,
-      tooltipWeekly: true,
-      tooltipResetDate: true,
-      tooltipUpdatedAt: true,
       hideStatusSurfacesInFullscreen: true,
     };
 
@@ -181,13 +176,13 @@ describe("buildTaskbarStatusPresentation", () => {
 
   it("combines label and percent independently", () => {
     const base = weeklySurface();
-    const prefs = base.bootstrap!.settings.taskbarTray;
+    const prefs = base.bootstrap!.settings.taskbarPresentation;
 
     const labelOnly = buildTaskbarStatusPresentation({
       ...base,
       bootstrap: {
         ...base.bootstrap!,
-        settings: { ...base.bootstrap!.settings, taskbarTray: { ...prefs, showWeeklyPercent: false } },
+        settings: { ...base.bootstrap!.settings, taskbarPresentation: { ...prefs, showWeeklyPercent: false } },
       },
     });
     expect(labelOnly.weeklyText).toBe("Wk");
@@ -196,7 +191,7 @@ describe("buildTaskbarStatusPresentation", () => {
       ...base,
       bootstrap: {
         ...base.bootstrap!,
-        settings: { ...base.bootstrap!.settings, taskbarTray: { ...prefs, showWeeklyLabel: false } },
+        settings: { ...base.bootstrap!.settings, taskbarPresentation: { ...prefs, showWeeklyLabel: false } },
       },
     });
     expect(percentOnly.weeklyText).toBe("98%");

@@ -164,8 +164,8 @@ describe("useStatusSurface", () => {
     const settings = {
       ...bootstrap.settings,
       displayMode: "used" as const,
-      taskbarStatusOpacity: 35,
-      floatBallOpacity: 60,
+      taskbarTransparencyPercent: 35,
+      floatBallTransparencyPercent: 60,
     };
     act(() => eventHarness.emit(events.settingsChanged, settings));
 
@@ -190,8 +190,8 @@ describe("useStatusSurface", () => {
     const settings = {
       ...bootstrap.settings,
       displayMode: "used" as const,
-      taskbarStatusOpacity: 35,
-      floatBallOpacity: 60,
+      taskbarTransparencyPercent: 35,
+      floatBallTransparencyPercent: 60,
     };
     act(() => eventHarness.emit(events.settingsChanged, settings));
     await act(async () => resolveBootstrap!(bootstrap));

@@ -28,9 +28,9 @@ const bootstrapFixture = {
     codexExecutableOverride: null,
     taskbarStatusEnabled: false,
     floatBallEnabled: false,
-    taskbarStatusOpacity: 20,
-    floatBallOpacity: 20,
-    floatBallGlow: 20,
+    taskbarTransparencyPercent: 20,
+    floatBallTransparencyPercent: 20,
+    floatBallGlowPercent: 20,
     notifications: {
       enabled: false,
       playSound: true,

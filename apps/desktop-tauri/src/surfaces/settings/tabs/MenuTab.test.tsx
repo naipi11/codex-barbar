@@ -16,20 +16,20 @@ describe("MenuTab", () => {
     apply.mockResolvedValue(defaultAppSettings);
     render(<MenuTab settings={defaultAppSettings} copy={settingsCopy("en-US")} />);
 
-    expect(screen.getByRole("heading", { name: "Menu" })).toBeInTheDocument();
-    const trayMenu = screen.getByRole("group", { name: "Tray menu" });
+    expect(screen.getByRole("heading", { name: "Panel" })).toBeInTheDocument();
+    const trayPanel = screen.getByRole("group", { name: "Tray menu" });
     const panel = screen.getByRole("group", { name: "Panel quick actions" });
-    expect(trayMenu).toBeInTheDocument();
+    expect(trayPanel).toBeInTheDocument();
     expect(panel).toBeInTheDocument();
     expect(screen.getByText(/only built-in items can be configured/i)).toBeInTheDocument();
 
-    expect(within(trayMenu).getByRole("checkbox", { name: "Settings" })).toBeChecked();
-    expect(within(trayMenu).getByRole("checkbox", { name: "Settings" })).toBeDisabled();
-    expect(within(trayMenu).getByRole("checkbox", { name: "Quit" })).toBeDisabled();
+    expect(within(trayPanel).getByRole("checkbox", { name: "Settings" })).toBeChecked();
+    expect(within(trayPanel).getByRole("checkbox", { name: "Settings" })).toBeDisabled();
+    expect(within(trayPanel).getByRole("checkbox", { name: "Quit" })).toBeDisabled();
     expect(
-      within(trayMenu).getByText("Settings and Quit are required and cannot be hidden."),
+      within(trayPanel).getByText("Settings and Quit are required and cannot be hidden."),
     ).toBeInTheDocument();
-    expect(within(trayMenu).getByRole("checkbox", { name: "About" })).toBeEnabled();
+    expect(within(trayPanel).getByRole("checkbox", { name: "About" })).toBeEnabled();
     expect(within(panel).getByRole("checkbox", { name: "Dismiss" })).toBeEnabled();
     expect(screen.queryByRole("textbox")).not.toBeInTheDocument();
   });
@@ -37,10 +37,10 @@ describe("MenuTab", () => {
   it("reorders native items with keyboard move buttons and emits the exact order", async () => {
     apply.mockResolvedValue(defaultAppSettings);
     render(<MenuTab settings={defaultAppSettings} copy={settingsCopy("en-US")} />);
-    const trayMenu = screen.getByRole("group", { name: "Tray menu" });
+    const trayPanel = screen.getByRole("group", { name: "Tray menu" });
 
     fireEvent.click(
-      within(trayMenu).getByRole("button", { name: "Move down Refresh" }),
+      within(trayPanel).getByRole("button", { name: "Move down Refresh" }),
     );
 
     await waitFor(() =>
@@ -84,8 +84,8 @@ describe("MenuTab", () => {
       view.rerender(<MenuTab settings={saved} copy={settingsCopy("en-US")} />);
       return saved;
     });
-    const trayMenu = screen.getByRole("group", { name: "Tray menu" });
-    const about = within(trayMenu).getByRole("checkbox", { name: "About" });
+    const trayPanel = screen.getByRole("group", { name: "Tray menu" });
+    const about = within(trayPanel).getByRole("checkbox", { name: "About" });
 
     fireEvent.click(about);
     await waitFor(() =>
@@ -135,7 +135,7 @@ describe("MenuTab", () => {
     apply.mockResolvedValue(defaultAppSettings);
     render(<MenuTab settings={defaultAppSettings} copy={settingsCopy("zh-CN")} />);
 
-    expect(screen.getByRole("heading", { name: "菜单" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "面板" })).toBeInTheDocument();
     expect(screen.getByRole("group", { name: "托盘菜单" })).toBeInTheDocument();
     expect(screen.getByRole("group", { name: "面板快捷操作" })).toBeInTheDocument();
     expect(

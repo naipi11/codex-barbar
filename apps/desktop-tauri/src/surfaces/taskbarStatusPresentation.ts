@@ -52,7 +52,7 @@ export function buildTaskbarStatusPresentation(
 ): TaskbarStatusPresentation {
   const metrics = surface.universalMetric ? [surface.universalMetric] : [];
   const reset = surface.universalMetric;
-  const prefs = surface.bootstrap?.settings.taskbarTray;
+  const prefs = surface.bootstrap?.settings.taskbarPresentation;
   const showIcon = prefs?.showTaskbarIcon ?? true;
   const showAccount = prefs?.showTaskbarAccount ?? true;
   const showWeeklyLabel = prefs?.showWeeklyLabel ?? true;
@@ -93,7 +93,7 @@ export function buildTaskbarStatusPresentation(
     ariaLabel,
     surfaceAlpha: String(
       surfaceAlphaFromTransparency(
-        surface.bootstrap?.settings.taskbarStatusOpacity ?? 20,
+        surface.bootstrap?.settings.taskbarTransparencyPercent ?? 20,
       ),
     ),
   };

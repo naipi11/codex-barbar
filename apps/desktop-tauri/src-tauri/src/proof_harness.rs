@@ -1006,8 +1006,8 @@ mod tests {
             assert_eq!(usage.freshness, "fresh");
             assert_eq!(usage.refresh_status, "idle");
             assert!(usage.current_error.is_none());
-            assert_eq!(bootstrap.settings.taskbar_status_opacity, 20);
-            assert_eq!(bootstrap.settings.float_ball_opacity, 20);
+            assert_eq!(bootstrap.settings.taskbar_transparency_percent, 20);
+            assert_eq!(bootstrap.settings.float_ball_transparency_percent, 20);
             match scenario {
                 ProofScenario::TaskbarStatus(_) => {
                     assert!(bootstrap.settings.taskbar_status_enabled);
