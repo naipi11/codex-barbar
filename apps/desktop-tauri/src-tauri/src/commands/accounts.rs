@@ -345,7 +345,9 @@ mod tests {
     fn valid_png_bytes() -> Vec<u8> {
         vec![
             137, 80, 78, 71, 13, 10, 26, 10, 0, 0, 0, 13, 73, 72, 68, 82, 0, 0, 0, 1, 0, 0, 0, 1,
-            8, 6, 0, 0, 0, 31, 21, 196, 137,
+            8, 6, 0, 0, 0, 31, 21, 196, 137, 0, 0, 0, 13, 73, 68, 65, 84, 8, 215, 99, 248, 207,
+            192, 240, 31, 0, 5, 0, 1, 255, 114, 156, 82, 103, 0, 0, 0, 0, 73, 69, 78, 68, 174, 66,
+            96, 130,
         ]
     }
 
@@ -437,6 +439,33 @@ mod tests {
             account_avatar_protocol_response(&store, request).status(),
             StatusCode::METHOD_NOT_ALLOWED
         );
+    }
+
+    #[test]
+    fn avatar_protocol_never_serves_a_header_only_png() {
+        let dir = TestDirectory::new();
+        let store = AvatarStore::new(dir.path().to_path_buf());
+        let profile_id = uuid::Uuid::from_u128(10);
+        let manual = dir.path().join("manual");
+        std::fs::create_dir_all(&manual).unwrap();
+        std::fs::write(
+            manual.join(format!("{profile_id}.png")),
+            &valid_png_bytes()[..33],
+        )
+        .unwrap();
+        let request = Request::builder()
+            .method(Method::GET)
+            .uri(avatar_asset_uri(
+                profile_id,
+                "4ffd8bb30991e3a6f28d1d03f1aedcd02ccf8e0cc16bb9e969e7bc2bda1ddf03",
+            ))
+            .body(Vec::new())
+            .unwrap();
+
+        let response = account_avatar_protocol_response(&store, request);
+
+        assert_eq!(response.status(), StatusCode::NOT_FOUND);
+        assert!(response.body().is_empty());
     }
 
     #[test]

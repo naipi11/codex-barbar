@@ -27,6 +27,14 @@ use state::AppState;
 use surface::SurfaceMode;
 use tauri::{Emitter, Manager};
 
+fn avatar_store_from_app_paths(
+    app_paths: Option<&codexbar::app_paths::AppPaths>,
+) -> codexbar::accounts::avatar::AvatarStore {
+    app_paths
+        .map(|paths| codexbar::accounts::avatar::AvatarStore::new(paths.avatars.clone()))
+        .unwrap_or_else(codexbar::accounts::avatar::AvatarStore::disabled)
+}
+
 fn main() {
     // Fixed internal purge mode used by the NSIS uninstaller. Must run before
     // logging, database, or the single-instance plugin are initialized so the
@@ -53,12 +61,7 @@ fn main() {
     let coordinator = Arc::clone(&initial_state.coordinator);
     coordinator.record(app_coordinator::StartupMilestone::Logging);
     let app_paths = codexbar::app_paths::AppPaths::discover().ok();
-    let avatar_store = Arc::new(codexbar::accounts::avatar::AvatarStore::new(
-        app_paths
-            .as_ref()
-            .map(|paths| paths.avatars.clone())
-            .unwrap_or_else(|| std::path::PathBuf::from("codex-barbar-avatars")),
-    ));
+    let avatar_store = Arc::new(avatar_store_from_app_paths(app_paths.as_ref()));
 
     // Phase-2 account bootstrap: open the canonical SQLite database, recover
     // interrupted runtimes, and build the account service when writable.
@@ -464,6 +467,13 @@ mod tests {
         assert_eq!(config["app"]["windows"][0]["title"], "codex-barbar");
         assert_eq!(config["bundle"]["targets"], serde_json::json!(["nsis"]));
         assert_eq!(config["version"], env!("CARGO_PKG_VERSION"));
+    }
+
+    #[test]
+    fn missing_canonical_app_paths_disable_avatar_assets() {
+        let store = avatar_store_from_app_paths(None);
+
+        assert!(!store.is_enabled());
     }
 
     #[test]

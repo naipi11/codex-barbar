@@ -165,6 +165,14 @@ impl AccountServiceFixture {
 }
 
 pub fn fixture() -> AccountServiceFixture {
+    fixture_with_avatar_store(false)
+}
+
+pub fn fixture_with_disabled_avatar_store() -> AccountServiceFixture {
+    fixture_with_avatar_store(true)
+}
+
+fn fixture_with_avatar_store(disabled: bool) -> AccountServiceFixture {
     let dir = TempDir::new().unwrap();
     let repositories = AccountRepositories::open(&dir.path().join("data.db")).expect("temp db");
     let vault = Arc::new(CredentialVault::new(
@@ -182,9 +190,11 @@ pub fn fixture() -> AccountServiceFixture {
     let identity_cache = Arc::new(AccountIdentityCache::new(
         dir.path().join("identity").join("profiles.json"),
     ));
-    let avatar_store = Arc::new(crate::accounts::avatar::AvatarStore::new(
-        dir.path().join("avatars"),
-    ));
+    let avatar_store = Arc::new(if disabled {
+        crate::accounts::avatar::AvatarStore::disabled()
+    } else {
+        crate::accounts::avatar::AvatarStore::new(dir.path().join("avatars"))
+    });
     let service = AccountProfileService::new(
         repositories,
         Arc::clone(&vault),

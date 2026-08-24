@@ -787,7 +787,15 @@ impl AccountProfileService {
         &self,
         profile_id: ProfileId,
     ) -> Result<Option<AccountIdentityRecord>, IdentityCacheError> {
-        self.identity_cache.load(profile_id)
+        self.identity_cache.load(profile_id).map(|record| {
+            record.map(|mut record| {
+                set_presentation_avatar(
+                    &mut record,
+                    self.avatar_store.asset_for(profile_id).ok().flatten(),
+                );
+                record
+            })
+        })
     }
 
     pub fn identity_records(
@@ -798,7 +806,7 @@ impl AccountProfileService {
             .snapshot()
             .map_err(|error| IdentityCacheError::Io(std::io::Error::other(error.to_string())))?;
         for profile in snapshot.profiles {
-            if let Some(identity) = self.identity_cache.load(profile.id)? {
+            if let Some(identity) = self.identity_for(profile.id)? {
                 result.insert(profile.id, identity);
             }
         }
@@ -890,23 +898,25 @@ impl AccountProfileService {
         profile_id: ProfileId,
         account: &AccountIdentity,
     ) -> Result<(), IdentityCacheError> {
-        match account.avatar_candidate.as_deref() {
-            Some(candidate) => match download_official_avatar(candidate).await {
-                Ok(bytes) => {
-                    if self
-                        .avatar_store
-                        .write_official(profile_id, &bytes)
-                        .is_err()
-                    {
+        if self.avatar_store.is_enabled() {
+            match account.avatar_candidate.as_deref() {
+                Some(candidate) => match download_official_avatar(candidate).await {
+                    Ok(bytes) => {
+                        if self
+                            .avatar_store
+                            .write_official(profile_id, &bytes)
+                            .is_err()
+                        {
+                            let _ = self.avatar_store.clear_official(profile_id);
+                        }
+                    }
+                    Err(_) => {
                         let _ = self.avatar_store.clear_official(profile_id);
                     }
-                }
-                Err(_) => {
+                },
+                None => {
                     let _ = self.avatar_store.clear_official(profile_id);
                 }
-            },
-            None => {
-                let _ = self.avatar_store.clear_official(profile_id);
             }
         }
         let mut presentation = presentation_identity(
@@ -956,9 +966,10 @@ fn storage_error(error: crate::storage::StorageError) -> AccountServiceError {
 
 #[cfg(test)]
 mod tests {
+    use super::{AccountIdentityRecord, Utc, presentation_identity};
     use crate::accounts::avatar::AvatarKind;
     use crate::accounts::model::{AccountServiceEvent, StartManagedLogin};
-    use crate::accounts::test_support::{fixture, managed_id};
+    use crate::accounts::test_support::{fixture, fixture_with_disabled_avatar_store, managed_id};
     use crate::core::RefreshTrigger;
 
     fn terminal_refresh_results(
@@ -1139,7 +1150,9 @@ mod tests {
         let fixture = fixture();
         let png = [
             137, 80, 78, 71, 13, 10, 26, 10, 0, 0, 0, 13, 73, 72, 68, 82, 0, 0, 0, 1, 0, 0, 0, 1,
-            8, 6, 0, 0, 0, 31, 21, 196, 137,
+            8, 6, 0, 0, 0, 31, 21, 196, 137, 0, 0, 0, 13, 73, 68, 65, 84, 8, 215, 99, 248, 207,
+            192, 240, 31, 0, 5, 0, 1, 255, 114, 156, 82, 103, 0, 0, 0, 0, 73, 69, 78, 68, 174, 66,
+            96, 130,
         ];
 
         fixture
@@ -1162,6 +1175,44 @@ mod tests {
         let cleared = fixture.service.identity_for(managed_id()).unwrap().unwrap();
         assert_eq!(cleared.presentation.avatar_kind, AvatarKind::Default);
         assert_eq!(cleared.presentation.avatar_revision, None);
+    }
+
+    #[test]
+    fn disabled_avatar_store_downgrades_stale_cached_assets_to_default() {
+        let fixture = fixture_with_disabled_avatar_store();
+        let mut presentation = presentation_identity(
+            Some("stack"),
+            Some("Stack User"),
+            Some("stack@example.com"),
+            crate::accounts::identity::AccountStatus::SignedIn,
+        );
+        presentation.avatar_kind = AvatarKind::Official;
+        presentation.avatar_revision = Some("ab".repeat(32));
+        fixture
+            .identity_cache
+            .save(
+                fixture.current_cli_id,
+                &AccountIdentityRecord {
+                    username: Some("stack".to_string()),
+                    display_name: Some("Stack User".to_string()),
+                    email: Some("stack@example.com".to_string()),
+                    plan_type: Some("plus".to_string()),
+                    status: crate::accounts::identity::AccountStatus::SignedIn,
+                    presentation,
+                    updated_at: Utc::now(),
+                },
+            )
+            .unwrap();
+
+        let record = fixture
+            .service
+            .identity_for(fixture.current_cli_id)
+            .unwrap()
+            .unwrap();
+
+        assert_eq!(record.presentation.avatar_kind, AvatarKind::Default);
+        assert_eq!(record.presentation.avatar_revision, None);
+        assert_eq!(record.presentation.display_name, "stack");
     }
 
     #[tokio::test]
