@@ -26,8 +26,9 @@ pub use settings_migration::migrate_settings_json;
 pub use settings_repository::{
     AppSettings, DisplayMode, LanguagePreference, NotificationPreferences,
     NotificationPreferencesPatch, PanelDensity, PanelPreferences, SettingsPatch,
-    SettingsRepository, SurfaceAppearancePreferences, TaskbarDensity, TaskbarTrayPreferences,
-    TaskbarTrayPreferencesPatch, ThemePreference, TrayIconMode,
+    SettingsRepository, SurfaceAppearancePreferences, TaskbarDensity,
+    TaskbarPresentationPreferences, TaskbarTrayPreferences, TaskbarTrayPreferencesPatch,
+    ThemePreference, TrayIconMode,
 };
 pub use usage_repository::{SqliteUsageRepository, UsageCacheKey, UsageRepository};
 

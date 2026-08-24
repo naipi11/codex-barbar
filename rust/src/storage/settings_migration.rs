@@ -20,7 +20,7 @@ pub fn migrate_settings_json(mut value: Value) -> Result<(Value, bool), StorageE
     migrate_percent(object, "taskbarStatusOpacity", "taskbarTransparencyPercent");
     migrate_percent(object, "floatBallOpacity", "floatBallTransparencyPercent");
     migrate_percent(object, "floatBallGlow", "floatBallGlowPercent");
-    normalize_legacy_tray_preferences(object);
+    migrate_taskbar_presentation(object);
     migrate_panel_layout(object);
     object.insert(
         "schemaVersion".to_string(),
@@ -30,27 +30,39 @@ pub fn migrate_settings_json(mut value: Value) -> Result<(Value, bool), StorageE
     Ok((value, true))
 }
 
-fn normalize_legacy_tray_preferences(object: &mut Map<String, Value>) {
-    let Some(tray) = object.get_mut("taskbarTray") else {
+fn migrate_taskbar_presentation(object: &mut Map<String, Value>) {
+    let legacy = object.remove("taskbarTray");
+    if object.contains_key("taskbarPresentation") {
         return;
-    };
-    let Some(tray) = tray.as_object_mut() else {
-        object.remove("taskbarTray");
+    }
+    let Some(tray) = legacy.and_then(|value| value.as_object().cloned()) else {
         return;
     };
 
-    for (key, allowed) in [
-        ("density", ["compact", "standard"].as_slice()),
-        ("trayIconMode", ["dynamic", "monochrome"].as_slice()),
+    let mut presentation = Map::new();
+    for key in [
+        "showTaskbarIcon",
+        "showTaskbarAccount",
+        "showWeeklyLabel",
+        "showWeeklyPercent",
+        "showResetDate",
+        "hideStatusSurfacesInFullscreen",
     ] {
-        if tray
-            .get(key)
-            .and_then(Value::as_str)
-            .is_some_and(|value| !allowed.contains(&value))
-        {
-            tray.remove(key);
+        if let Some(value) = tray.get(key).filter(|value| value.is_boolean()) {
+            presentation.insert(key.to_string(), value.clone());
         }
     }
+    if tray
+        .get("density")
+        .and_then(Value::as_str)
+        .is_some_and(|value| matches!(value, "compact" | "standard"))
+    {
+        presentation.insert("density".to_string(), tray["density"].clone());
+    }
+    object.insert(
+        "taskbarPresentation".to_string(),
+        Value::Object(presentation),
+    );
 }
 
 fn migrate_percent(object: &mut Map<String, Value>, legacy_key: &str, v2_key: &str) {
@@ -67,11 +79,12 @@ fn migrate_percent(object: &mut Map<String, Value>, legacy_key: &str, v2_key: &s
 }
 
 fn migrate_panel_layout(object: &mut Map<String, Value>) {
-    let legacy_actions = object
-        .get("menu")
-        .and_then(Value::as_object)
-        .and_then(|menu| menu.get("trayPanel"))
-        .cloned();
+    let legacy_actions = object.remove("menu").and_then(|value| {
+        value
+            .as_object()
+            .and_then(|menu| menu.get("trayPanel"))
+            .cloned()
+    });
 
     let panel = object
         .entry("panel".to_string())
