@@ -14,6 +14,7 @@ pub struct AppPaths {
     pub runtime: PathBuf,
     pub logs: PathBuf,
     pub identity_cache: PathBuf,
+    pub avatars: PathBuf,
     pub notification_state: PathBuf,
 }
 
@@ -31,6 +32,7 @@ impl AppPaths {
             runtime: root.join("runtime"),
             logs: root.join("logs"),
             identity_cache: root.join("identity").join("profiles.json"),
+            avatars: root.join("avatars"),
             notification_state: root.join("runtime").join("notification-state.json"),
             root,
         }
@@ -67,5 +69,11 @@ mod tests {
             paths.identity_cache,
             paths.root.join("identity").join("profiles.json")
         );
+    }
+
+    #[test]
+    fn derives_avatar_store_path_from_canonical_root() {
+        let paths = AppPaths::from_local_app_data(Path::new(r"C:\Users\A\AppData\Local"));
+        assert_eq!(paths.avatars, paths.root.join("avatars"));
     }
 }

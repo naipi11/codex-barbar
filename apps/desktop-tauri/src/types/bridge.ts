@@ -127,6 +127,9 @@ export interface ProfileSummaryDto {
   accountStatus: "signedIn" | "signedOut" | "unavailable";
   accountUpdatedAt: string | null;
   planType: string | null;
+  presentationName: string;
+  avatarKind: "default" | "official" | "manual";
+  avatarAssetUri: string | null;
   authMode: "unknown" | "chatGpt" | "apiKey";
   removable: boolean;
   lastSuccessAt: string | null;

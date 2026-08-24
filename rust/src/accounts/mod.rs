@@ -1,9 +1,11 @@
 //! Account profiles, lifecycle, and orchestration (Phase 2).
 
 pub mod actor;
+pub mod avatar;
 pub mod credential_bundle;
 pub mod identity;
 pub mod model;
+pub mod presentation;
 pub mod recovery;
 pub mod runtime_home;
 pub mod secret_bytes;

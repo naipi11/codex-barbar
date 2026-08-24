@@ -10,12 +10,31 @@ use crate::core::{
 };
 
 /// Account identity returned by `account/read`.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq)]
 pub struct AccountIdentity {
     pub auth_mode: AuthMode,
+    pub username: Option<String>,
     pub display_name: Option<String>,
     pub email: Option<String>,
     pub plan_type: Option<String>,
+    pub avatar_candidate: Option<String>,
+}
+
+impl std::fmt::Debug for AccountIdentity {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("AccountIdentity")
+            .field("auth_mode", &self.auth_mode)
+            .field("username", &self.username)
+            .field("display_name", &self.display_name)
+            .field("email", &self.email)
+            .field("plan_type", &self.plan_type)
+            .field(
+                "avatar_candidate",
+                &self.avatar_candidate.as_ref().map(|_| "<redacted>"),
+            )
+            .finish()
+    }
 }
 
 impl AccountIdentity {
@@ -58,6 +77,7 @@ impl AccountIdentity {
         };
         Ok(Self {
             auth_mode,
+            username: string_field(account, &["handle", "username", "userName"]),
             display_name: string_field(
                 account,
                 &[
@@ -70,6 +90,16 @@ impl AccountIdentity {
             ),
             email: string_field(account, &["email", "emailAddress"]),
             plan_type: string_field(account, &["planType", "plan_type", "plan"]),
+            avatar_candidate: string_field(
+                account,
+                &[
+                    "avatarUrl",
+                    "avatar_url",
+                    "picture",
+                    "pictureUrl",
+                    "imageUrl",
+                ],
+            ),
         })
     }
 }
@@ -511,9 +541,11 @@ mod tests {
     fn parse_profile_usage_carries_the_reset_credit_summary() {
         let account = AccountIdentity {
             auth_mode: AuthMode::ChatGpt,
+            username: None,
             display_name: None,
             email: Some("user@example.com".into()),
             plan_type: Some("plus".into()),
+            avatar_candidate: None,
         };
         let rates =
             ParsedRateLimits::from_value(fixture("rate-limits-reset-credits-known.json")).unwrap();
@@ -673,6 +705,31 @@ mod tests {
     }
 
     #[test]
+    fn identity_parser_extracts_username_and_avatar_candidate_without_debug_leak() {
+        let account = AccountIdentity::from_value(serde_json::json!({
+            "account": {
+                "type": "chatgpt",
+                "handle": "  stack  ",
+                "displayName": "Stack User",
+                "avatarUrl": "https://cdn.openai.com/avatar.png",
+                "token": "secret-token",
+                "cookie": "secret-cookie"
+            }
+        }))
+        .unwrap();
+
+        assert_eq!(account.username.as_deref(), Some("stack"));
+        assert_eq!(
+            account.avatar_candidate.as_deref(),
+            Some("https://cdn.openai.com/avatar.png")
+        );
+        let debug = format!("{account:?}");
+        assert!(!debug.contains("cdn.openai.com"));
+        assert!(!debug.contains("secret-token"));
+        assert!(!debug.contains("secret-cookie"));
+    }
+
+    #[test]
     fn legacy_rate_limits_field_is_supported() {
         let parsed = ParsedRateLimits::from_value(fixture("rate-limits-legacy.json")).unwrap();
         assert_eq!(parsed.selected_limit_id.as_deref(), Some("codex"));
@@ -760,9 +817,11 @@ mod tests {
     fn profile_snapshot_maps_source_and_plan() {
         let account = AccountIdentity {
             auth_mode: AuthMode::ChatGpt,
+            username: None,
             display_name: None,
             email: Some("user@example.com".into()),
             plan_type: Some("plus".into()),
+            avatar_candidate: None,
         };
         let rates = ParsedRateLimits::from_value(fixture("rate-limits-legacy.json")).unwrap();
         let snapshot = parse_profile_usage(id(), account, rates, Utc::now()).unwrap();

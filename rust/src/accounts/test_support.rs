@@ -21,6 +21,7 @@ use crate::accounts::model::{AccountServiceEvent, ManagedLoginStage, StartManage
 use crate::accounts::recovery::AccountRecovery;
 use crate::accounts::runtime_home::RuntimeHomeManager;
 use crate::accounts::secret_bytes::SensitiveBytes;
+use crate::accounts::service::AccountPresentationStores;
 use crate::accounts::service::AccountProfileService;
 use crate::accounts::vault::CredentialVault;
 use crate::accounts::vault::envelope::{
@@ -181,6 +182,9 @@ pub fn fixture() -> AccountServiceFixture {
     let identity_cache = Arc::new(AccountIdentityCache::new(
         dir.path().join("identity").join("profiles.json"),
     ));
+    let avatar_store = Arc::new(crate::accounts::avatar::AvatarStore::new(
+        dir.path().join("avatars"),
+    ));
     let service = AccountProfileService::new(
         repositories,
         Arc::clone(&vault),
@@ -188,7 +192,7 @@ pub fn fixture() -> AccountServiceFixture {
         factory.clone(),
         recovery,
         actor,
-        Arc::clone(&identity_cache),
+        AccountPresentationStores::new(Arc::clone(&identity_cache), avatar_store),
     );
     let current_cli_id = service
         .initialize()

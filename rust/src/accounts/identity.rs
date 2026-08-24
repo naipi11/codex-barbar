@@ -8,6 +8,7 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
+use crate::accounts::presentation::{PresentationIdentity, presentation_identity};
 use crate::core::ProfileId;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -24,12 +25,31 @@ fn default_account_status() -> AccountStatus {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AccountIdentityRecord {
+    #[serde(default)]
+    pub username: Option<String>,
     pub display_name: Option<String>,
     pub email: Option<String>,
     pub plan_type: Option<String>,
     #[serde(default = "default_account_status")]
     pub status: AccountStatus,
+    #[serde(default)]
+    pub presentation: PresentationIdentity,
     pub updated_at: DateTime<Utc>,
+}
+
+impl AccountIdentityRecord {
+    fn normalize_presentation_name(&mut self) {
+        self.presentation.display_name = presentation_identity(
+            self.username.as_deref(),
+            self.display_name.as_deref(),
+            self.email.as_deref(),
+            self.status,
+        )
+        .display_name;
+        if self.presentation.avatar_kind == crate::accounts::avatar::AvatarKind::Default {
+            self.presentation.avatar_revision = None;
+        }
+    }
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -83,7 +103,12 @@ impl AccountIdentityCache {
             return Ok(BTreeMap::new());
         }
         let raw = crate::secure_file::read_string(&self.path).map_err(IdentityCacheError::Io)?;
-        serde_json::from_str(&raw).map_err(IdentityCacheError::Decode)
+        let mut records: BTreeMap<String, AccountIdentityRecord> =
+            serde_json::from_str(&raw).map_err(IdentityCacheError::Decode)?;
+        for record in records.values_mut() {
+            record.normalize_presentation_name();
+        }
+        Ok(records)
     }
 
     fn save_records(
@@ -172,14 +197,26 @@ mod tests {
             .unwrap();
 
         assert_eq!(record.status, AccountStatus::Unavailable);
+        assert_eq!(record.presentation.display_name, "Ming Zhao");
+        assert_eq!(
+            record.presentation.avatar_kind,
+            crate::accounts::avatar::AvatarKind::Default
+        );
     }
 
     fn record(name: &str) -> AccountIdentityRecord {
         AccountIdentityRecord {
+            username: Some("handle".to_string()),
             display_name: Some(name.to_string()),
             email: Some("user@example.com".to_string()),
             plan_type: Some("plus".to_string()),
             status: AccountStatus::SignedIn,
+            presentation: crate::accounts::presentation::presentation_identity(
+                Some("handle"),
+                Some(name),
+                Some("user@example.com"),
+                AccountStatus::SignedIn,
+            ),
             updated_at: Utc::now(),
         }
     }
@@ -193,6 +230,29 @@ mod tests {
 
         cache.save(profile_id, &expected).unwrap();
 
+        assert_eq!(cache.load(profile_id).unwrap(), Some(expected));
+    }
+
+    #[test]
+    fn cache_round_trip_keeps_only_resolved_avatar_metadata() {
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("profiles.json");
+        let cache = AccountIdentityCache::new(path.clone());
+        let profile_id = Uuid::from_u128(3);
+        let mut expected = record("Safe Name");
+        expected.presentation.avatar_kind = crate::accounts::avatar::AvatarKind::Manual;
+        expected.presentation.avatar_revision = Some("opaque-revision".to_string());
+
+        cache.save(profile_id, &expected).unwrap();
+
+        let raw = crate::secure_file::read_string(&path).unwrap();
+        assert!(raw.contains("opaque-revision"));
+        for forbidden in ["avatarUrl", "avatar_url", "C:\\", "file://"] {
+            assert!(
+                !raw.contains(forbidden),
+                "identity cache leaked {forbidden}"
+            );
+        }
         assert_eq!(cache.load(profile_id).unwrap(), Some(expected));
     }
 

@@ -9,11 +9,13 @@ use chrono::Utc;
 use tokio::sync::broadcast;
 
 use crate::accounts::actor::AccountOperationActor;
+use crate::accounts::avatar::{AvatarError, AvatarKind, AvatarStore, download_official_avatar};
 use crate::accounts::identity::{AccountIdentityCache, AccountIdentityRecord, IdentityCacheError};
 use crate::accounts::model::{
     AccountProfilesSnapshot, AccountServiceError, AccountServiceEvent, ManagedLoginMethod,
     ManagedLoginStatus, StartManagedLogin,
 };
+use crate::accounts::presentation::presentation_identity;
 use crate::accounts::recovery::AccountRecovery;
 use crate::accounts::runtime_home::RuntimeHomeManager;
 use crate::accounts::vault::CredentialVault;
@@ -33,7 +35,22 @@ pub struct AccountProfileService {
     recovery: AccountRecovery,
     actor: Arc<AccountOperationActor>,
     identity_cache: Arc<AccountIdentityCache>,
+    avatar_store: Arc<AvatarStore>,
     events: broadcast::Sender<AccountServiceEvent>,
+}
+
+pub struct AccountPresentationStores {
+    identity_cache: Arc<AccountIdentityCache>,
+    avatar_store: Arc<AvatarStore>,
+}
+
+impl AccountPresentationStores {
+    pub fn new(identity_cache: Arc<AccountIdentityCache>, avatar_store: Arc<AvatarStore>) -> Self {
+        Self {
+            identity_cache,
+            avatar_store,
+        }
+    }
 }
 
 impl AccountProfileService {
@@ -44,7 +61,7 @@ impl AccountProfileService {
         app_server_factory: Arc<dyn AppServerFactory>,
         recovery: AccountRecovery,
         actor: Arc<AccountOperationActor>,
-        identity_cache: Arc<AccountIdentityCache>,
+        presentation_stores: AccountPresentationStores,
     ) -> Arc<Self> {
         let (events, _) = broadcast::channel(64);
         Arc::new(Self {
@@ -54,7 +71,8 @@ impl AccountProfileService {
             app_server_factory,
             recovery,
             actor,
-            identity_cache,
+            identity_cache: presentation_stores.identity_cache,
+            avatar_store: presentation_stores.avatar_store,
             events,
         })
     }
@@ -241,6 +259,9 @@ impl AccountProfileService {
         if let Err(error) = self.identity_cache.remove(profile_id) {
             tracing::warn!(code = "IDENTITY_CACHE_REMOVE_FAILED", %error, "account identity cache cleanup failed");
         }
+        if let Err(error) = self.avatar_store.remove_profile(profile_id) {
+            tracing::warn!(code = "AVATAR_REMOVE_FAILED", %error, "account avatar cleanup failed");
+        }
         self.snapshot()
     }
 
@@ -287,7 +308,7 @@ impl AccountProfileService {
                 return Ok(false);
             }
         };
-        if let Err(error) = self.cache_identity(profile_id, &account) {
+        if let Err(error) = self.cache_identity(profile_id, &account).await {
             tracing::warn!(code = "IDENTITY_CACHE_WRITE_FAILED", %error, "account identity cache update failed");
         } else {
             self.publish_profiles_changed();
@@ -385,7 +406,7 @@ impl AccountProfileService {
                 return Err(AccountServiceError::App(error));
             }
         };
-        if let Err(error) = self.cache_identity(profile_id, &account) {
+        if let Err(error) = self.cache_identity(profile_id, &account).await {
             tracing::warn!(code = "IDENTITY_CACHE_WRITE_FAILED", %error, "account identity cache update failed");
         } else {
             self.publish_profiles_changed();
@@ -639,7 +660,7 @@ impl AccountProfileService {
                         return Err(AccountServiceError::App(error));
                     }
                 };
-                if let Err(error) = self.cache_identity(profile_id, &account) {
+                if let Err(error) = self.cache_identity(profile_id, &account).await {
                     tracing::warn!(code = "IDENTITY_CACHE_WRITE_FAILED", %error, "account identity cache update failed");
                 }
                 if account.auth_mode != crate::core::AuthMode::ChatGpt {
@@ -784,6 +805,74 @@ impl AccountProfileService {
         Ok(result)
     }
 
+    pub fn save_profile_avatar(
+        &self,
+        profile_id: ProfileId,
+        png_bytes: &[u8],
+    ) -> Result<(), AvatarError> {
+        self.ensure_avatar_profile(profile_id)?;
+        let asset = self.avatar_store.write_manual(profile_id, png_bytes)?;
+        let mut record = self.avatar_identity_record(profile_id)?;
+        record.presentation.avatar_kind = AvatarKind::Manual;
+        record.presentation.avatar_revision = Some(asset.revision);
+        self.identity_cache
+            .save(profile_id, &record)
+            .map_err(|_| AvatarError::Storage)?;
+        self.publish_profiles_changed();
+        Ok(())
+    }
+
+    pub fn clear_profile_avatar(&self, profile_id: ProfileId) -> Result<(), AvatarError> {
+        self.ensure_avatar_profile(profile_id)?;
+        self.avatar_store.clear_manual(profile_id)?;
+        let mut record = self.avatar_identity_record(profile_id)?;
+        set_presentation_avatar(
+            &mut record,
+            self.avatar_store
+                .asset_for(profile_id)
+                .map_err(|_| AvatarError::Storage)?,
+        );
+        self.identity_cache
+            .save(profile_id, &record)
+            .map_err(|_| AvatarError::Storage)?;
+        self.publish_profiles_changed();
+        Ok(())
+    }
+
+    fn ensure_avatar_profile(&self, profile_id: ProfileId) -> Result<(), AvatarError> {
+        self.repositories
+            .accounts
+            .get(profile_id)
+            .map_err(|_| AvatarError::Storage)?
+            .filter(|profile| profile.lifecycle == ProfileLifecycle::Ready)
+            .ok_or(AvatarError::ProfileNotFound)
+            .map(|_| ())
+    }
+
+    fn avatar_identity_record(
+        &self,
+        profile_id: ProfileId,
+    ) -> Result<AccountIdentityRecord, AvatarError> {
+        Ok(self
+            .identity_cache
+            .load(profile_id)
+            .map_err(|_| AvatarError::Storage)?
+            .unwrap_or_else(|| AccountIdentityRecord {
+                username: None,
+                display_name: None,
+                email: None,
+                plan_type: None,
+                status: crate::accounts::identity::AccountStatus::Unavailable,
+                presentation: presentation_identity(
+                    None,
+                    None,
+                    None,
+                    crate::accounts::identity::AccountStatus::Unavailable,
+                ),
+                updated_at: Utc::now(),
+            }))
+    }
+
     pub async fn shutdown(&self, _timeout: Duration) -> Result<(), AccountServiceError> {
         Ok(())
     }
@@ -796,21 +885,68 @@ impl AccountProfileService {
         &self.repositories
     }
 
-    fn cache_identity(
+    async fn cache_identity(
         &self,
         profile_id: ProfileId,
         account: &AccountIdentity,
     ) -> Result<(), IdentityCacheError> {
+        match account.avatar_candidate.as_deref() {
+            Some(candidate) => match download_official_avatar(candidate).await {
+                Ok(bytes) => {
+                    if self
+                        .avatar_store
+                        .write_official(profile_id, &bytes)
+                        .is_err()
+                    {
+                        let _ = self.avatar_store.clear_official(profile_id);
+                    }
+                }
+                Err(_) => {
+                    let _ = self.avatar_store.clear_official(profile_id);
+                }
+            },
+            None => {
+                let _ = self.avatar_store.clear_official(profile_id);
+            }
+        }
+        let mut presentation = presentation_identity(
+            account.username.as_deref(),
+            account.display_name.as_deref(),
+            account.email.as_deref(),
+            account.status(),
+        );
+        if let Some(asset) = self.avatar_store.asset_for(profile_id).ok().flatten() {
+            presentation.avatar_kind = asset.kind;
+            presentation.avatar_revision = Some(asset.revision);
+        }
         self.identity_cache.save(
             profile_id,
             &AccountIdentityRecord {
+                username: account.username.clone(),
                 display_name: account.display_name.clone(),
                 email: account.email.clone(),
                 plan_type: account.plan_type.clone(),
                 status: account.status(),
+                presentation,
                 updated_at: Utc::now(),
             },
         )
+    }
+}
+
+fn set_presentation_avatar(
+    record: &mut AccountIdentityRecord,
+    asset: Option<crate::accounts::avatar::AvatarAsset>,
+) {
+    match asset {
+        Some(asset) => {
+            record.presentation.avatar_kind = asset.kind;
+            record.presentation.avatar_revision = Some(asset.revision);
+        }
+        None => {
+            record.presentation.avatar_kind = AvatarKind::Default;
+            record.presentation.avatar_revision = None;
+        }
     }
 }
 
@@ -820,6 +956,7 @@ fn storage_error(error: crate::storage::StorageError) -> AccountServiceError {
 
 #[cfg(test)]
 mod tests {
+    use crate::accounts::avatar::AvatarKind;
     use crate::accounts::model::{AccountServiceEvent, StartManagedLogin};
     use crate::accounts::test_support::{fixture, managed_id};
     use crate::core::RefreshTrigger;
@@ -995,6 +1132,36 @@ mod tests {
                 .expect("identity lookup should succeed"),
             None
         );
+    }
+
+    #[test]
+    fn manual_avatar_commands_update_only_the_requested_profiles_presentation() {
+        let fixture = fixture();
+        let png = [
+            137, 80, 78, 71, 13, 10, 26, 10, 0, 0, 0, 13, 73, 72, 68, 82, 0, 0, 0, 1, 0, 0, 0, 1,
+            8, 6, 0, 0, 0, 31, 21, 196, 137,
+        ];
+
+        fixture
+            .service
+            .save_profile_avatar(managed_id(), &png)
+            .unwrap();
+
+        let managed = fixture.service.identity_for(managed_id()).unwrap().unwrap();
+        assert_eq!(managed.presentation.avatar_kind, AvatarKind::Manual);
+        assert!(managed.presentation.avatar_revision.is_some());
+        assert!(
+            fixture
+                .service
+                .identity_for(fixture.current_cli_id)
+                .unwrap()
+                .is_none()
+        );
+
+        fixture.service.clear_profile_avatar(managed_id()).unwrap();
+        let cleared = fixture.service.identity_for(managed_id()).unwrap().unwrap();
+        assert_eq!(cleared.presentation.avatar_kind, AvatarKind::Default);
+        assert_eq!(cleared.presentation.avatar_revision, None);
     }
 
     #[tokio::test]

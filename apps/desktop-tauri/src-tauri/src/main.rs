@@ -52,18 +52,25 @@ fn main() {
     initial_state.proof_config = proof_config;
     let coordinator = Arc::clone(&initial_state.coordinator);
     coordinator.record(app_coordinator::StartupMilestone::Logging);
+    let app_paths = codexbar::app_paths::AppPaths::discover().ok();
+    let avatar_store = Arc::new(codexbar::accounts::avatar::AvatarStore::new(
+        app_paths
+            .as_ref()
+            .map(|paths| paths.avatars.clone())
+            .unwrap_or_else(|| std::path::PathBuf::from("codex-barbar-avatars")),
+    ));
 
     // Phase-2 account bootstrap: open the canonical SQLite database, recover
     // interrupted runtimes, and build the account service when writable.
     if let codexbar::storage::DatabaseBootstrap::Ready(repositories) =
         codexbar::storage::DatabaseBootstrap::open(
-            &codexbar::app_paths::AppPaths::discover()
-                .map(|paths| paths.database)
-                .unwrap_or_else(|_| std::path::PathBuf::from("codex-barbar.db")),
+            &app_paths
+                .as_ref()
+                .map(|paths| paths.database.clone())
+                .unwrap_or_else(|| std::path::PathBuf::from("codex-barbar.db")),
         )
     {
         coordinator.record(app_coordinator::StartupMilestone::Database);
-        let app_paths = codexbar::app_paths::AppPaths::discover().ok();
         let vault = Arc::new(codexbar::accounts::vault::CredentialVault::new(
             app_paths
                 .as_ref()
@@ -99,7 +106,10 @@ fn main() {
             factory,
             recovery,
             actor,
-            identity_cache,
+            codexbar::accounts::service::AccountPresentationStores::new(
+                identity_cache,
+                Arc::clone(&avatar_store),
+            ),
         );
         let _ = service.initialize();
         coordinator.record(app_coordinator::StartupMilestone::Recovery);
@@ -115,7 +125,20 @@ fn main() {
         notification_controller::WindowsToastSink,
     );
 
+    let protocol_avatar_store = Arc::clone(&avatar_store);
     tauri::Builder::default()
+        .register_asynchronous_uri_scheme_protocol(
+            "account-avatar",
+            move |_context, request, responder| {
+                let avatar_store = Arc::clone(&protocol_avatar_store);
+                std::thread::spawn(move || {
+                    responder.respond(commands::account_avatar_protocol_response(
+                        &avatar_store,
+                        request,
+                    ));
+                });
+            },
+        )
         .manage(Mutex::new(initial_state))
         .manage(Mutex::new(notification_controller))
         .manage(Mutex::new(status_surfaces::StatusSurfaceState::default()))
@@ -143,6 +166,8 @@ fn main() {
             commands::cancel_managed_login,
             commands::rename_managed_profile,
             commands::remove_managed_profile,
+            commands::save_profile_avatar,
+            commands::clear_profile_avatar,
             commands::get_diagnostics_summary,
             commands::export_diagnostics,
             commands::validate_codex_executable,

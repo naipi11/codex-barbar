@@ -9,10 +9,12 @@ use std::sync::Mutex;
 
 use serde::{Deserialize, Serialize};
 
+use codexbar::accounts::avatar::AvatarKind;
 use codexbar::accounts::identity::{AccountIdentityRecord, AccountStatus};
 use codexbar::accounts::model::{
     AccountProfile, AccountProfilesSnapshot, ManagedLoginStage, ManagedLoginStatus, ProfileKind,
 };
+use codexbar::accounts::presentation::avatar_asset_uri;
 use codexbar::core::{
     AppError, AppErrorKind, AuthMode, Freshness, ProfileUsageState, RefreshStatus, UsageWindow,
 };
@@ -427,6 +429,9 @@ pub struct ProfileSummaryDto {
     pub account_status: &'static str,
     pub account_updated_at: Option<String>,
     pub plan_type: Option<String>,
+    pub presentation_name: String,
+    pub avatar_kind: &'static str,
+    pub avatar_asset_uri: Option<String>,
     pub auth_mode: &'static str,
     pub removable: bool,
     pub last_success_at: Option<String>,
@@ -443,11 +448,17 @@ impl ProfileSummaryDto {
             .map(|value| account_status_name(value.status))
             .unwrap_or("unavailable");
         let account_updated_at = identity.map(|value| value.updated_at.to_rfc3339());
+        let presentation = identity
+            .map(|value| value.presentation.clone())
+            .unwrap_or_default();
+        let avatar_kind = avatar_kind_name(presentation.avatar_kind);
+        let avatar_asset_uri = presentation
+            .avatar_revision
+            .as_deref()
+            .filter(|_| presentation.avatar_kind != AvatarKind::Default)
+            .map(|revision| avatar_asset_uri(profile.id, revision));
         let label = if profile.kind == ProfileKind::CurrentCli {
-            account_display_name
-                .clone()
-                .or_else(|| account_email.clone())
-                .unwrap_or_else(|| account_label_fallback(account_status).to_string())
+            presentation.display_name.clone()
         } else {
             profile.label.clone()
         };
@@ -463,6 +474,9 @@ impl ProfileSummaryDto {
             account_status,
             account_updated_at,
             plan_type: identity.and_then(|value| value.plan_type.clone()),
+            presentation_name: presentation.display_name,
+            avatar_kind,
+            avatar_asset_uri,
             auth_mode: auth_mode_name(profile.auth_mode),
             removable: profile.kind == ProfileKind::Managed,
             last_success_at: profile.last_success_at.map(|value| value.to_rfc3339()),
@@ -885,11 +899,11 @@ fn account_status_name(status: AccountStatus) -> &'static str {
     }
 }
 
-fn account_label_fallback(status: &str) -> &'static str {
-    match status {
-        "signedIn" => "已登录（名称不可用）",
-        "signedOut" => "未登录",
-        _ => "账号信息不可用",
+fn avatar_kind_name(kind: AvatarKind) -> &'static str {
+    match kind {
+        AvatarKind::Default => "default",
+        AvatarKind::Official => "official",
+        AvatarKind::Manual => "manual",
     }
 }
 
@@ -1063,10 +1077,17 @@ mod tests {
 
     fn identity(name: Option<&str>, email: Option<&str>) -> AccountIdentityRecord {
         AccountIdentityRecord {
+            username: None,
             display_name: name.map(str::to_string),
             email: email.map(str::to_string),
             plan_type: Some("plus".into()),
             status: codexbar::accounts::identity::AccountStatus::SignedIn,
+            presentation: codexbar::accounts::presentation::presentation_identity(
+                None,
+                name,
+                email,
+                codexbar::accounts::identity::AccountStatus::SignedIn,
+            ),
             updated_at: DateTime::from_timestamp(1_754_000_000, 0).unwrap(),
         }
     }
@@ -1116,6 +1137,36 @@ mod tests {
         );
         let text = serde_json::to_string(&dto).unwrap().to_ascii_lowercase();
         for forbidden in ["token", "cookie", "vault", "codexhome", "c:\\"] {
+            assert!(!text.contains(forbidden), "leaked {forbidden}: {text}");
+        }
+    }
+
+    #[test]
+    fn profile_dto_exposes_only_generated_avatar_asset_uri() {
+        let mut identity = identity(Some("Stack User"), Some("stack@example.com"));
+        identity.username = Some("stack".to_string());
+        identity.presentation.display_name = "stack".to_string();
+        identity.presentation.avatar_kind = codexbar::accounts::avatar::AvatarKind::Official;
+        identity.presentation.avatar_revision = Some("ab".repeat(32));
+
+        let dto = ProfileSummaryDto::from_profile(
+            &profile(ProfileKind::CurrentCli, "Current CLI"),
+            Some(&identity),
+        );
+        let json = serde_json::to_value(&dto).unwrap();
+        let text = json.to_string();
+
+        assert_eq!(json["presentationName"], "stack");
+        assert_eq!(json["avatarKind"], "official");
+        assert_eq!(
+            json["avatarAssetUri"],
+            format!(
+                "account-avatar://profile/{}?rev={}",
+                uuid::Uuid::nil(),
+                "ab".repeat(32)
+            )
+        );
+        for forbidden in ["avatarUrl", "avatarPath", "https://", "file://"] {
             assert!(!text.contains(forbidden), "leaked {forbidden}: {text}");
         }
     }

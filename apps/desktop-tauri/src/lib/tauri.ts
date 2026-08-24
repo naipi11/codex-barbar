@@ -37,6 +37,8 @@ export const commands = {
   cancelManagedLogin: "cancel_managed_login",
   renameManagedProfile: "rename_managed_profile",
   removeManagedProfile: "remove_managed_profile",
+  saveProfileAvatar: "save_profile_avatar",
+  clearProfileAvatar: "clear_profile_avatar",
   getDiagnosticsSummary: "get_diagnostics_summary",
   exportDiagnostics: "export_diagnostics",
   validateCodexExecutable: "validate_codex_executable",
@@ -144,6 +146,15 @@ export const renameManagedProfile = (profileId: string, label: string) =>
 
 export const removeManagedProfile = (profileId: string) =>
   invoke<AccountsSnapshotDto>(commands.removeManagedProfile, { profileId });
+
+export const saveProfileAvatar = (profileId: string, pngDataUrl: string) =>
+  invoke<AccountsSnapshotDto>(commands.saveProfileAvatar, {
+    profileId,
+    pngDataUrl,
+  });
+
+export const clearProfileAvatar = (profileId: string) =>
+  invoke<AccountsSnapshotDto>(commands.clearProfileAvatar, { profileId });
 
 export const getDiagnosticsSummary = () =>
   invoke<DiagnosticsSummaryDto>(commands.getDiagnosticsSummary);

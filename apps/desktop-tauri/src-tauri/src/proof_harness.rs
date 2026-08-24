@@ -620,6 +620,7 @@ pub fn synthetic_bootstrap(scenario: ProofScenario) -> crate::commands::Bootstra
             (
                 profile.id,
                 codexbar::accounts::identity::AccountIdentityRecord {
+                    username: None,
                     display_name: (profile.kind == ProfileKind::CurrentCli).then(|| {
                         if weekly_status_proof {
                             "ProofUser".to_string()
@@ -636,6 +637,24 @@ pub fn synthetic_bootstrap(scenario: ProofScenario) -> crate::commands::Bootstra
                     }),
                     plan_type: Some("plus".to_string()),
                     status: codexbar::accounts::identity::AccountStatus::SignedIn,
+                    presentation: codexbar::accounts::presentation::presentation_identity(
+                        None,
+                        (profile.kind == ProfileKind::CurrentCli).then_some(
+                            if weekly_status_proof {
+                                "ProofUser"
+                            } else {
+                                "Ming Zhao"
+                            },
+                        ),
+                        (profile.kind == ProfileKind::CurrentCli).then_some(
+                            if weekly_status_proof {
+                                "proof@example.com"
+                            } else {
+                                "ming.zhao@example.com"
+                            },
+                        ),
+                        codexbar::accounts::identity::AccountStatus::SignedIn,
+                    ),
                     updated_at: chrono::Utc::now(),
                 },
             )
