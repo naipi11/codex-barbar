@@ -228,13 +228,11 @@ impl ProofConfig {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 struct StatusProofProjection {
     taskbar_status_enabled: bool,
     float_ball_enabled: bool,
-    taskbar_status_opacity: u8,
-    float_ball_opacity: u8,
-    float_ball_glow: u8,
+    surface_appearance: codexbar::storage::SurfaceAppearancePreferences,
 }
 
 fn status_proof_projection(scenario: ProofScenario) -> Option<StatusProofProjection> {
@@ -242,16 +240,20 @@ fn status_proof_projection(scenario: ProofScenario) -> Option<StatusProofProject
         ProofScenario::TaskbarStatus(_) => Some(StatusProofProjection {
             taskbar_status_enabled: true,
             float_ball_enabled: false,
-            taskbar_status_opacity: 20,
-            float_ball_opacity: 20,
-            float_ball_glow: 20,
+            surface_appearance: codexbar::storage::SurfaceAppearancePreferences {
+                taskbar_transparency_percent: 20,
+                float_ball_transparency_percent: 20,
+                float_ball_glow_percent: 20,
+            },
         }),
         ProofScenario::FloatBall(_) => Some(StatusProofProjection {
             taskbar_status_enabled: false,
             float_ball_enabled: true,
-            taskbar_status_opacity: 20,
-            float_ball_opacity: 20,
-            float_ball_glow: 20,
+            surface_appearance: codexbar::storage::SurfaceAppearancePreferences {
+                taskbar_transparency_percent: 20,
+                float_ball_transparency_percent: 20,
+                float_ball_glow_percent: 20,
+            },
         }),
         _ => None,
     }
@@ -262,9 +264,7 @@ fn status_proof_settings(scenario: ProofScenario) -> Option<codexbar::storage::A
     Some(codexbar::storage::AppSettings {
         taskbar_status_enabled: projection.taskbar_status_enabled,
         float_ball_enabled: projection.float_ball_enabled,
-        taskbar_status_opacity: projection.taskbar_status_opacity,
-        float_ball_opacity: projection.float_ball_opacity,
-        float_ball_glow: projection.float_ball_glow,
+        surface_appearance: projection.surface_appearance,
         ..codexbar::storage::AppSettings::default()
     })
 }
@@ -836,9 +836,11 @@ mod tests {
             StatusProofProjection {
                 taskbar_status_enabled: true,
                 float_ball_enabled: false,
-                taskbar_status_opacity: 20,
-                float_ball_opacity: 20,
-                float_ball_glow: 20,
+                surface_appearance: codexbar::storage::SurfaceAppearancePreferences {
+                    taskbar_transparency_percent: 20,
+                    float_ball_transparency_percent: 20,
+                    float_ball_glow_percent: 20,
+                },
             }
         );
 
@@ -847,14 +849,27 @@ mod tests {
         assert!(!float.taskbar_status_enabled);
         assert!(float.float_ball_enabled);
         assert_eq!(
-            (
-                float.taskbar_status_opacity,
-                float.float_ball_opacity,
-                float.float_ball_glow
-            ),
-            (20, 20, 20)
+            float.surface_appearance,
+            codexbar::storage::SurfaceAppearancePreferences {
+                taskbar_transparency_percent: 20,
+                float_ball_transparency_percent: 20,
+                float_ball_glow_percent: 20,
+            }
         );
         assert!(status_proof_projection(ProofScenario::SettingsGeneral).is_none());
+    }
+
+    #[test]
+    fn status_proof_settings_use_explicit_v2_surface_appearance_values() {
+        let settings = status_proof_settings(ProofScenario::FloatBall(StatusProofState::Weekly))
+            .expect("float proof settings");
+
+        assert_eq!(settings.surface_appearance.taskbar_transparency_percent, 20);
+        assert_eq!(
+            settings.surface_appearance.float_ball_transparency_percent,
+            20
+        );
+        assert_eq!(settings.surface_appearance.float_ball_glow_percent, 20);
     }
 
     #[test]

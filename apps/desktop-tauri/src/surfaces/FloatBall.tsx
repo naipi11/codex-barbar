@@ -110,7 +110,7 @@ export default function FloatBall() {
       style={
         {
           "--surface-bg-alpha": String(surfaceAlphaFromTransparency(transparency)),
-          "--float-glow": String(glow / 80),
+          "--float-glow": String(glow / 100),
           "--float-spin-duration": `${speedSeconds}s`,
         } as CSSProperties
       }

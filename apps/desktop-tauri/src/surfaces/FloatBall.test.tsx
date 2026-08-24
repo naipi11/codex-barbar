@@ -302,18 +302,23 @@ describe("FloatBall", () => {
     },
   );
 
-  it("maps glow brightness onto the blossom without changing spin size", async () => {
-    const bootstrap = bootstrapWithTwoProfiles();
-    bootstrap.settings.floatBallGlowPercent = 80;
-    invokeMock.mockImplementation(async (command: string) => {
-      if (command === "get_float_ball_motion") return { thinking: false, fast: true };
-      return bootstrap;
-    });
-    render(<FloatBall />);
-    const shell = await screen.findByTestId("float-ball-shell");
-    expect(shell.style.getPropertyValue("--float-glow")).toBe("1");
-    await waitFor(() => expect(shell).toHaveAttribute("data-motion", "fast"));
-  });
+  it.each([[0, "0"], [100, "1"]])(
+    "maps %s%% glow brightness to %s without exceeding the CSS range",
+    async (glow, expected) => {
+      const bootstrap = bootstrapWithTwoProfiles();
+      bootstrap.settings.floatBallGlowPercent = glow;
+      invokeMock.mockImplementation(async (command: string) => {
+        if (command === "get_float_ball_motion") return { thinking: false, fast: true };
+        return bootstrap;
+      });
+      render(<FloatBall />);
+      const shell = await screen.findByTestId("float-ball-shell");
+      const cssGlow = Number(shell.style.getPropertyValue("--float-glow"));
+      expect(cssGlow).toBe(Number(expected));
+      expect(cssGlow).toBeLessThanOrEqual(1);
+      await waitFor(() => expect(shell).toHaveAttribute("data-motion", "fast"));
+    },
+  );
 
   it("restores close feedback after the float window is recreated", async () => {
     const bootstrap = bootstrapWithTwoProfiles();
