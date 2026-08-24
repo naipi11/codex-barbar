@@ -96,19 +96,19 @@ impl TrayMenuLabels {
     fn for_language(language: &str) -> Self {
         if language == "zh-CN" {
             Self {
-                open_panel: "打开 codex-barbar",
+                open_panel: "打开面板",
                 refresh: "刷新",
                 accounts: "账户",
-                open_usage: "打开 Codex 用量",
+                open_usage: "用量与费用",
                 settings: "设置",
                 quit: "退出",
             }
         } else {
             Self {
-                open_panel: "Open codex-barbar",
+                open_panel: "Open panel",
                 refresh: "Refresh",
                 accounts: "Accounts",
-                open_usage: "Open Codex Usage",
+                open_usage: "Usage & Spend",
                 settings: "Settings",
                 quit: "Quit",
             }
@@ -243,6 +243,42 @@ mod tests {
                 "settings",
                 "quit"
             ]
+        );
+    }
+
+    #[test]
+    fn fixed_native_menu_labels_match_the_product_contract_in_each_supported_language() {
+        let english = TrayMenuLabels::for_language("en-US");
+        assert_eq!(
+            [
+                english.open_panel,
+                english.refresh,
+                english.accounts,
+                english.open_usage,
+                english.settings,
+                english.quit,
+            ],
+            [
+                "Open panel",
+                "Refresh",
+                "Accounts",
+                "Usage & Spend",
+                "Settings",
+                "Quit",
+            ]
+        );
+
+        let chinese = TrayMenuLabels::for_language("zh-CN");
+        assert_eq!(
+            [
+                chinese.open_panel,
+                chinese.refresh,
+                chinese.accounts,
+                chinese.open_usage,
+                chinese.settings,
+                chinese.quit,
+            ],
+            ["打开面板", "刷新", "账户", "用量与费用", "设置", "退出"]
         );
     }
 
