@@ -78,6 +78,9 @@ unsafe extern "system" {
     fn ShowWindow(hwnd: isize, command: i32) -> i32;
     fn MonitorFromWindow(hwnd: isize, flags: u32) -> isize;
     fn GetMonitorInfoW(hmonitor: isize, info: *mut MonitorInfo) -> i32;
+    fn IsWindowVisible(hwnd: isize) -> i32;
+    fn IsIconic(hwnd: isize) -> i32;
+    fn GetWindowRect(hwnd: isize, rect: *mut WinRect) -> i32;
 }
 
 #[cfg(windows)]
@@ -460,6 +463,77 @@ pub fn hide_window(win: &tauri::WebviewWindow) -> Result<(), String> {
         ShowWindow(hwnd, SW_HIDE);
     }
     Ok(())
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct OverlayWindowObservation {
+    pub visible: bool,
+    pub minimized: bool,
+    pub x: i32,
+    pub y: i32,
+    pub width: i32,
+    pub height: i32,
+}
+
+#[cfg(windows)]
+pub fn observe_window(win: &tauri::WebviewWindow) -> Result<OverlayWindowObservation, String> {
+    let hwnd = root_hwnd(win).map_err(str::to_string)?;
+    let visible = unsafe { IsWindowVisible(hwnd) } != 0;
+    let minimized = unsafe { IsIconic(hwnd) } != 0;
+    let mut rect = WinRect::default();
+    let ok = unsafe { GetWindowRect(hwnd, &mut rect) };
+    if ok == 0 {
+        return Err("OVERLAY_OBSERVE_FAILED".to_string());
+    }
+    Ok(OverlayWindowObservation {
+        visible,
+        minimized,
+        x: rect.left,
+        y: rect.top,
+        width: rect.right.saturating_sub(rect.left),
+        height: rect.bottom.saturating_sub(rect.top),
+    })
+}
+
+#[cfg(not(windows))]
+pub fn observe_window(win: &tauri::WebviewWindow) -> Result<OverlayWindowObservation, String> {
+    let visible = win.is_visible().unwrap_or(false);
+    let position = win
+        .outer_position()
+        .map_err(|_| "OVERLAY_OBSERVE_FAILED".to_string())?;
+    let size = win
+        .outer_size()
+        .map_err(|_| "OVERLAY_OBSERVE_FAILED".to_string())?;
+    Ok(OverlayWindowObservation {
+        visible,
+        minimized: false,
+        x: position.x,
+        y: position.y,
+        width: size.width.min(i32::MAX as u32) as i32,
+        height: size.height.min(i32::MAX as u32) as i32,
+    })
+}
+
+#[cfg(windows)]
+#[allow(dead_code)]
+pub fn show_noactivate(win: &tauri::WebviewWindow) -> Result<(), String> {
+    let hwnd = root_hwnd(win).map_err(str::to_string)?;
+    const SW_SHOWNA: i32 = 8;
+    const SW_RESTORE: i32 = 9;
+    if unsafe { IsIconic(hwnd) } != 0 {
+        unsafe {
+            ShowWindow(hwnd, SW_RESTORE);
+        }
+    }
+    unsafe {
+        ShowWindow(hwnd, SW_SHOWNA);
+    }
+    Ok(())
+}
+
+#[cfg(not(windows))]
+pub fn show_noactivate(win: &tauri::WebviewWindow) -> Result<(), String> {
+    win.show().map_err(|_| "OVERLAY_SHOW_FAILED".to_string())
 }
 
 #[cfg(not(windows))]

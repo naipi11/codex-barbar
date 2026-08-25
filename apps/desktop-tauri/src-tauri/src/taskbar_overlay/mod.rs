@@ -273,6 +273,45 @@ impl TaskbarOverlay {
         Ok(())
     }
 
+    pub fn observe_lifecycle(
+        &self,
+        foreground_class: crate::shell::fullscreen_guard::ForegroundClass,
+        suspension_reason: crate::shell::surface_lifecycle_trace::SurfaceSuspensionReason,
+    ) -> crate::shell::surface_lifecycle_trace::SurfaceLifecycleSnapshot {
+        use crate::shell::surface_lifecycle_trace::{
+            SurfaceBounds, SurfaceLabel, SurfaceLifecycleSnapshot, TopmostResult,
+        };
+        let observation = self
+            .window
+            .as_ref()
+            .and_then(|window| window::observe(window).ok());
+        SurfaceLifecycleSnapshot {
+            surface: SurfaceLabel::TaskbarStatus,
+            desired_visible: self.enabled
+                && suspension_reason
+                    == crate::shell::surface_lifecycle_trace::SurfaceSuspensionReason::None,
+            actual_visible: observation.is_some_and(|observed| observed.visible),
+            minimized: observation.is_some_and(|observed| observed.minimized),
+            bounds: observation.map(|observed| SurfaceBounds {
+                x: observed.x,
+                y: observed.y,
+                width: observed.width,
+                height: observed.height,
+            }),
+            topmost_result: if observation.is_some() {
+                TopmostResult::Ok
+            } else if self.enabled {
+                TopmostResult::Failed
+            } else {
+                TopmostResult::Skipped
+            },
+            foreground_class,
+            suspension_reason,
+            observed_at_ms: 0,
+        }
+        .observed_now()
+    }
+
     pub fn handle_window_destroyed(&mut self) {
         self.window = None;
         self.last_slot = None;

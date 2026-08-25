@@ -99,3 +99,9 @@ mod tests {
         );
     }
 }
+
+#[tauri::command]
+pub fn get_status_surface_diagnostics()
+-> Vec<crate::shell::surface_lifecycle_trace::SurfaceLifecycleSnapshot> {
+    crate::status_surfaces::get_status_surface_diagnostics()
+}

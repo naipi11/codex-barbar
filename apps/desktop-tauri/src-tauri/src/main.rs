@@ -174,6 +174,7 @@ fn main() {
             commands::clear_profile_avatar,
             commands::get_diagnostics_summary,
             commands::export_diagnostics,
+            commands::get_status_surface_diagnostics,
             commands::validate_codex_executable,
             commands::check_for_updates,
             commands::open_release_page,
@@ -349,6 +350,7 @@ fn main() {
                 .and_then(|repository| repository.load().ok())
                 .unwrap_or_default();
             status_surfaces::apply_status_surface_settings_non_fatal(app.handle(), &settings);
+            crate::shell::foreground_events::start_foreground_event_monitor(app.handle().clone());
             status_surfaces::start_monitor(app.handle().clone());
             auto_refresh::start(app.handle().clone());
             notification_controller::start_update_check_loop(app.handle().clone());

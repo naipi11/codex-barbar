@@ -4,6 +4,11 @@ use std::time::{Duration, Instant};
 use codexbar::storage::AppSettings;
 use tauri::Manager;
 
+use crate::shell::fullscreen_guard::ForegroundClass;
+use crate::shell::surface_lifecycle_trace::{
+    SurfaceLifecycleSnapshot, SurfaceSuspensionReason, recent_global, record_global,
+};
+
 pub(crate) mod controller;
 pub(crate) mod window_lifecycle;
 
@@ -33,6 +38,28 @@ fn fullscreen_transition(was_suspended: bool, is_fullscreen: bool) -> Fullscreen
 
 fn should_hide_for_fullscreen(settings: &AppSettings, is_fullscreen: bool) -> bool {
     is_fullscreen && settings.taskbar_tray.hide_status_surfaces_in_fullscreen
+}
+
+fn suspension_reason(fullscreen_suspended: bool) -> SurfaceSuspensionReason {
+    if fullscreen_suspended {
+        SurfaceSuspensionReason::Fullscreen
+    } else {
+        SurfaceSuspensionReason::None
+    }
+}
+
+fn record_surface_snapshots(state: &StatusSurfaceState, foreground_class: ForegroundClass) {
+    let reason = suspension_reason(state.fullscreen_suspended);
+    record_global(state.taskbar.observe_lifecycle(foreground_class, reason));
+    record_global(state.float_ball.observe_lifecycle(foreground_class, reason));
+}
+
+pub fn get_status_surface_diagnostics() -> Vec<SurfaceLifecycleSnapshot> {
+    recent_global(64)
+}
+
+pub fn schedule_foreground_reconcile(app: tauri::AppHandle, _foreground: ForegroundClass) {
+    schedule_status_reposition(app);
 }
 
 pub(crate) fn reconciliation_action(enabled: bool) -> ReconciliationAction {
@@ -112,9 +139,10 @@ pub fn apply_status_surface_settings(
     {
         first_error = Some(error);
     }
+    let foreground = crate::shell::fullscreen_guard::classify_current_foreground();
     if should_hide_for_fullscreen(
         settings,
-        crate::shell::fullscreen_guard::is_fullscreen_active(),
+        matches!(foreground, ForegroundClass::RealFullscreen),
     ) {
         state.fullscreen_suspended = true;
         if let Err(error) = state.taskbar.hide_for_fullscreen() {
@@ -124,6 +152,7 @@ pub fn apply_status_surface_settings(
             first_error.get_or_insert(error);
         }
     }
+    record_surface_snapshots(&state, foreground);
     first_error.map_or(Ok(()), Err)
 }
 
@@ -187,7 +216,8 @@ pub fn start_monitor(app: tauri::AppHandle) {
         let mut last_reconcile = Instant::now() - STATUS_SURFACE_RECONCILE_INTERVAL;
         loop {
             interval.tick().await;
-            let fullscreen = crate::shell::fullscreen_guard::is_fullscreen_active();
+            let foreground = crate::shell::fullscreen_guard::classify_current_foreground();
+            let fullscreen = matches!(foreground, ForegroundClass::RealFullscreen);
             let hide_fullscreen = app
                 .state::<Mutex<crate::state::AppState>>()
                 .lock()
@@ -204,6 +234,7 @@ pub fn start_monitor(app: tauri::AppHandle) {
                 .and_then(|mut state| {
                     let transition = fullscreen_transition(state.fullscreen_suspended, should_hide);
                     state.fullscreen_suspended = should_hide;
+                    record_surface_snapshots(&state, foreground);
                     if should_hide {
                         let mut first_error = None;
                         if let Err(error) = state.taskbar.hide_for_fullscreen() {
@@ -395,6 +426,17 @@ mod tests {
     use super::*;
     use std::sync::{Arc, mpsc};
     use std::time::Duration;
+
+    #[test]
+    fn diagnostics_command_returns_recorded_snapshots() {
+        record_global(crate::shell::surface_lifecycle_trace::event(11));
+        record_global(crate::shell::surface_lifecycle_trace::event(12));
+        let recent = get_status_surface_diagnostics();
+        assert!(recent.iter().any(|snapshot| snapshot.observed_at_ms == 12));
+        let encoded = serde_json::to_value(&recent).unwrap().to_string();
+        assert!(!encoded.contains("title"));
+        assert!(!encoded.contains("http"));
+    }
 
     #[test]
     fn fullscreen_transition_only_changes_on_edges() {

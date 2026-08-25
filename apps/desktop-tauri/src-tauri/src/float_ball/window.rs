@@ -78,6 +78,17 @@ pub fn reassert_topmost(window: &tauri::WebviewWindow) -> Result<(), String> {
     crate::shell::dwm::reassert_topmost(window)
 }
 
+pub fn observe(
+    window: &tauri::WebviewWindow,
+) -> Result<crate::shell::dwm::OverlayWindowObservation, String> {
+    crate::shell::dwm::observe_window(window)
+}
+
+#[allow(dead_code)]
+pub fn show_noactivate(window: &tauri::WebviewWindow) -> Result<(), String> {
+    crate::shell::dwm::show_noactivate(window)
+}
+
 #[allow(dead_code)]
 pub fn hide(window: &tauri::WebviewWindow) -> Result<(), String> {
     window

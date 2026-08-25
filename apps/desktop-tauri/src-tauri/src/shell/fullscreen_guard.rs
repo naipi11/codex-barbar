@@ -1,3 +1,5 @@
+use serde::Serialize;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct ScreenRect {
     pub(crate) left: i32,
@@ -18,6 +20,66 @@ pub(crate) fn is_shell_window_class(class_name: &str) -> bool {
             | "Shell_SecondaryTrayWnd"
             | "ShellHandwritingCanvas"
     ) || class_name.starts_with("ShellHandwritingCanvas ")
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub enum ForegroundClass {
+    Normal,
+    ShellTransient,
+    RealFullscreen,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ForegroundWindowInfo<'a> {
+    pub class_name: &'a str,
+    pub title: &'a str,
+    pub visible: bool,
+    pub minimized: bool,
+    pub own_process: bool,
+    pub matches_fullscreen: bool,
+}
+
+pub fn is_shell_transient_class(class_name: &str, title: &str) -> bool {
+    if is_shell_window_class(class_name)
+        || matches!(
+            class_name,
+            "CabinetWClass" | "ExploreWClass" | "XamlExplorerHostIslandWindow"
+        )
+    {
+        return true;
+    }
+    class_name == "Windows.UI.Core.CoreWindow"
+        && matches!(title.trim(), "Start" | "开始" | "Search" | "搜索")
+}
+
+pub fn classify_foreground(window: ForegroundWindowInfo<'_>) -> ForegroundClass {
+    if window.own_process || !window.visible || window.minimized {
+        return ForegroundClass::Normal;
+    }
+    if is_shell_transient_class(window.class_name, window.title) {
+        return ForegroundClass::ShellTransient;
+    }
+    if window.matches_fullscreen {
+        ForegroundClass::RealFullscreen
+    } else {
+        ForegroundClass::Normal
+    }
+}
+
+#[cfg(test)]
+pub(crate) fn window(
+    class_name: &'static str,
+    title: &'static str,
+) -> ForegroundWindowInfo<'static> {
+    ForegroundWindowInfo {
+        class_name,
+        title,
+        visible: true,
+        minimized: false,
+        own_process: false,
+        matches_fullscreen: false,
+    }
 }
 
 pub(crate) fn supports_renderer_scan(class_name: &str) -> bool {
@@ -184,15 +246,41 @@ fn window_title(hwnd: isize) -> String {
 
 #[cfg(windows)]
 fn is_shell_window(hwnd: isize) -> bool {
-    let class_name = window_class(hwnd);
-    if is_shell_window_class(&class_name) {
-        return true;
+    is_shell_transient_class(&window_class(hwnd), &window_title(hwnd))
+}
+
+#[cfg(windows)]
+pub(crate) fn classify_current_foreground() -> ForegroundClass {
+    let foreground = unsafe { GetForegroundWindow() };
+    if foreground == 0 {
+        return ForegroundClass::Normal;
     }
-    if class_name == "Windows.UI.Core.CoreWindow" {
-        let title = window_title(hwnd);
-        return matches!(title.trim(), "Start" | "开始" | "Search" | "搜索");
-    }
-    false
+
+    let mut process_id = 0;
+    unsafe { GetWindowThreadProcessId(foreground, &mut process_id) };
+    let own_process = process_id == unsafe { GetCurrentProcessId() };
+    let class_name = window_class(foreground);
+    let title = window_title(foreground);
+    let visible = unsafe { IsWindowVisible(foreground) } != 0;
+    let minimized = unsafe { IsIconic(foreground) } != 0;
+    let matches_fullscreen = !own_process
+        && visible
+        && !minimized
+        && !is_shell_transient_class(&class_name, &title)
+        && detect_fullscreen();
+    classify_foreground(ForegroundWindowInfo {
+        class_name: &class_name,
+        title: &title,
+        visible,
+        minimized,
+        own_process,
+        matches_fullscreen,
+    })
+}
+
+#[cfg(not(windows))]
+pub(crate) fn classify_current_foreground() -> ForegroundClass {
+    ForegroundClass::Normal
 }
 
 #[cfg(windows)]
@@ -467,5 +555,62 @@ mod tests {
             assert!(!is_shell_window_class(class_name));
             assert!(supports_renderer_scan(class_name));
         }
+    }
+
+    #[test]
+    fn start_and_search_are_shell_transients_not_fullscreen() {
+        assert_eq!(
+            classify_foreground(window("Windows.UI.Core.CoreWindow", "Start")),
+            ForegroundClass::ShellTransient
+        );
+        assert_eq!(
+            classify_foreground(window("Windows.UI.Core.CoreWindow", "Search")),
+            ForegroundClass::ShellTransient
+        );
+        assert_eq!(
+            classify_foreground(window("Windows.UI.Core.CoreWindow", "开始")),
+            ForegroundClass::ShellTransient
+        );
+        assert_eq!(
+            classify_foreground(window("Windows.UI.Core.CoreWindow", "搜索")),
+            ForegroundClass::ShellTransient
+        );
+    }
+
+    #[test]
+    fn explorer_desktop_and_taskbar_are_shell_transients() {
+        for class_name in [
+            "Progman",
+            "WorkerW",
+            "Shell_TrayWnd",
+            "Shell_SecondaryTrayWnd",
+            "CabinetWClass",
+            "ExploreWClass",
+        ] {
+            assert_eq!(
+                classify_foreground(window(class_name, "")),
+                ForegroundClass::ShellTransient
+            );
+        }
+    }
+
+    #[test]
+    fn covering_browser_window_is_real_fullscreen() {
+        let mut info = window("Chrome_WidgetWin_1", "");
+        info.matches_fullscreen = true;
+        assert_eq!(classify_foreground(info), ForegroundClass::RealFullscreen);
+    }
+
+    #[test]
+    fn own_or_hidden_windows_are_normal() {
+        let mut own = window("Chrome_WidgetWin_1", "");
+        own.own_process = true;
+        own.matches_fullscreen = true;
+        assert_eq!(classify_foreground(own), ForegroundClass::Normal);
+
+        let mut hidden = window("Chrome_WidgetWin_1", "");
+        hidden.visible = false;
+        hidden.matches_fullscreen = true;
+        assert_eq!(classify_foreground(hidden), ForegroundClass::Normal);
     }
 }
