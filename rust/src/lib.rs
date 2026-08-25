@@ -15,6 +15,7 @@ pub mod logging;
 pub mod notifications;
 pub mod pi_session_cost;
 pub mod platform;
+pub mod pricing;
 pub mod providers;
 pub mod refresh;
 pub mod rolling_log;

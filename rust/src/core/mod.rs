@@ -14,6 +14,7 @@ mod redactor;
 mod usage_pace;
 mod usage_snapshot;
 
+pub use crate::pricing::{CostResolution, Currency, MoneyMicros, PriceProvenance, PricingResolver};
 pub use app_error::*;
 pub use aws_signing::{hex, hmac_sha256, sanitized_body, sha256_hex};
 pub use cost_pricing::*;

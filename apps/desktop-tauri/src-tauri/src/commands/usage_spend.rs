@@ -8,6 +8,7 @@ use std::sync::Mutex;
 
 use chrono::{DateTime, Duration, Local, Utc};
 use codexbar::core::{Freshness, ProfileUsageSnapshot, ProfileUsageState, UsageWindow};
+use codexbar::pricing::PricingCatalog;
 use codexbar::usage_spend::{
     CodexUsageRange, LocalUsageSpendError, LocalUsageSpendReport, scan_local_codex_usage,
 };
@@ -237,7 +238,8 @@ pub async fn get_usage_spend(
 
     let cache_root = cache_root();
     let scanned = tauri::async_runtime::spawn_blocking(move || {
-        scan_local_codex_usage(codex_range, &cache_root, None)
+        let pricing = PricingCatalog::empty();
+        scan_local_codex_usage(codex_range, &cache_root, &pricing, None)
     })
     .await
     .map_err(|_| "USAGE_SPEND_SCAN_FAILED".to_string())?;

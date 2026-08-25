@@ -3,6 +3,7 @@
 use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 use chrono::{DateTime, Local, NaiveDate, TimeZone, Utc};
 use rusqlite::{Connection, OpenFlags};
@@ -10,6 +11,7 @@ use rusqlite::{Connection, OpenFlags};
 use crate::agent_sessions::CodexRolloutFirstLineParser;
 use crate::codex_costs::codex_period_start;
 use crate::core::{CostUsageDayRange, CostUsagePricing, JsonlScanner, sha256_hex};
+use crate::pricing::{CostResolution, Currency, PricingCatalog, PricingResolver};
 
 use super::sidecar::{SidecarError, WorkspaceUsageSidecar};
 use super::types::{
@@ -66,11 +68,12 @@ impl CodexLocalDataScope {
 }
 
 /// Public workspaces index API.
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct CodexWorkspacesIndex {
     history_days: u32,
     codex_home_override: Option<PathBuf>,
     sidecar_path_override: Option<PathBuf>,
+    pricing: Arc<dyn PricingResolver>,
 }
 
 impl Default for CodexWorkspacesIndex {
@@ -85,6 +88,7 @@ impl CodexWorkspacesIndex {
             history_days: history_days.clamp(1, 365),
             codex_home_override: None,
             sidecar_path_override: None,
+            pricing: Arc::new(PricingCatalog::empty()),
         }
     }
 
@@ -95,6 +99,11 @@ impl CodexWorkspacesIndex {
 
     pub fn with_sidecar_path(mut self, path: impl Into<PathBuf>) -> Self {
         self.sidecar_path_override = Some(path.into());
+        self
+    }
+
+    pub fn with_pricing(mut self, pricing: Arc<dyn PricingResolver>) -> Self {
+        self.pricing = pricing;
         self
     }
 
@@ -179,9 +188,13 @@ impl CodexWorkspacesIndex {
         let mut skipped = 0u32;
 
         for (idx, path) in files.iter().enumerate() {
-            match index_one_file(path, &range) {
+            match index_one_file(path, &range, self.pricing.as_ref()) {
                 Some(parsed) => {
-                    merge_daily(&mut daily_acc, &parsed.day_models);
+                    merge_daily(
+                        &mut daily_acc,
+                        &parsed.day_models,
+                        self.pricing.as_ref(),
+                    );
                     let entry = session_buckets
                         .entry(parsed.session_id.clone())
                         .or_insert_with(|| SessionBucket::new(&parsed));
@@ -410,7 +423,11 @@ fn build_projects(sessions: &HashMap<String, SessionBucket>) -> Vec<ProjectUsage
         .collect()
 }
 
-fn index_one_file(path: &Path, range: &CostUsageDayRange) -> Option<ParsedFile> {
+fn index_one_file(
+    path: &Path,
+    range: &CostUsageDayRange,
+    pricing: &dyn PricingResolver,
+) -> Option<ParsedFile> {
     let first_line = CodexRolloutFirstLineParser::read_first_line(path)?;
     let meta = CodexRolloutFirstLineParser::parse(&first_line);
     let (session_id, cwd) = if let Some(meta) = meta {
@@ -460,7 +477,8 @@ fn index_one_file(path: &Path, range: &CostUsageDayRange) -> Option<ParsedFile> 
         day_entry.1 = day_entry.1.saturating_add(cached);
         day_entry.2 = day_entry.2.saturating_add(output);
 
-        match CostUsagePricing::codex_cost_usd(&model, input, cached, output) {
+        let resolution = CostUsagePricing::resolve(pricing, &model, input, cached, output);
+        match usd_cost(&resolution) {
             Some(usd) => cost.known_usd += usd,
             None => cost.unknown_tokens = cost.unknown_tokens.saturating_add(tokens),
         }
@@ -496,6 +514,7 @@ fn index_one_file(path: &Path, range: &CostUsageDayRange) -> Option<ParsedFile> 
 fn merge_daily(
     daily: &mut HashMap<String, DailyAcc>,
     day_models: &HashMap<String, HashMap<String, (u64, u64, u64)>>,
+    pricing: &dyn PricingResolver,
 ) {
     for (day, models) in day_models {
         let acc = daily.entry(day.clone()).or_default();
@@ -503,12 +522,32 @@ fn merge_daily(
             let tokens = input.saturating_add(*output);
             acc.total_tokens = acc.total_tokens.saturating_add(tokens);
             acc.cached_input_tokens = acc.cached_input_tokens.saturating_add(*cached);
-            match CostUsagePricing::codex_cost_usd(model, *input, *cached, *output) {
+            let resolution = CostUsagePricing::resolve(pricing, model, *input, *cached, *output);
+            match usd_cost(&resolution) {
                 Some(usd) => acc.known_usd += usd,
                 None => acc.unknown_tokens = acc.unknown_tokens.saturating_add(tokens),
             }
         }
     }
+}
+
+impl std::fmt::Debug for CodexWorkspacesIndex {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("CodexWorkspacesIndex")
+            .field("history_days", &self.history_days)
+            .field("codex_home_override", &self.codex_home_override)
+            .field("sidecar_path_override", &self.sidecar_path_override)
+            .field("pricing", &"dynamic resolver")
+            .finish()
+    }
+}
+
+fn usd_cost(resolution: &CostResolution) -> Option<f64> {
+    if resolution.currency != Currency::Usd {
+        return None;
+    }
+    resolution.amount.map(|amount| amount.to_major_units_f64())
 }
 
 fn list_session_files(root: &Path, range: &CostUsageDayRange) -> Vec<PathBuf> {

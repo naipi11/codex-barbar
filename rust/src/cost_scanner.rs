@@ -14,6 +14,7 @@ use std::collections::{HashMap, HashSet};
 use std::fs::{self, File};
 use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -28,6 +29,7 @@ use crate::core::{
     CostScanOptions, CostUsageCache, CostUsageDayRange, CostUsageFileUsage, CostUsagePricing,
     JsonlScanner, ProviderId,
 };
+use crate::pricing::{CostResolution, Currency, PricingCatalog, PricingResolver};
 use crate::settings::Settings;
 
 /// Cost summary from scanning local logs
@@ -51,7 +53,7 @@ pub struct CostSummary {
     pub by_speed: HashMap<String, f64>,
     /// Codex token split by speed/tier when local logs expose it.
     pub by_speed_tokens: HashMap<String, ModelTokenCounts>,
-    /// Model IDs that were priced with fallback rates because no canonical rate is available.
+    /// Model IDs that remain unpriced because no safe catalog resolution is available.
     pub unknown_models: HashSet<String>,
     /// Period start date
     pub period_start: Option<NaiveDate>,
@@ -82,10 +84,6 @@ impl CostSummary {
 fn is_cancelled(cancel: Option<&AtomicBool>) -> bool {
     cancel.is_some_and(|flag| flag.load(Ordering::Relaxed))
 }
-
-/// Fallback Claude model used when a scanned model isn't in the canonical
-/// pricing table (unknown or retired IDs). Prices as Sonnet 4.6.
-const FALLBACK_CLAUDE_MODEL: &str = "claude-sonnet-4-6";
 
 fn unix_now_ms() -> i64 {
     SystemTime::now()
@@ -121,56 +119,29 @@ fn rebuild_cache_days(cache: &mut CostUsageCache) {
     }
 }
 
-/// Claude cost calculation for the usage scanner.
-///
-/// Per-token rates come from the canonical `CostUsagePricing::claude_cost_usd`
-/// table (the single source of truth for Claude pricing). The only
-/// scanner-specific piece is the one-hour cache-write premium, which the
-/// canonical cost function doesn't model: one-hour cache writes bill at 2x the
-/// input rate.
-struct ClaudePricing;
-
-impl ClaudePricing {
-    fn cost_usd_with_cache_ttl(
-        model: &str,
-        input: u64,
-        cache_create: u64,
-        cache_create_1h: u64,
-        cache_read: u64,
-        output: u64,
-    ) -> f64 {
-        let cache_create_1h = cache_create_1h.min(cache_create);
-        let cache_create_5m = cache_create.saturating_sub(cache_create_1h);
-
-        // Standard buckets (input, cache-read, 5-minute cache-write, output),
-        // including any long-context tiering, come from the canonical table.
-        // Unknown/retired models fall back to Sonnet pricing.
-        let clamp = |v: u64| v.min(i32::MAX as u64) as i32;
-        let base = CostUsagePricing::claude_cost_usd(
-            model,
-            clamp(input),
-            clamp(cache_read),
-            clamp(cache_create_5m),
-            clamp(output),
-        )
-        .or_else(|| {
-            CostUsagePricing::claude_cost_usd(
-                FALLBACK_CLAUDE_MODEL,
-                clamp(input),
-                clamp(cache_read),
-                clamp(cache_create_5m),
-                clamp(output),
-            )
-        })
-        .unwrap_or(0.0);
-
-        // Scanner-specific: one-hour cache writes bill at 2x the input rate.
-        let input_rate = CostUsagePricing::claude_input_cost_per_token(model)
-            .or_else(|| CostUsagePricing::claude_input_cost_per_token(FALLBACK_CLAUDE_MODEL))
-            .unwrap_or(0.0);
-
-        base + (cache_create_1h as f64) * input_rate * 2.0
+fn resolve_claude_with_cache_ttl(
+    pricing: &dyn PricingResolver,
+    model: &str,
+    input: u64,
+    cache_create: u64,
+    cache_create_1h: u64,
+    cache_read: u64,
+    output: u64,
+) -> CostResolution {
+    if cache_create > 0 || cache_create_1h > 0 {
+        // Cache creation has distinct provider rates that Task 1's catalog
+        // contract cannot represent. Preserve tokens without inventing a rate.
+        return CostResolution::unpriced();
     }
+    // Claude logs expose uncached input and cache-read tokens separately, while
+    // the shared resolver's input dimension includes cached input.
+    CostUsagePricing::resolve(
+        pricing,
+        model,
+        input.saturating_add(cache_read),
+        cache_read,
+        output,
+    )
 }
 
 /// JSONL event structures for Codex
@@ -255,7 +226,7 @@ struct ClaudeUsageRecord {
     output: u64,
     cache_create: u64,
     cache_read: u64,
-    cost: f64,
+    cost: CostResolution,
 }
 
 /// Per-pass counters for cache/resume behavior (tests + diagnostics).
@@ -324,6 +295,7 @@ pub struct CostScanner {
     cache_root: Option<PathBuf>,
     /// When set, bypass normal sessions-dir discovery (tests / inject roots).
     sessions_dirs_override: Option<Vec<PathBuf>>,
+    pricing: Arc<dyn PricingResolver>,
 }
 
 impl CostScanner {
@@ -334,6 +306,7 @@ impl CostScanner {
             options: CostScanOptions::default(),
             cache_root: None,
             sessions_dirs_override: None,
+            pricing: Arc::new(PricingCatalog::empty()),
         }
     }
 
@@ -352,6 +325,12 @@ impl CostScanner {
     /// Override Codex sessions roots (primarily for tests).
     pub fn with_sessions_dirs(mut self, dirs: Vec<PathBuf>) -> Self {
         self.sessions_dirs_override = Some(dirs);
+        self
+    }
+
+    /// Supply a possibly-empty dynamic pricing resolver for this scan.
+    pub fn with_pricing(mut self, pricing: Arc<dyn PricingResolver>) -> Self {
+        self.pricing = pricing;
         self
     }
 
@@ -386,7 +365,12 @@ impl CostScanner {
             && (!cache.days.is_empty() || !cache.files.is_empty())
         {
             stats.used_cache_debounce = true;
-            let (cost, _) = add_codex_days_map_to_summary(&mut summary, &cache.days, &range);
+            let (cost, _) = add_codex_days_map_to_summary(
+                &mut summary,
+                &cache.days,
+                &range,
+                self.pricing.as_ref(),
+            );
             summary.total_cost_usd += cost;
             summary.sessions_count = cache
                 .files
@@ -403,6 +387,7 @@ impl CostScanner {
             crate::pi_session_cost::scan_pi_compatible_into(
                 &mut summary,
                 crate::pi_session_cost::PiMappedProvider::Codex,
+                self.pricing.as_ref(),
                 self.days,
                 cancel,
                 &mut seen_pi,
@@ -439,6 +424,7 @@ impl CostScanner {
         crate::pi_session_cost::scan_pi_compatible_into(
             &mut summary,
             crate::pi_session_cost::PiMappedProvider::Codex,
+            self.pricing.as_ref(),
             self.days,
             cancel,
             &mut seen_pi,
@@ -468,10 +454,16 @@ impl CostScanner {
         if projects_dir.exists() {
             let mut seen = HashSet::new();
             let mut handle_file = |path: &Path| {
-                let counted =
-                    for_each_claude_usage_record(path, &cutoff, &mut seen, cancel, |record| {
+                let counted = for_each_claude_usage_record(
+                    path,
+                    &cutoff,
+                    self.pricing.as_ref(),
+                    &mut seen,
+                    cancel,
+                    |record| {
                         add_claude_record_to_summary(&mut summary, record);
-                    });
+                    },
+                );
                 if counted > 0 {
                     summary.sessions_count += 1;
                 }
@@ -484,6 +476,7 @@ impl CostScanner {
         crate::pi_session_cost::scan_pi_compatible_into(
             &mut summary,
             crate::pi_session_cost::PiMappedProvider::Claude,
+            self.pricing.as_ref(),
             self.days,
             cancel,
             &mut seen_pi,
@@ -595,7 +588,7 @@ impl CostScanner {
             && size > 0
         {
             let (session_cost, has_tokens) =
-                add_codex_days_map_to_summary(summary, &entry.days, range);
+                add_codex_days_map_to_summary(summary, &entry.days, range, self.pricing.as_ref());
             if has_tokens {
                 summary.total_cost_usd += session_cost;
                 summary.sessions_count += 1;
@@ -627,7 +620,7 @@ impl CostScanner {
                 merge_codex_records_into_days(&mut days, &parse_result.records);
 
                 let (session_cost, has_tokens) =
-                    add_codex_days_map_to_summary(summary, &days, range);
+                    add_codex_days_map_to_summary(summary, &days, range, self.pricing.as_ref());
                 if has_tokens {
                     summary.total_cost_usd += session_cost;
                     summary.sessions_count += 1;
@@ -660,8 +653,12 @@ impl CostScanner {
         let mut days = HashMap::new();
         merge_codex_records_into_days(&mut days, &parse_result.records);
 
-        let (session_cost, has_tokens) =
-            add_codex_records_to_summary(summary, &parse_result.records, range);
+        let (session_cost, has_tokens) = add_codex_records_to_summary(
+            summary,
+            &parse_result.records,
+            range,
+            self.pricing.as_ref(),
+        );
 
         if has_tokens {
             summary.total_cost_usd += session_cost;
@@ -735,7 +732,12 @@ impl CostScanner {
             }
         }
 
-        let _ = add_codex_days_map_to_summary(&mut summary, &cache.days, &day_range);
+        let _ = add_codex_days_map_to_summary(
+            &mut summary,
+            &cache.days,
+            &day_range,
+            self.pricing.as_ref(),
+        );
 
         let sessions_count = cache
             .files
@@ -975,6 +977,7 @@ fn build_daily_codex_usage(
 fn for_each_claude_usage_record<F>(
     path: &Path,
     cutoff: &DateTime<Utc>,
+    pricing: &dyn PricingResolver,
     seen: &mut HashSet<String>,
     cancel: Option<&AtomicBool>,
     mut on_record: F,
@@ -995,7 +998,7 @@ where
             return false;
         }
         if let Ok(event) = serde_json::from_str::<ClaudeEvent>(line)
-            && let Some(record) = claude_usage_record_from_event(&event)
+            && let Some(record) = claude_usage_record_from_event(&event, pricing)
             && should_count_claude_record(&record, cutoff, seen)
         {
             counted += 1;
@@ -1033,14 +1036,20 @@ where
     }
 }
 
-fn claude_usage_record_from_event(event: &ClaudeEvent) -> Option<ClaudeUsageRecord> {
+fn claude_usage_record_from_event(
+    event: &ClaudeEvent,
+    pricing: &dyn PricingResolver,
+) -> Option<ClaudeUsageRecord> {
     if event.event_type.as_deref() != Some("assistant") {
         return None;
     }
 
     let message = event.message.as_ref()?;
     let usage = message.usage.as_ref()?;
-    let model = message.model.as_deref().unwrap_or("claude-3-5-sonnet");
+    let model = message
+        .model
+        .as_deref()
+        .unwrap_or(CostUsagePricing::CODEX_UNATTRIBUTED_MODEL);
 
     let input = usage.input_tokens.unwrap_or(0);
     let output = usage.output_tokens.unwrap_or(0);
@@ -1052,7 +1061,8 @@ fn claude_usage_record_from_event(event: &ClaudeEvent) -> Option<ClaudeUsageReco
     }
 
     let cache_create_1h = usage.one_hour_cache_creation_tokens(cache_create);
-    let cost = ClaudePricing::cost_usd_with_cache_ttl(
+    let cost = resolve_claude_with_cache_ttl(
+        pricing,
         model,
         input,
         cache_create,
@@ -1103,16 +1113,15 @@ fn should_count_claude_record(
 }
 
 fn add_claude_record_to_summary(summary: &mut CostSummary, record: &ClaudeUsageRecord) {
-    if CostUsagePricing::claude_cost_usd(&record.model, 0, 0, 0, 0).is_none() {
-        summary.unknown_models.insert(record.model.clone());
-    }
-
     summary.input_tokens += record.input;
     summary.output_tokens += record.output;
     summary.cached_tokens += record.cache_create + record.cache_read;
-    summary.total_cost_usd += record.cost;
-
-    *summary.by_model.entry(record.model.clone()).or_insert(0.0) += record.cost;
+    if let Some(cost) = usd_cost(&record.cost) {
+        summary.total_cost_usd += cost;
+        *summary.by_model.entry(record.model.clone()).or_insert(0.0) += cost;
+    } else {
+        summary.unknown_models.insert(record.model.clone());
+    }
 
     let model_tokens = summary
         .by_model_tokens
@@ -1138,9 +1147,18 @@ fn add_claude_record_to_daily_costs(
         .date_naive()
         .format("%Y-%m-%d")
         .to_string();
-    if let Some(cost) = daily_costs.get_mut(&date_str) {
-        *cost += record.cost;
+    if let Some(cost) = daily_costs.get_mut(&date_str)
+        && let Some(record_cost) = usd_cost(&record.cost)
+    {
+        *cost += record_cost;
     }
+}
+
+fn usd_cost(resolution: &CostResolution) -> Option<f64> {
+    if resolution.currency != Currency::Usd {
+        return None;
+    }
+    resolution.amount.map(|amount| amount.to_major_units_f64())
 }
 
 /// Check if any cost usage sources are available
@@ -1187,7 +1205,12 @@ pub fn get_daily_cost_history(provider: &str, days: u32) -> Vec<(String, f64)> {
                 let mut one_day = HashMap::new();
                 one_day.insert(day_key.clone(), models.clone());
                 let mut scratch = CostSummary::default();
-                let (cost, _) = add_codex_days_map_to_summary(&mut scratch, &one_day, &day_range);
+                let (cost, _) = add_codex_days_map_to_summary(
+                    &mut scratch,
+                    &one_day,
+                    &day_range,
+                    scanner.pricing.as_ref(),
+                );
                 *slot = cost;
             }
         }
@@ -1199,9 +1222,16 @@ pub fn get_daily_cost_history(provider: &str, days: u32) -> Vec<(String, f64)> {
                 let cutoff = Utc::now() - Duration::days(days as i64);
                 let mut seen = HashSet::new();
                 let mut handle_file = |path: &Path| {
-                    for_each_claude_usage_record(path, &cutoff, &mut seen, None, |record| {
-                        add_claude_record_to_daily_costs(&mut daily_costs, record);
-                    });
+                    for_each_claude_usage_record(
+                        path,
+                        &cutoff,
+                        scanner.pricing.as_ref(),
+                        &mut seen,
+                        None,
+                        |record| {
+                            add_claude_record_to_daily_costs(&mut daily_costs, record);
+                        },
+                    );
                 };
                 scanner.walk_claude_files(&projects_dir, &cutoff, None, &mut handle_file);
             }
@@ -1218,113 +1248,88 @@ pub fn get_daily_cost_history(provider: &str, days: u32) -> Vec<(String, f64)> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::pricing::{
+        CatalogEntry, Currency, ModelAliasResolver, MoneyMicros, PriceProvenance, PricingCatalog,
+        TokenRates,
+    };
+    use chrono::DateTime;
     use std::io::Write;
 
-    #[test]
-    fn test_unknown_model_falls_back_to_sonnet() {
-        // Unknown/retired Claude IDs fall back to Sonnet 4.6 base pricing
-        // ($3/1M input, $15/1M output). 100k tokens stay under the 200k tier.
-        let cost =
-            ClaudePricing::cost_usd_with_cache_ttl("claude-3-5-sonnet", 100_000, 0, 0, 0, 100_000);
-        // 100k * $3/M + 100k * $15/M = 0.30 + 1.50 = 1.80
-        assert!((cost - 1.80).abs() < 0.001);
+    fn fixture_catalog(model: &str) -> PricingCatalog {
+        PricingCatalog::new(
+            vec![CatalogEntry {
+                canonical_model: model.to_string(),
+                vendor: "test-vendor".to_string(),
+                rates: TokenRates {
+                    currency: Currency::Usd,
+                    input_per_million: MoneyMicros::from_micros(2_000_000),
+                    cached_input_per_million: MoneyMicros::from_micros(1_000_000),
+                    output_per_million: MoneyMicros::from_micros(8_000_000),
+                    context_tiers: Vec::new(),
+                },
+                source_url: "https://pricing.example.test/catalog".to_string(),
+                fetched_at: DateTime::parse_from_rfc3339("2026-08-24T00:00:00Z")
+                    .unwrap()
+                    .with_timezone(&Utc),
+                parser_revision: "fixture-v1".to_string(),
+                provenance: PriceProvenance::OfficialCached,
+            }],
+            ModelAliasResolver::default(),
+        )
+        .unwrap()
     }
 
     #[test]
-    fn records_unknown_claude_model_while_using_fallback_cost() {
+    fn unknown_claude_model_is_unpriced_without_a_fallback() {
+        let result = resolve_claude_with_cache_ttl(
+            &PricingCatalog::empty(),
+            "claude-mystery",
+            100_000,
+            0,
+            0,
+            0,
+            100_000,
+        );
+
+        assert_eq!(result.provenance, PriceProvenance::Unpriced);
+        assert_eq!(result.amount, None);
+    }
+
+    #[test]
+    fn records_unknown_claude_model_without_adding_a_fallback_cost() {
         let event: ClaudeEvent = serde_json::from_str(
             r#"{"type":"assistant","timestamp":"2026-01-15T10:00:00Z","requestId":"req_unknown","message":{"id":"msg_unknown","model":"claude-retired-unknown","usage":{"input_tokens":100000,"output_tokens":100000}}}"#,
         )
         .unwrap();
-        let record = claude_usage_record_from_event(&event).expect("usage record");
+        let record =
+            claude_usage_record_from_event(&event, &PricingCatalog::empty()).expect("usage record");
         let mut summary = CostSummary::default();
 
         add_claude_record_to_summary(&mut summary, &record);
 
-        assert!(summary.total_cost_usd > 0.0);
+        assert_eq!(summary.total_cost_usd, 0.0);
+        assert!(!summary.by_model.contains_key("claude-retired-unknown"));
         assert!(summary.unknown_models.contains("claude-retired-unknown"));
     }
 
     #[test]
-    fn test_claude_fable_5_pricing() {
-        let cost = ClaudePricing::cost_usd_with_cache_ttl("claude-fable-5", 100, 10, 0, 20, 5);
-        let expected = (100.0 / 1_000_000.0) * 10.00
-            + (10.0 / 1_000_000.0) * 12.50
-            + (20.0 / 1_000_000.0) * 1.00
-            + (5.0 / 1_000_000.0) * 50.00;
-        assert!((cost - expected).abs() < f64::EPSILON);
+    fn supported_claude_dimensions_use_the_dynamic_resolver() {
+        let catalog = fixture_catalog("claude-test");
+
+        let result = resolve_claude_with_cache_ttl(&catalog, "claude-test", 100, 0, 0, 20, 5);
+
+        assert_eq!(result.amount.unwrap().micros(), 260);
+        assert_eq!(result.provenance, PriceProvenance::OfficialCached);
     }
 
     #[test]
-    fn test_claude_one_hour_cache_write_pricing() {
-        let cost = ClaudePricing::cost_usd_with_cache_ttl("claude-fable-5", 100, 30, 20, 20, 5);
-        let expected = (100.0 / 1_000_000.0) * 10.00
-            + (10.0 / 1_000_000.0) * 12.50
-            + (20.0 / 1_000_000.0) * 20.00
-            + (20.0 / 1_000_000.0) * 1.00
-            + (5.0 / 1_000_000.0) * 50.00;
-        assert!((cost - expected).abs() < f64::EPSILON);
-    }
+    fn cache_creation_dimension_is_unpriced_until_the_catalog_can_represent_it() {
+        let catalog = fixture_catalog("claude-test");
 
-    #[test]
-    fn test_claude_sonnet_46_honors_200k_tier() {
-        // Delegating to the canonical table means the scanner now honors the
-        // 200k long-context tier: 200k @ $3/M + 40k @ $6/M = 0.60 + 0.24 = 0.84
-        // (the scanner's old inline table applied a flat $3/M = 0.72).
-        let cost = ClaudePricing::cost_usd_with_cache_ttl("claude-sonnet-4-6", 240_000, 0, 0, 0, 0);
-        assert!((cost - 0.84).abs() < 0.001);
-    }
+        let result = resolve_claude_with_cache_ttl(&catalog, "claude-test", 100, 30, 20, 20, 5);
 
-    #[test]
-    fn test_current_gen_opus_uses_5_25_pricing() {
-        // Opus 4.5/4.6/4.7/4.8 bill at $5/1M input + $25/1M output = $30 total.
-        // Delegation regression guard: opus-4-8 in particular must resolve
-        // through the canonical table (it was missing there before this fix).
-        for model in [
-            "claude-opus-4-5",
-            "claude-opus-4-6",
-            "claude-opus-4-7",
-            "claude-opus-4-8",
-        ] {
-            let cost = ClaudePricing::cost_usd_with_cache_ttl(model, 1_000_000, 0, 0, 0, 1_000_000);
-            assert!(
-                (cost - 30.00).abs() < 0.001,
-                "{model} should bill $30 ($5 in + $25 out), got {cost}"
-            );
-        }
-    }
-
-    #[test]
-    fn test_legacy_opus_keeps_legacy_pricing() {
-        // Legacy Opus 4.0 / 4.1 remain at $15/1M input + $75/1M output = $90 in
-        // the canonical table. (Retired IDs absent from the table — e.g. Opus 3
-        // `claude-3-opus-...` — fall back to Sonnet instead; they are outside
-        // any realistic 30-day scan window.)
-        for model in ["claude-opus-4-20250514", "claude-opus-4-1"] {
-            let cost = ClaudePricing::cost_usd_with_cache_ttl(model, 1_000_000, 0, 0, 0, 1_000_000);
-            assert!(
-                (cost - 90.00).abs() < 0.001,
-                "{model} should bill $90 ($15 in + $75 out), got {cost}"
-            );
-        }
-    }
-
-    #[test]
-    fn test_haiku_45_uses_current_pricing() {
-        // Haiku 4.5 bills at $1/1M input + $5/1M output = $6 via the canonical
-        // table (previously the scanner under-priced it at the Haiku 3 rate).
-        let cost = ClaudePricing::cost_usd_with_cache_ttl(
-            "claude-haiku-4-5",
-            1_000_000,
-            0,
-            0,
-            0,
-            1_000_000,
-        );
-        assert!(
-            (cost - 6.00).abs() < 0.001,
-            "haiku-4-5 should bill $6 ($1 in + $5 out), got {cost}"
-        );
+        assert_eq!(result.provenance, PriceProvenance::Unpriced);
+        assert_eq!(result.amount, None);
     }
 
     #[test]
@@ -1366,7 +1371,7 @@ mod tests {
                 .map(ModelTokenCounts::total),
             Some(140)
         );
-        assert!(scan_codex_file_cost(&path) > 0.0);
+        assert_eq!(scan_codex_file_cost(&path, &PricingCatalog::empty()), None);
         let _ = std::fs::remove_file(&path);
     }
 
@@ -1396,13 +1401,15 @@ mod tests {
         )
         .unwrap();
 
-        let record = claude_usage_record_from_event(&event).expect("usage record");
+        let record =
+            claude_usage_record_from_event(&event, &PricingCatalog::empty()).expect("usage record");
         assert_eq!(record.model, "claude-sonnet-4-6");
         assert_eq!(record.input, 100);
         assert_eq!(record.output, 50);
         assert_eq!(record.cache_create, 10);
         assert_eq!(record.cache_read, 20);
-        assert!(record.cost > 0.0);
+        assert_eq!(record.cost.provenance, PriceProvenance::Unpriced);
+        assert_eq!(record.cost.amount, None);
 
         let cutoff = DateTime::parse_from_rfc3339("2026-01-01T00:00:00Z")
             .unwrap()
@@ -1418,7 +1425,8 @@ mod tests {
             r#"{"type":"assistant","timestamp":"2025-12-01T10:00:00Z","requestId":"req_old","message":{"id":"msg_old","model":"claude-sonnet-4-6","usage":{"input_tokens":1,"output_tokens":1}}}"#,
         )
         .unwrap();
-        let record = claude_usage_record_from_event(&event).expect("usage record");
+        let record =
+            claude_usage_record_from_event(&event, &PricingCatalog::empty()).expect("usage record");
         let cutoff = DateTime::parse_from_rfc3339("2026-01-01T00:00:00Z")
             .unwrap()
             .with_timezone(&Utc);
@@ -1432,14 +1440,29 @@ mod tests {
         let event: ClaudeEvent =
             serde_json::from_str(r#"{"type":"user","message":{"usage":{"input_tokens":5}}}"#)
                 .unwrap();
-        assert!(claude_usage_record_from_event(&event).is_none());
+        assert!(claude_usage_record_from_event(&event, &PricingCatalog::empty()).is_none());
 
         // Zero-token usage blocks (e.g. synthetic messages) are not sessions.
         let event: ClaudeEvent = serde_json::from_str(
             r#"{"type":"assistant","message":{"id":"msg_zero","model":"claude-sonnet-4-6","usage":{"input_tokens":0,"output_tokens":0}}}"#,
         )
         .unwrap();
-        assert!(claude_usage_record_from_event(&event).is_none());
+        assert!(claude_usage_record_from_event(&event, &PricingCatalog::empty()).is_none());
+    }
+
+    #[test]
+    fn claude_usage_without_model_is_unattributed_and_unpriced() {
+        let event: ClaudeEvent = serde_json::from_str(
+            r#"{"type":"assistant","message":{"id":"msg_model_less","usage":{"input_tokens":5,"output_tokens":1}}}"#,
+        )
+        .unwrap();
+
+        let record = claude_usage_record_from_event(&event, &fixture_catalog("claude-3-5-sonnet"))
+            .expect("usage record");
+
+        assert_eq!(record.model, CostUsagePricing::CODEX_UNATTRIBUTED_MODEL);
+        assert_eq!(record.cost.provenance, PriceProvenance::Unpriced);
+        assert_eq!(record.cost.amount, None);
     }
 
     fn claude_transcript_line(
@@ -1504,8 +1527,9 @@ mod tests {
 
         let cutoff = Utc::now() - Duration::days(30);
         let mut seen = HashSet::new();
+        let catalog = fixture_catalog("claude-sonnet-4-6");
         for path in [&file_a, &file_b] {
-            for_each_claude_usage_record(path, &cutoff, &mut seen, None, |record| {
+            for_each_claude_usage_record(path, &cutoff, &catalog, &mut seen, None, |record| {
                 add_claude_record_to_daily_costs(&mut daily_costs, record);
             });
         }
@@ -1537,7 +1561,14 @@ mod tests {
 
         let cutoff = Utc::now() - Duration::days(1);
         let mut seen = HashSet::new();
-        let counted = for_each_claude_usage_record(&path, &cutoff, &mut seen, None, |_| {});
+        let counted = for_each_claude_usage_record(
+            &path,
+            &cutoff,
+            &PricingCatalog::empty(),
+            &mut seen,
+            None,
+            |_| {},
+        );
         assert_eq!(counted, 1, "incomplete final JSONL line must be processed");
         let _ = std::fs::remove_file(&path);
     }
@@ -1554,7 +1585,7 @@ mod tests {
             .format("%Y-%m-%dT%H:%M:%S%.3fZ")
             .to_string();
         let body = format!(
-            r#"{{"timestamp":"{ts}","type":"event_msg","payload":{{"type":"token_count","info":{{"model":"gpt-5","total_token_usage":{{"input_tokens":{input_tokens},"cached_input_tokens":0,"output_tokens":5}}}}}}}}
+            r#"{{"timestamp":"{ts}","type":"event_msg","payload":{{"type":"token_count","info":{{"model":"gpt-test","total_token_usage":{{"input_tokens":{input_tokens},"cached_input_tokens":0,"output_tokens":5}}}}}}}}
 "#
         );
         std::fs::write(&path, body).unwrap();
@@ -1570,6 +1601,7 @@ mod tests {
         write_codex_session_fixture(&sessions, "b.jsonl", 200);
 
         let scanner = CostScanner::new(7)
+            .with_pricing(std::sync::Arc::new(fixture_catalog("gpt-test")))
             .with_options(CostScanOptions::app_driven())
             .with_cache_root(&cache_root)
             .with_sessions_dirs(vec![sessions.clone()]);

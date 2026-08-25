@@ -1,8 +1,8 @@
-//! Read-only local Codex usage/spend aggregation with strict pricing.
+//! Read-only local Codex usage/spend aggregation with dynamic strict pricing.
 //!
 //! Token totals come from the shared JSONL scanner/cache. Costs are derived
-//! only from the canonical known-model pricing table; unknown or deliberately
-//! unattributed models never receive a guessed price.
+//! only from the supplied resolver; unknown or deliberately unattributed models
+//! never receive a guessed price.
 
 use chrono::NaiveDate;
 use std::collections::BTreeMap;
@@ -10,6 +10,7 @@ use std::path::Path;
 use std::sync::atomic::AtomicBool;
 
 use crate::core::CostUsagePricing;
+use crate::pricing::{CostResolution, Currency, PricingResolver};
 
 type TokenTotals = (u64, u64, u64);
 type ModelTotalsMap = BTreeMap<String, TokenTotals>;
@@ -64,6 +65,7 @@ pub struct ModelUsageSpend {
 pub fn scan_local_codex_usage(
     range: CodexUsageRange,
     cache_root: &Path,
+    pricing: &dyn PricingResolver,
     cancel: Option<&AtomicBool>,
 ) -> Result<LocalUsageSpendReport, LocalUsageSpendError> {
     let scanner = CostScanner::new(30).with_cache_root(cache_root);
@@ -74,10 +76,14 @@ pub fn scan_local_codex_usage(
                 CodexRangeScanError::Cancelled => LocalUsageSpendError::Cancelled,
                 CodexRangeScanError::InvalidRange => LocalUsageSpendError::InvalidRange,
             })?;
-    Ok(convert_report(report, range))
+    Ok(convert_report(report, range, pricing))
 }
 
-fn convert_report(report: CodexUsageScanReport, range: CodexUsageRange) -> LocalUsageSpendReport {
+fn convert_report(
+    report: CodexUsageScanReport,
+    range: CodexUsageRange,
+    pricing: &dyn PricingResolver,
+) -> LocalUsageSpendReport {
     let daily_models = report.daily_models;
     let (model_totals, daily_totals) = aggregate_model_and_daily(&daily_models);
 
@@ -86,8 +92,8 @@ fn convert_report(report: CodexUsageScanReport, range: CodexUsageRange) -> Local
     let mut cost_complete = true;
     let mut models = Vec::new();
     for (model, totals) in model_totals {
-        let (cost, known) = strict_model_cost(&model, totals);
-        if !known {
+        let (cost, known) = strict_model_cost(&model, totals, pricing);
+        if !known && !CostUsagePricing::is_codex_unattributed_model(&model) {
             unknown_models
                 .entry(model.clone())
                 .and_modify(|count| *count = count.saturating_add(1))
@@ -112,7 +118,7 @@ fn convert_report(report: CodexUsageScanReport, range: CodexUsageRange) -> Local
 
     let mut daily = Vec::new();
     for (date, totals) in daily_totals {
-        let (cost, known) = strict_day_cost(&daily_models, date);
+        let (cost, known) = strict_day_cost(&daily_models, date, pricing);
         if !known {
             cost_complete = false;
         }
@@ -166,29 +172,34 @@ fn aggregate_model_and_daily(
     (model_totals, daily_totals)
 }
 
-fn strict_model_cost(model: &str, totals: TokenTotals) -> (f64, bool) {
-    if CostUsagePricing::is_codex_unattributed_model(model) {
-        return (0.0, true);
-    }
-    match CostUsagePricing::codex_cost_usd(model, totals.0, totals.1, totals.2) {
+fn strict_model_cost(
+    model: &str,
+    totals: TokenTotals,
+    pricing: &dyn PricingResolver,
+) -> (f64, bool) {
+    let resolution = CostUsagePricing::resolve(pricing, model, totals.0, totals.1, totals.2);
+    match usd_cost(&resolution) {
         Some(cost) => (cost, true),
         None => (0.0, false),
     }
 }
 
-fn strict_day_cost(daily_models: &[DailyModelCodexUsage], date: NaiveDate) -> (f64, bool) {
+fn strict_day_cost(
+    daily_models: &[DailyModelCodexUsage],
+    date: NaiveDate,
+    pricing: &dyn PricingResolver,
+) -> (f64, bool) {
     let mut cost = 0.0;
     let mut known = true;
     for row in daily_models.iter().filter(|row| row.date == date) {
-        if CostUsagePricing::is_codex_unattributed_model(&row.model) {
-            continue;
-        }
-        match CostUsagePricing::codex_cost_usd(
+        let resolution = CostUsagePricing::resolve(
+            pricing,
             &row.model,
             row.input_tokens,
             row.cached_input_tokens,
             row.output_tokens,
-        ) {
+        );
+        match usd_cost(&resolution) {
             Some(row_cost) => cost += row_cost,
             None => known = false,
         }
@@ -196,9 +207,21 @@ fn strict_day_cost(daily_models: &[DailyModelCodexUsage], date: NaiveDate) -> (f
     (cost, known)
 }
 
+fn usd_cost(resolution: &CostResolution) -> Option<f64> {
+    if resolution.currency != Currency::Usd {
+        return None;
+    }
+    resolution.amount.map(|amount| amount.to_major_units_f64())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::pricing::{
+        CatalogEntry, Currency, ModelAliasResolver, MoneyMicros, PriceProvenance, PricingCatalog,
+        TokenRates,
+    };
+    use chrono::{DateTime, Utc};
     use std::fs;
     use std::path::PathBuf;
     use std::sync::atomic::AtomicBool;
@@ -238,6 +261,30 @@ mod tests {
         tempfile::tempdir().unwrap()
     }
 
+    fn fixture_catalog(model: &str) -> PricingCatalog {
+        PricingCatalog::new(
+            vec![CatalogEntry {
+                canonical_model: model.to_string(),
+                vendor: "test-vendor".to_string(),
+                rates: TokenRates {
+                    currency: Currency::Usd,
+                    input_per_million: MoneyMicros::from_micros(2_000_000),
+                    cached_input_per_million: MoneyMicros::from_micros(1_000_000),
+                    output_per_million: MoneyMicros::from_micros(8_000_000),
+                    context_tiers: Vec::new(),
+                },
+                source_url: "https://pricing.example.test/catalog".to_string(),
+                fetched_at: DateTime::parse_from_rfc3339("2026-08-24T00:00:00Z")
+                    .unwrap()
+                    .with_timezone(&Utc),
+                parser_revision: "fixture-v1".to_string(),
+                provenance: PriceProvenance::OfficialCached,
+            }],
+            ModelAliasResolver::default(),
+        )
+        .unwrap()
+    }
+
     fn range(start: &str, end: &str) -> CodexUsageRange {
         CodexUsageRange {
             start: NaiveDate::parse_from_str(start, "%Y-%m-%d").unwrap(),
@@ -261,7 +308,7 @@ mod tests {
             root.path(),
             "2026-08-20",
             "known.jsonl",
-            &(token_line("2026-08-20T12:00:00Z", "gpt-5", 100, 20, 10)
+            &(token_line("2026-08-20T12:00:00Z", "gpt-test", 100, 20, 10)
                 + "
 "),
         );
@@ -288,7 +335,8 @@ mod tests {
         assert_eq!(report.sessions_count, 2);
         assert_eq!(report.daily_models.len(), 2);
 
-        let converted = convert_report(report, range("2026-08-20", "2026-08-21"));
+        let catalog = fixture_catalog("gpt-test");
+        let converted = convert_report(report, range("2026-08-20", "2026-08-21"), &catalog);
         assert_eq!(converted.input_tokens, 125);
         assert_eq!(converted.output_tokens, 15);
         assert_eq!(converted.daily.len(), 2);
@@ -304,7 +352,7 @@ mod tests {
             root.path(),
             "2026-08-20",
             "known.jsonl",
-            &(token_line("2026-08-20T12:00:00Z", "gpt-5", 100, 20, 10)
+            &(token_line("2026-08-20T12:00:00Z", "gpt-test", 100, 20, 10)
                 + "
 "),
         );
@@ -315,14 +363,14 @@ mod tests {
         let report = scanner
             .scan_codex_range_detailed(&range("2026-08-20", "2026-08-20"), None)
             .unwrap();
-        let converted = convert_report(report, range("2026-08-20", "2026-08-20"));
+        let catalog = fixture_catalog("gpt-test");
+        let converted = convert_report(report, range("2026-08-20", "2026-08-20"), &catalog);
 
         assert!(converted.estimated_cost_usd.is_some());
-        let expected = CostUsagePricing::codex_cost_usd("gpt-5", 100, 20, 10).unwrap();
-        assert!((converted.estimated_cost_usd.unwrap() - expected).abs() < 1e-9);
+        assert!((converted.estimated_cost_usd.unwrap() - 0.000_260).abs() < 1e-9);
         assert!(converted.unknown_models.is_empty());
         assert_eq!(converted.models.len(), 1);
-        assert_eq!(converted.models[0].model, "gpt-5");
+        assert_eq!(converted.models[0].model, "gpt-test");
     }
 
     #[test]
@@ -418,6 +466,7 @@ this is not json
         let error = scan_local_codex_usage(
             range("2026-08-20", "2026-08-20"),
             root.path().join("cache").as_path(),
+            &PricingCatalog::empty(),
             Some(&cancel),
         )
         .unwrap_err();

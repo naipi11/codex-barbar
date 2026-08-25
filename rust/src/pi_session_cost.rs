@@ -14,6 +14,7 @@ use std::sync::atomic::AtomicBool;
 
 use crate::core::CostUsagePricing;
 use crate::cost_scanner::CostSummary;
+use crate::pricing::{CostResolution, Currency, PricingResolver};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PiMappedProvider {
@@ -35,6 +36,7 @@ pub fn pi_compatible_session_roots(home: Option<PathBuf>) -> Vec<PathBuf> {
 pub fn scan_pi_compatible_into(
     summary: &mut CostSummary,
     target: PiMappedProvider,
+    pricing: &dyn PricingResolver,
     days: u32,
     cancel: Option<&AtomicBool>,
     seen_entries: &mut HashSet<String>,
@@ -53,7 +55,7 @@ pub fn scan_pi_compatible_into(
                 return;
             }
             let before = seen_entries.len();
-            let counted = for_each_pi_entry(path, cutoff, target, seen_entries, |entry| {
+            let counted = for_each_pi_entry(path, cutoff, target, pricing, seen_entries, |entry| {
                 apply_entry(summary, &entry);
             });
             if counted > 0 || seen_entries.len() > before {
@@ -70,15 +72,19 @@ struct PiEntry {
     output: u64,
     cache_read: u64,
     cache_create: u64,
-    cost: f64,
+    cost: CostResolution,
 }
 
 fn apply_entry(summary: &mut CostSummary, entry: &PiEntry) {
     summary.input_tokens += entry.input;
     summary.output_tokens += entry.output;
     summary.cached_tokens += entry.cache_read + entry.cache_create;
-    summary.total_cost_usd += entry.cost;
-    *summary.by_model.entry(entry.model.clone()).or_insert(0.0) += entry.cost;
+    if let Some(cost) = usd_cost(&entry.cost) {
+        summary.total_cost_usd += cost;
+        *summary.by_model.entry(entry.model.clone()).or_insert(0.0) += cost;
+    } else if !CostUsagePricing::is_codex_unattributed_model(&entry.model) {
+        summary.unknown_models.insert(entry.model.clone());
+    }
     let tokens = summary
         .by_model_tokens
         .entry(entry.model.clone())
@@ -117,6 +123,7 @@ fn for_each_pi_entry(
     path: &Path,
     cutoff: DateTime<Utc>,
     target: PiMappedProvider,
+    pricing: &dyn PricingResolver,
     seen: &mut HashSet<String>,
     mut on_entry: impl FnMut(PiEntry),
 ) -> u32 {
@@ -129,7 +136,7 @@ fn for_each_pi_entry(
         let Ok(value) = serde_json::from_str::<Value>(&line) else {
             continue;
         };
-        let Some(entry) = parse_pi_assistant_entry(&value, target) else {
+        let Some(entry) = parse_pi_assistant_entry(&value, target, pricing) else {
             continue;
         };
         if let Some(ts) = entry_timestamp(&value)
@@ -190,7 +197,11 @@ fn map_provider(raw: &str) -> Option<PiMappedProvider> {
     None
 }
 
-fn parse_pi_assistant_entry(value: &Value, target: PiMappedProvider) -> Option<PiEntry> {
+fn parse_pi_assistant_entry(
+    value: &Value,
+    target: PiMappedProvider,
+    pricing: &dyn PricingResolver,
+) -> Option<PiEntry> {
     // Accept either flat or nested { message: {...} } pi-compatible rows.
     let message = value.get("message").unwrap_or(value);
     let role = message
@@ -227,8 +238,9 @@ fn parse_pi_assistant_entry(value: &Value, target: PiMappedProvider) -> Option<P
         .or_else(|| value.get("modelId"))
         .and_then(|v| v.as_str())
         .map(str::trim)
-        .filter(|s| !s.is_empty())?
-        .to_string();
+        .filter(|s| !s.is_empty())
+        .map(str::to_string)
+        .unwrap_or_else(|| CostUsagePricing::CODEX_UNATTRIBUTED_MODEL.to_string());
 
     let usage = message
         .get("usage")
@@ -271,27 +283,17 @@ fn parse_pi_assistant_entry(value: &Value, target: PiMappedProvider) -> Option<P
         return None;
     }
 
-    let cost = match mapped {
-        PiMappedProvider::Codex => {
-            CostUsagePricing::codex_cost_usd(&model, input, cache_read, output).unwrap_or(0.0)
-        }
-        PiMappedProvider::Claude => CostUsagePricing::claude_cost_usd(
-            &model,
-            input as i32,
-            cache_read as i32,
-            cache_create as i32,
-            output as i32,
-        )
-        .unwrap_or_else(|| {
-            CostUsagePricing::claude_cost_usd(
-                "claude-sonnet-4-6",
-                input as i32,
-                cache_read as i32,
-                cache_create as i32,
-                output as i32,
-            )
-            .unwrap_or(0.0)
-        }),
+    let cost = if mapped == PiMappedProvider::Claude && cache_create > 0 {
+        // The Task 1 resolver has no cache-creation dimension. Keep these rows
+        // visible and unpriced until a source can represent that dimension.
+        CostResolution::unpriced()
+    } else {
+        let resolver_input = if mapped == PiMappedProvider::Claude {
+            input.saturating_add(cache_read)
+        } else {
+            input
+        };
+        CostUsagePricing::resolve(pricing, &model, resolver_input, cache_read, output)
     };
 
     Some(PiEntry {
@@ -302,6 +304,13 @@ fn parse_pi_assistant_entry(value: &Value, target: PiMappedProvider) -> Option<P
         cache_create,
         cost,
     })
+}
+
+fn usd_cost(resolution: &CostResolution) -> Option<f64> {
+    if resolution.currency != Currency::Usd {
+        return None;
+    }
+    resolution.amount.map(|amount| amount.to_major_units_f64())
 }
 
 fn num(usage: &Value, keys: &[&str]) -> u64 {
@@ -329,8 +338,37 @@ fn num(usage: &Value, keys: &[&str]) -> u64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::pricing::{
+        CatalogEntry, Currency, ModelAliasResolver, MoneyMicros, PriceProvenance, PricingCatalog,
+        TokenRates,
+    };
+    use chrono::DateTime;
     use std::io::Write;
     use tempfile::tempdir;
+
+    fn fixture_catalog(model: &str) -> PricingCatalog {
+        PricingCatalog::new(
+            vec![CatalogEntry {
+                canonical_model: model.to_string(),
+                vendor: "test-vendor".to_string(),
+                rates: TokenRates {
+                    currency: Currency::Usd,
+                    input_per_million: MoneyMicros::from_micros(2_000_000),
+                    cached_input_per_million: MoneyMicros::from_micros(1_000_000),
+                    output_per_million: MoneyMicros::from_micros(8_000_000),
+                    context_tiers: Vec::new(),
+                },
+                source_url: "https://pricing.example.test/catalog".to_string(),
+                fetched_at: DateTime::parse_from_rfc3339("2026-08-24T00:00:00Z")
+                    .unwrap()
+                    .with_timezone(&Utc),
+                parser_revision: "fixture-v1".to_string(),
+                provenance: PriceProvenance::OfficialCached,
+            }],
+            ModelAliasResolver::default(),
+        )
+        .unwrap()
+    }
 
     #[test]
     fn maps_openai_codex_and_anthropic_providers() {
@@ -352,11 +390,53 @@ mod tests {
             "timestamp": "2026-07-20T12:00:00Z",
             "usage": { "input": 100, "output": 20, "cacheRead": 10 }
         });
-        let entry = parse_pi_assistant_entry(&raw, PiMappedProvider::Codex).unwrap();
+        let entry =
+            parse_pi_assistant_entry(&raw, PiMappedProvider::Codex, &PricingCatalog::empty())
+                .unwrap();
         assert_eq!(entry.input, 100);
         assert_eq!(entry.output, 20);
         assert_eq!(entry.cache_read, 10);
         assert_eq!(entry.model, "gpt-5");
+        assert_eq!(entry.cost.provenance, PriceProvenance::Unpriced);
+        assert_eq!(entry.cost.amount, None);
+    }
+
+    #[test]
+    fn claude_pi_usage_preserves_uncached_and_cache_read_dimensions() {
+        let raw = serde_json::json!({
+            "id": "msg-claude",
+            "role": "assistant",
+            "provider": "anthropic",
+            "model": "claude-test",
+            "usage": { "input": 100, "output": 5, "cacheRead": 20 }
+        });
+
+        let entry = parse_pi_assistant_entry(
+            &raw,
+            PiMappedProvider::Claude,
+            &fixture_catalog("claude-test"),
+        )
+        .unwrap();
+
+        assert_eq!(entry.cost.amount.unwrap().micros(), 260);
+    }
+
+    #[test]
+    fn model_less_pi_usage_is_retained_as_unattributed_and_unpriced() {
+        let raw = serde_json::json!({
+            "id": "msg-model-less",
+            "role": "assistant",
+            "provider": "openai-codex",
+            "usage": { "input": 100, "output": 5 }
+        });
+
+        let entry =
+            parse_pi_assistant_entry(&raw, PiMappedProvider::Codex, &fixture_catalog("gpt-test"))
+                .unwrap();
+
+        assert_eq!(entry.model, CostUsagePricing::CODEX_UNATTRIBUTED_MODEL);
+        assert_eq!(entry.cost.provenance, PriceProvenance::Unpriced);
+        assert_eq!(entry.cost.amount, None);
     }
 
     #[test]
@@ -386,6 +466,7 @@ mod tests {
                 &sessions.join(name),
                 Utc::now() - Duration::days(30),
                 PiMappedProvider::Codex,
+                &PricingCatalog::empty(),
                 &mut seen,
                 |entry| apply_entry(&mut summary, &entry),
             );
