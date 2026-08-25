@@ -22,9 +22,10 @@ pub(crate) fn is_shell_window_class(class_name: &str) -> bool {
     ) || class_name.starts_with("ShellHandwritingCanvas ")
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub enum ForegroundClass {
+    #[default]
     Normal,
     ShellTransient,
     RealFullscreen,
@@ -399,6 +400,7 @@ fn detect_fullscreen() -> bool {
 }
 
 #[cfg(windows)]
+#[allow(dead_code)]
 pub(crate) fn is_fullscreen_active() -> bool {
     detect_fullscreen()
 }

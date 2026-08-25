@@ -20,9 +20,10 @@ pub enum SurfaceLabel {
     FloatBall,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub enum SurfaceSuspensionReason {
+    #[default]
     None,
     Fullscreen,
 }

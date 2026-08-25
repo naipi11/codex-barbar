@@ -22,34 +22,81 @@ const STATUS_SURFACE_REASSERT_INTERVAL_MS: u64 = 250;
 const STATUS_SURFACE_RECONCILE_INTERVAL: Duration = Duration::from_secs(2);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum FullscreenTransition {
-    Suspend,
-    Resume,
-    Stable,
+pub(crate) enum ReconcileCause {
+    ForegroundChanged,
+    ShellChanged,
+    PeriodicFallback,
+    FullscreenTransition,
 }
 
-fn fullscreen_transition(was_suspended: bool, is_fullscreen: bool) -> FullscreenTransition {
-    match (was_suspended, is_fullscreen) {
-        (false, true) => FullscreenTransition::Suspend,
-        (true, false) => FullscreenTransition::Resume,
-        _ => FullscreenTransition::Stable,
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum ReconcileAction {
+    KeepVisible,
+    Restore,
+    Suspend,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+struct SurfacePhase {
+    foreground: ForegroundClass,
+    hide_in_fullscreen: bool,
+    suspension_reason: SurfaceSuspensionReason,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct SurfacePhaseOutcome {
+    phase: SurfacePhase,
+    action: ReconcileAction,
+}
+
+fn reduce_surface_phase(current: SurfacePhase, foreground: ForegroundClass) -> SurfacePhaseOutcome {
+    let next = SurfacePhase {
+        foreground,
+        hide_in_fullscreen: current.hide_in_fullscreen,
+        suspension_reason: if foreground == ForegroundClass::RealFullscreen
+            && current.hide_in_fullscreen
+        {
+            SurfaceSuspensionReason::Fullscreen
+        } else {
+            SurfaceSuspensionReason::None
+        },
+    };
+    let action = if next.suspension_reason == SurfaceSuspensionReason::Fullscreen {
+        ReconcileAction::Suspend
+    } else if current.suspension_reason == SurfaceSuspensionReason::Fullscreen
+        || current.foreground == ForegroundClass::ShellTransient
+            && foreground == ForegroundClass::Normal
+        || current.foreground != ForegroundClass::Normal && foreground == ForegroundClass::Normal
+    {
+        ReconcileAction::Restore
+    } else {
+        ReconcileAction::KeepVisible
+    };
+    SurfacePhaseOutcome {
+        phase: next,
+        action,
     }
 }
 
+#[cfg(test)]
+fn reconcile_action(hide_in_fullscreen: bool, foreground: ForegroundClass) -> ReconcileAction {
+    reduce_surface_phase(
+        SurfacePhase {
+            hide_in_fullscreen,
+            ..SurfacePhase::default()
+        },
+        foreground,
+    )
+    .action
+}
+
+#[cfg(test)]
 fn should_hide_for_fullscreen(settings: &AppSettings, is_fullscreen: bool) -> bool {
     is_fullscreen && settings.taskbar_tray.hide_status_surfaces_in_fullscreen
 }
 
-fn suspension_reason(fullscreen_suspended: bool) -> SurfaceSuspensionReason {
-    if fullscreen_suspended {
-        SurfaceSuspensionReason::Fullscreen
-    } else {
-        SurfaceSuspensionReason::None
-    }
-}
-
 fn record_surface_snapshots(state: &StatusSurfaceState, foreground_class: ForegroundClass) {
-    let reason = suspension_reason(state.fullscreen_suspended);
+    let reason = state.phase.suspension_reason;
     record_global(state.taskbar.observe_lifecycle(foreground_class, reason));
     record_global(state.float_ball.observe_lifecycle(foreground_class, reason));
 }
@@ -58,8 +105,11 @@ pub fn get_status_surface_diagnostics() -> Vec<SurfaceLifecycleSnapshot> {
     recent_global(64)
 }
 
-pub fn schedule_foreground_reconcile(app: tauri::AppHandle, _foreground: ForegroundClass) {
-    schedule_status_reposition(app);
+pub fn schedule_foreground_reconcile(app: tauri::AppHandle, foreground: ForegroundClass) {
+    let app_for_task = app.clone();
+    tauri::async_runtime::spawn(async move {
+        let _ = reconcile_surfaces(&app_for_task, foreground, ReconcileCause::ForegroundChanged);
+    });
 }
 
 pub(crate) fn reconciliation_action(enabled: bool) -> ReconciliationAction {
@@ -102,7 +152,90 @@ pub struct StatusSurfaceState {
     pub taskbar: crate::taskbar_overlay::TaskbarOverlay,
     pub float_ball: crate::float_ball::FloatBall,
     pub feedback: controller::StatusSurfaceFeedbackState,
-    fullscreen_suspended: bool,
+    phase: SurfacePhase,
+}
+
+fn restore_enabled_surfaces(
+    app: &tauri::AppHandle,
+    state: &mut StatusSurfaceState,
+) -> Result<(), String> {
+    let mut first_error = None;
+    if let Err(error) = state.taskbar.restore_after_shell(app) {
+        first_error = Some(error);
+    }
+    if let Err(error) = state.float_ball.restore_after_shell(app)
+        && first_error.is_none()
+    {
+        first_error = Some(error);
+    }
+    first_error.map_or(Ok(()), Err)
+}
+
+fn keep_enabled_surfaces_visible(state: &mut StatusSurfaceState) -> Result<(), String> {
+    let mut first_error = None;
+    if let Err(error) = state.taskbar.reassert_topmost() {
+        first_error = Some(error);
+    }
+    if let Err(error) = state.float_ball.reassert_topmost()
+        && first_error.is_none()
+    {
+        first_error = Some(error);
+    }
+    first_error.map_or(Ok(()), Err)
+}
+
+fn suspend_enabled_surfaces(state: &mut StatusSurfaceState) -> Result<(), String> {
+    let mut first_error = None;
+    if let Err(error) = state.taskbar.hide_for_fullscreen() {
+        first_error = Some(error);
+    }
+    if let Err(error) = state.float_ball.hide_for_fullscreen()
+        && first_error.is_none()
+    {
+        first_error = Some(error);
+    }
+    first_error.map_or(Ok(()), Err)
+}
+
+pub fn reconcile_surfaces(
+    app: &tauri::AppHandle,
+    foreground: ForegroundClass,
+    cause: ReconcileCause,
+) -> Result<(), String> {
+    let hide_in_fullscreen = app
+        .state::<Mutex<crate::state::AppState>>()
+        .lock()
+        .ok()
+        .and_then(|state| state.account_service.clone())
+        .and_then(|service| service.repositories().settings.load().ok())
+        .map(|settings| settings.taskbar_tray.hide_status_surfaces_in_fullscreen)
+        .unwrap_or(true);
+    let state = app.state::<Mutex<StatusSurfaceState>>();
+    let mut state = state
+        .lock()
+        .map_err(|_| "STATUS_SURFACE_STATE_UNAVAILABLE".to_string())?;
+    state.phase.hide_in_fullscreen = hide_in_fullscreen;
+    let outcome = reduce_surface_phase(state.phase, foreground);
+    state.phase = outcome.phase;
+    let result = match outcome.action {
+        ReconcileAction::Suspend => suspend_enabled_surfaces(&mut state),
+        ReconcileAction::Restore => restore_enabled_surfaces(app, &mut state),
+        ReconcileAction::KeepVisible => {
+            if matches!(
+                cause,
+                ReconcileCause::PeriodicFallback | ReconcileCause::ShellChanged
+            ) && foreground != ForegroundClass::ShellTransient
+            {
+                restore_enabled_surfaces(app, &mut state)
+            } else if foreground == ForegroundClass::ShellTransient {
+                Ok(())
+            } else {
+                keep_enabled_surfaces_visible(&mut state)
+            }
+        }
+    };
+    record_surface_snapshots(&state, foreground);
+    result
 }
 
 pub fn run_non_fatal<F>(operation: F)
@@ -140,11 +273,10 @@ pub fn apply_status_surface_settings(
         first_error = Some(error);
     }
     let foreground = crate::shell::fullscreen_guard::classify_current_foreground();
-    if should_hide_for_fullscreen(
-        settings,
-        matches!(foreground, ForegroundClass::RealFullscreen),
-    ) {
-        state.fullscreen_suspended = true;
+    state.phase.hide_in_fullscreen = settings.taskbar_tray.hide_status_surfaces_in_fullscreen;
+    let outcome = reduce_surface_phase(state.phase, foreground);
+    state.phase = outcome.phase;
+    if outcome.action == ReconcileAction::Suspend {
         if let Err(error) = state.taskbar.hide_for_fullscreen() {
             first_error.get_or_insert(error);
         }
@@ -217,62 +349,13 @@ pub fn start_monitor(app: tauri::AppHandle) {
         loop {
             interval.tick().await;
             let foreground = crate::shell::fullscreen_guard::classify_current_foreground();
-            let fullscreen = matches!(foreground, ForegroundClass::RealFullscreen);
-            let hide_fullscreen = app
-                .state::<Mutex<crate::state::AppState>>()
-                .lock()
-                .ok()
-                .and_then(|state| state.account_service.clone())
-                .and_then(|service| service.repositories().settings.load().ok())
-                .map(|settings| settings.taskbar_tray.hide_status_surfaces_in_fullscreen)
-                .unwrap_or(true);
-            let should_hide = fullscreen && hide_fullscreen;
-            let result = app
-                .state::<Mutex<StatusSurfaceState>>()
-                .lock()
-                .map_err(|_| "STATUS_SURFACE_STATE_UNAVAILABLE".to_string())
-                .and_then(|mut state| {
-                    let transition = fullscreen_transition(state.fullscreen_suspended, should_hide);
-                    state.fullscreen_suspended = should_hide;
-                    record_surface_snapshots(&state, foreground);
-                    if should_hide {
-                        let mut first_error = None;
-                        if let Err(error) = state.taskbar.hide_for_fullscreen() {
-                            first_error = Some(error);
-                        }
-                        if let Err(error) = state.float_ball.hide_for_fullscreen()
-                            && first_error.is_none()
-                        {
-                            first_error = Some(error);
-                        }
-                        return first_error.map_or(Ok(()), Err);
-                    }
-
-                    let mut first_error = None;
-                    if let Err(error) = state.taskbar.reassert_topmost() {
-                        first_error = Some(error);
-                    }
-                    if let Err(error) = state.float_ball.reassert_topmost()
-                        && first_error.is_none()
-                    {
-                        first_error = Some(error);
-                    }
-                    if transition == FullscreenTransition::Resume
-                        || last_reconcile.elapsed() >= STATUS_SURFACE_RECONCILE_INTERVAL
-                    {
-                        if let Err(error) = state.taskbar.handle_shell_change(&app) {
-                            first_error = Some(error);
-                        }
-                        if let Err(error) = state.float_ball.handle_shell_change(&app)
-                            && first_error.is_none()
-                        {
-                            first_error = Some(error);
-                        }
-                        last_reconcile = Instant::now();
-                    }
-                    first_error.map_or(Ok(()), Err)
-                });
-            if result.is_err() {
+            let cause = if last_reconcile.elapsed() >= STATUS_SURFACE_RECONCILE_INTERVAL {
+                last_reconcile = Instant::now();
+                ReconcileCause::PeriodicFallback
+            } else {
+                ReconcileCause::FullscreenTransition
+            };
+            if reconcile_surfaces(&app, foreground, cause).is_err() {
                 tracing::debug!(
                     code = "TASKBAR_REPOSITION_DEFERRED",
                     "taskbar overlay retry deferred"
@@ -391,33 +474,8 @@ pub fn schedule_taskbar_reposition(app: tauri::AppHandle) {
 
 pub fn schedule_status_reposition(app: tauri::AppHandle) {
     tauri::async_runtime::spawn(async move {
-        let result = app
-            .state::<Mutex<StatusSurfaceState>>()
-            .lock()
-            .map_err(|_| "STATUS_SURFACE_STATE_UNAVAILABLE".to_string())
-            .and_then(|mut state| {
-                if state.fullscreen_suspended
-                    || crate::shell::fullscreen_guard::is_fullscreen_active()
-                {
-                    return Ok(());
-                }
-                let mut first_error = None;
-                if let Err(error) = state.taskbar.handle_shell_change(&app) {
-                    first_error = Some(error);
-                }
-                if let Err(error) = state.float_ball.handle_shell_change(&app)
-                    && first_error.is_none()
-                {
-                    first_error = Some(error);
-                }
-                first_error.map_or(Ok(()), Err)
-            });
-        if result.is_err() {
-            tracing::debug!(
-                code = "TASKBAR_REPOSITION_DEFERRED",
-                "taskbar overlay reposition deferred"
-            );
-        }
+        let foreground = crate::shell::fullscreen_guard::classify_current_foreground();
+        let _ = reconcile_surfaces(&app, foreground, ReconcileCause::ShellChanged);
     });
 }
 
@@ -439,22 +497,39 @@ mod tests {
     }
 
     #[test]
-    fn fullscreen_transition_only_changes_on_edges() {
+    fn shell_transient_preserves_enabled_intent_and_geometry() {
+        let current = SurfacePhase {
+            foreground: ForegroundClass::Normal,
+            hide_in_fullscreen: true,
+            suspension_reason: SurfaceSuspensionReason::None,
+        };
+        let next = reduce_surface_phase(current, ForegroundClass::ShellTransient);
+        assert_eq!(next.phase.suspension_reason, SurfaceSuspensionReason::None);
+        assert_eq!(next.action, ReconcileAction::KeepVisible);
+    }
+
+    #[test]
+    fn normal_after_shell_transient_requests_restore_without_click() {
+        let current = SurfacePhase {
+            foreground: ForegroundClass::ShellTransient,
+            hide_in_fullscreen: true,
+            suspension_reason: SurfaceSuspensionReason::None,
+        };
         assert_eq!(
-            fullscreen_transition(false, true),
-            FullscreenTransition::Suspend
+            reduce_surface_phase(current, ForegroundClass::Normal).action,
+            ReconcileAction::Restore
+        );
+    }
+
+    #[test]
+    fn real_fullscreen_hides_only_when_preference_is_enabled() {
+        assert_eq!(
+            reconcile_action(true, ForegroundClass::RealFullscreen),
+            ReconcileAction::Suspend
         );
         assert_eq!(
-            fullscreen_transition(true, false),
-            FullscreenTransition::Resume
-        );
-        assert_eq!(
-            fullscreen_transition(true, true),
-            FullscreenTransition::Stable
-        );
-        assert_eq!(
-            fullscreen_transition(false, false),
-            FullscreenTransition::Stable
+            reconcile_action(false, ForegroundClass::RealFullscreen),
+            ReconcileAction::KeepVisible
         );
     }
 

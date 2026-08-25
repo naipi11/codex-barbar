@@ -236,6 +236,7 @@ impl TaskbarOverlay {
         Ok(())
     }
 
+    #[allow(dead_code)]
     pub fn handle_shell_change(&mut self, app: &tauri::AppHandle) -> Result<(), String> {
         match crate::status_surfaces::reconciliation_action(self.is_enabled()) {
             crate::status_surfaces::ReconciliationAction::Reposition => {
@@ -263,11 +264,22 @@ impl TaskbarOverlay {
         Ok(())
     }
 
+    pub fn restore_after_shell(&mut self, app: &tauri::AppHandle) -> Result<(), String> {
+        if !self.enabled {
+            return Ok(());
+        }
+        let window = self.ensure_window(app)?;
+        let _ = window::show_noactivate(&window);
+        self.reposition(app)?;
+        window::reassert_topmost(&window)
+    }
+
     pub fn reassert_topmost(&self) -> Result<(), String> {
         if !self.enabled {
             return Ok(());
         }
         if let Some(window) = self.window.as_ref() {
+            let _ = window::show_noactivate(window);
             window::reassert_topmost(window)?;
         }
         Ok(())

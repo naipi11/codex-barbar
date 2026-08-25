@@ -515,7 +515,6 @@ pub fn observe_window(win: &tauri::WebviewWindow) -> Result<OverlayWindowObserva
 }
 
 #[cfg(windows)]
-#[allow(dead_code)]
 pub fn show_noactivate(win: &tauri::WebviewWindow) -> Result<(), String> {
     let hwnd = root_hwnd(win).map_err(str::to_string)?;
     const SW_SHOWNA: i32 = 8;

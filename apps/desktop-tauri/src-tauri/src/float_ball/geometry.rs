@@ -100,7 +100,7 @@ pub fn presentation_rect(
                 height,
             },
             work_area,
-            margin,
+            0,
         );
     }
 
@@ -242,8 +242,7 @@ pub fn restore_position(saved_logical: Option<Point>, monitors: &[MonitorGeometr
             let physical = logical_to_physical(saved, monitor.scale);
             if contains_point(monitor.monitor, physical) {
                 let size = scaled_i32(FLOAT_BALL_LOGICAL_SIZE as i32, monitor.scale);
-                let margin = scaled_i32(FLOAT_BALL_LOGICAL_MARGIN, monitor.scale);
-                return clamp_position(physical, monitor.monitor, monitor.monitor, size, margin);
+                return clamp_position(physical, monitor.monitor, monitor.monitor, size, 0);
             }
         }
     }
@@ -515,8 +514,8 @@ mod tests {
             primary: true,
         };
 
-        let restored = restore_position(Some(Point { x: 900, y: 1060 }), &[monitor]);
-        assert_eq!(restored, Point { x: 900, y: 1032 });
+        let restored = restore_position(Some(Point { x: 900, y: 1040 }), &[monitor]);
+        assert_eq!(restored, Point { x: 900, y: 1040 });
         assert_eq!(
             presentation_rect(
                 restored,
@@ -526,10 +525,14 @@ mod tests {
             ),
             Rect {
                 x: 900,
-                y: 1032,
+                y: 1040,
                 width: FLOAT_BALL_COLLAPSED_WIDTH,
                 height: FLOAT_BALL_COLLAPSED_HEIGHT,
             }
+        );
+        assert_eq!(
+            restore_position(Some(Point { x: 900, y: 1060 }), &[monitor]),
+            Point { x: 900, y: 1040 }
         );
     }
 }

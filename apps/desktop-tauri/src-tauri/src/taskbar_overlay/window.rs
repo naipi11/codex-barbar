@@ -98,7 +98,6 @@ pub fn observe(
     crate::shell::dwm::observe_window(window)
 }
 
-#[allow(dead_code)]
 pub fn show_noactivate(window: &tauri::WebviewWindow) -> Result<(), String> {
     crate::shell::dwm::show_noactivate(window)
 }
