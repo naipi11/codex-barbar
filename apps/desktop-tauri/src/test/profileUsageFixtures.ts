@@ -65,6 +65,8 @@ export const defaultSettings: AppSettingsDto = {
     resetCreditIncreaseEnabled: true,
     refreshFailureEnabled: true,
     updateAvailableEnabled: true,
+    pricingChangedEnabled: false,
+    pricingRefreshFailureEnabled: false,
     warningRemainingPercent: 66,
     dangerRemainingPercent: 33,
   },

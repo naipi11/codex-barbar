@@ -67,6 +67,8 @@ pub struct NotificationPreferences {
     pub reset_credit_increase_enabled: bool,
     pub refresh_failure_enabled: bool,
     pub update_available_enabled: bool,
+    pub pricing_changed_enabled: bool,
+    pub pricing_refresh_failure_enabled: bool,
     pub warning_remaining_percent: u8,
     pub danger_remaining_percent: u8,
 }
@@ -82,6 +84,8 @@ impl Default for NotificationPreferences {
             reset_credit_increase_enabled: true,
             refresh_failure_enabled: true,
             update_available_enabled: true,
+            pricing_changed_enabled: false,
+            pricing_refresh_failure_enabled: false,
             warning_remaining_percent: 66,
             danger_remaining_percent: 33,
         }
@@ -176,6 +180,8 @@ pub struct NotificationPreferencesPatch {
     pub reset_credit_increase_enabled: Option<bool>,
     pub refresh_failure_enabled: Option<bool>,
     pub update_available_enabled: Option<bool>,
+    pub pricing_changed_enabled: Option<bool>,
+    pub pricing_refresh_failure_enabled: Option<bool>,
     pub warning_remaining_percent: Option<u8>,
     pub danger_remaining_percent: Option<u8>,
 }
@@ -314,6 +320,7 @@ pub struct AppSettings {
     #[doc(hidden)]
     pub menu: MenuPreferences,
     pub panel: PanelPreferences,
+    pub pricing_display_currency: crate::pricing::Currency,
 }
 
 impl Default for AppSettings {
@@ -337,6 +344,7 @@ impl Default for AppSettings {
             taskbar_tray: TaskbarTrayPreferences::default(),
             menu: MenuPreferences::default(),
             panel: PanelPreferences::default(),
+            pricing_display_currency: crate::pricing::Currency::Usd,
         }
     }
 }
@@ -366,6 +374,7 @@ pub struct SettingsPatch {
     #[doc(hidden)]
     pub menu: Option<MenuPreferencesPatch>,
     pub panel: Option<PanelPreferencesPatch>,
+    pub pricing_display_currency: Option<crate::pricing::Currency>,
 }
 
 #[derive(Clone)]
@@ -508,6 +517,12 @@ impl NotificationPreferencesPatch {
         if let Some(value) = self.update_available_enabled {
             preferences.update_available_enabled = value;
         }
+        if let Some(value) = self.pricing_changed_enabled {
+            preferences.pricing_changed_enabled = value;
+        }
+        if let Some(value) = self.pricing_refresh_failure_enabled {
+            preferences.pricing_refresh_failure_enabled = value;
+        }
         if let Some(value) = self.warning_remaining_percent {
             preferences.warning_remaining_percent = value;
         }
@@ -639,6 +654,9 @@ impl AppSettings {
         }
         if let Some(panel) = patch.panel {
             panel.apply_to(&mut self.panel);
+        }
+        if let Some(value) = patch.pricing_display_currency {
+            self.pricing_display_currency = value;
         }
     }
 
@@ -1031,6 +1049,8 @@ mod tests {
                     reset_credit_increase_enabled: Some(true),
                     refresh_failure_enabled: Some(false),
                     update_available_enabled: Some(true),
+                    pricing_changed_enabled: Some(false),
+                    pricing_refresh_failure_enabled: Some(false),
                     warning_remaining_percent: Some(70),
                     danger_remaining_percent: Some(30),
                 }),

@@ -16,6 +16,7 @@ pub struct AppPaths {
     pub identity_cache: PathBuf,
     pub avatars: PathBuf,
     pub notification_state: PathBuf,
+    pub cache: PathBuf,
 }
 
 impl AppPaths {
@@ -34,6 +35,7 @@ impl AppPaths {
             identity_cache: root.join("identity").join("profiles.json"),
             avatars: root.join("avatars"),
             notification_state: root.join("runtime").join("notification-state.json"),
+            cache: root.join("cache"),
             root,
         }
     }
@@ -60,6 +62,7 @@ mod tests {
             paths.notification_state,
             paths.root.join("runtime").join("notification-state.json")
         );
+        assert_eq!(paths.cache, paths.root.join("cache"));
     }
 
     #[test]

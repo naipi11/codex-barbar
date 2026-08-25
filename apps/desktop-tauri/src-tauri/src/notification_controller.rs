@@ -228,6 +228,23 @@ impl<S: ToastSink> NotificationController<S> {
         Ok(true)
     }
 
+    pub fn observe_pricing_refresh(
+        &mut self,
+        repository: &SettingsRepository,
+        failed: bool,
+        source_count: u8,
+        catalog_changed: bool,
+    ) -> Result<(), String> {
+        let settings = load_settings(repository)?;
+        let events = self.engine.observe_pricing_refresh(
+            &settings.notifications,
+            failed,
+            source_count,
+            catalog_changed,
+        );
+        self.dispatch(&settings, events)
+    }
+
     pub fn observe_update_available(
         &mut self,
         repository: &SettingsRepository,
@@ -389,6 +406,46 @@ fn event_copy(settings: &AppSettings, event: &V1NotificationEvent) -> (String, S
                 "codex-barbar is refreshing usage again.".to_string()
             },
         ),
+        V1NotificationEvent::PricingCatalogChanged { source_count } => (
+            if zh {
+                "å®ä»·ç®å½å·²æ´æ°"
+            } else {
+                "Pricing catalog updated"
+            }
+            .to_string(),
+            if zh {
+                format!("å·²æ´æ° {source_count} ä¸ªå¬å¼å®ä»·æºã")
+            } else {
+                format!("Updated {source_count} public pricing sources.")
+            },
+        ),
+        V1NotificationEvent::PricingRefreshFailed => (
+            if zh {
+                "å®ä»·å·æ°è¿ç»å¤±è´¥"
+            } else {
+                "Pricing refresh repeatedly failed"
+            }
+            .to_string(),
+            if zh {
+                "codex-barbar è¿ç»ä¸æ¬¡æ æ³å·æ°å¬å¼å®ä»·ç®å½ã".to_string()
+            } else {
+                "codex-barbar could not refresh the public pricing catalog three times in a row."
+                    .to_string()
+            },
+        ),
+        V1NotificationEvent::PricingRefreshRecovered => (
+            if zh {
+                "å®ä»·å·æ°å·²æ¢å¤"
+            } else {
+                "Pricing refresh recovered"
+            }
+            .to_string(),
+            if zh {
+                "codex-barbar å·²æ¢å¤å¬å¼å®ä»·ç®å½å·æ°ã".to_string()
+            } else {
+                "codex-barbar is refreshing the public pricing catalog again.".to_string()
+            },
+        ),
         V1NotificationEvent::UpdateAvailable { version } => (
             if zh {
                 "有可用更新"
@@ -514,7 +571,7 @@ fn send_windows_toast(_title: &str, _body: &str, _play_sound: bool) -> Result<()
     send_windows_toast_with(&SystemNotificationSettingProbe, false, || Ok(()))
 }
 
-fn repository_from_app(app: &tauri::AppHandle) -> Option<SettingsRepository> {
+pub(crate) fn repository_from_app(app: &tauri::AppHandle) -> Option<SettingsRepository> {
     app.state::<std::sync::Mutex<AppState>>()
         .lock()
         .ok()

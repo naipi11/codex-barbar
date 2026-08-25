@@ -1,0 +1,7 @@
+{
+  "base": "USD",
+  "quote": "CNY",
+  "rate": "7.123456",
+  "observedAt": "2026-08-24",
+  "sourceUrl": "https://www.chinamoney.com.cn/english/bchkpr/"
+}

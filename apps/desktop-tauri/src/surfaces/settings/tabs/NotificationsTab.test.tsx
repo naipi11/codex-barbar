@@ -65,6 +65,8 @@ const settings: AppSettingsDto = {
     resetCreditIncreaseEnabled: true,
     refreshFailureEnabled: true,
     updateAvailableEnabled: true,
+    pricingChangedEnabled: false,
+    pricingRefreshFailureEnabled: false,
     warningRemainingPercent: 66,
     dangerRemainingPercent: 33,
   },
@@ -110,8 +112,10 @@ describe("NotificationsTab", () => {
       /warning band/i,
       /danger band/i,
       /weekly allowance resets/i,
-      /refresh fails/i,
-      /new release/i,
+      /^refresh fails three times or recovers$/i,
+      /^a new release is available$/i,
+      /public model prices change/i,
+      /pricing catalog refresh fails three times or recovers/i,
     ]) {
       expect(screen.getByRole("checkbox", { name })).toBeDisabled();
     }

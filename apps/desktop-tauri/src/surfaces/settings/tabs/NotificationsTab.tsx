@@ -18,7 +18,9 @@ type NotificationBooleanField =
   | "dangerEnabled"
   | "weeklyResetEnabled"
   | "refreshFailureEnabled"
-  | "updateAvailableEnabled";
+  | "updateAvailableEnabled"
+  | "pricingChangedEnabled"
+  | "pricingRefreshFailureEnabled";
 
 function NotificationSwitch({
   label,
@@ -219,6 +221,18 @@ export default function NotificationsTab({
           checked={notifications.updateAvailableEnabled}
           disabled={!notifications.enabled}
           onChange={(value) => saveBoolean("updateAvailableEnabled", value)}
+        />
+        <NotificationSwitch
+          label={copy.notifications.pricingChanged}
+          checked={notifications.pricingChangedEnabled}
+          disabled={!notifications.enabled}
+          onChange={(value) => saveBoolean("pricingChangedEnabled", value)}
+        />
+        <NotificationSwitch
+          label={copy.notifications.pricingRefreshFailure}
+          checked={notifications.pricingRefreshFailureEnabled}
+          disabled={!notifications.enabled}
+          onChange={(value) => saveBoolean("pricingRefreshFailureEnabled", value)}
         />
       </article>
 

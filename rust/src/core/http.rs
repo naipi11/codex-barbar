@@ -1,5 +1,7 @@
 //! HTTP helpers shared by provider fetchers.
 
+pub type HttpClient = reqwest::Client;
+
 use reqwest::Url;
 
 use super::http_proxy::apply_app_proxy;
@@ -13,6 +15,15 @@ use super::http_proxy::apply_app_proxy;
 ///
 /// When Settings → Advanced HTTP proxy is enabled, the global proxy is applied
 /// here so provider refreshes pick it up on the next `instantiate_provider`.
+pub fn public_http_client() -> Result<reqwest::Client, reqwest::Error> {
+    apply_app_proxy(
+        reqwest::Client::builder()
+            .timeout(std::time::Duration::from_secs(20))
+            .redirect(reqwest::redirect::Policy::limited(4)),
+    )
+    .build()
+}
+
 pub fn credentialed_http_client_builder() -> reqwest::ClientBuilder {
     let builder =
         reqwest::Client::builder().redirect(reqwest::redirect::Policy::custom(|attempt| {

@@ -20,6 +20,9 @@ pub enum V1NotificationEvent {
     RefreshFailed,
     RefreshRecovered,
     UpdateAvailable { version: String },
+    PricingCatalogChanged { source_count: u8 },
+    PricingRefreshFailed,
+    PricingRefreshRecovered,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -35,6 +38,8 @@ enum QuotaBand {
 struct NotificationState {
     profiles: BTreeMap<ProfileId, ProfileNotificationState>,
     last_update_version: Option<String>,
+    consecutive_pricing_failures: u8,
+    pricing_failure_notified: bool,
 }
 
 #[derive(Debug, Default, Clone, Serialize, Deserialize)]
@@ -207,6 +212,47 @@ impl V1NotificationEngine {
             }
             profile.account_marker_hash = Some(account_marker.to_string());
         }
+    }
+
+    pub fn observe_pricing_refresh(
+        &mut self,
+        preferences: &NotificationPreferences,
+        failed: bool,
+        source_count: u8,
+        catalog_changed: bool,
+    ) -> Vec<V1NotificationEvent> {
+        let mut events = Vec::new();
+        if !preferences.enabled {
+            self.state.consecutive_pricing_failures = 0;
+            self.state.pricing_failure_notified = false;
+            self.persist();
+            return events;
+        }
+        if failed {
+            if preferences.pricing_refresh_failure_enabled {
+                self.state.consecutive_pricing_failures =
+                    self.state.consecutive_pricing_failures.saturating_add(1);
+                if self.state.consecutive_pricing_failures == 3 {
+                    self.state.pricing_failure_notified = true;
+                    events.push(V1NotificationEvent::PricingRefreshFailed);
+                }
+            } else {
+                self.state.consecutive_pricing_failures = 0;
+                self.state.pricing_failure_notified = false;
+            }
+        } else {
+            let had_reported_failure = self.state.pricing_failure_notified;
+            self.state.consecutive_pricing_failures = 0;
+            self.state.pricing_failure_notified = false;
+            if had_reported_failure && preferences.pricing_refresh_failure_enabled {
+                events.push(V1NotificationEvent::PricingRefreshRecovered);
+            }
+            if catalog_changed && preferences.pricing_changed_enabled {
+                events.push(V1NotificationEvent::PricingCatalogChanged { source_count });
+            }
+        }
+        self.persist();
+        events
     }
 
     pub fn observe_update_available(
@@ -495,6 +541,39 @@ mod tests {
     }
 
     #[test]
+    fn third_identical_catalog_failure_emits_once() {
+        let (_temp, paths) = state_path();
+        let mut engine = V1NotificationEngine::load(&paths);
+        let prefs = NotificationPreferences {
+            enabled: true,
+            pricing_refresh_failure_enabled: true,
+            ..NotificationPreferences::default()
+        };
+        assert!(
+            engine
+                .observe_pricing_refresh(&prefs, true, 0, false)
+                .is_empty()
+        );
+        assert!(
+            engine
+                .observe_pricing_refresh(&prefs, true, 0, false)
+                .is_empty()
+        );
+        assert_eq!(
+            engine.observe_pricing_refresh(&prefs, true, 0, false),
+            vec![V1NotificationEvent::PricingRefreshFailed]
+        );
+        assert!(
+            engine
+                .observe_pricing_refresh(&prefs, true, 0, false)
+                .is_empty()
+        );
+        assert_eq!(
+            engine.observe_pricing_refresh(&prefs, false, 3, false),
+            vec![V1NotificationEvent::PricingRefreshRecovered]
+        );
+    }
+
     fn reported_refresh_failure_remains_recoverable_after_restart() {
         let (_temp, paths) = state_path();
         let id = Uuid::new_v4();

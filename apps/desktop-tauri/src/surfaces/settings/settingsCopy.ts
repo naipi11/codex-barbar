@@ -134,6 +134,8 @@ export interface SettingsCopy {
     resetCreditUnavailable: string;
     refreshFailure: string;
     updateAvailable: string;
+    pricingChanged: string;
+    pricingRefreshFailure: string;
     thresholdsTitle: string;
     warningThreshold: string;
     dangerThreshold: string;
@@ -335,6 +337,8 @@ const english: SettingsCopy = {
     resetCreditUnavailable: "Reset-credit notifications are not available yet. Usage history support will enable them later.",
     refreshFailure: "Refresh fails three times or recovers",
     updateAvailable: "A new release is available",
+    pricingChanged: "Public model prices change",
+    pricingRefreshFailure: "Pricing catalog refresh fails three times or recovers",
     thresholdsTitle: "Remaining quota thresholds",
     warningThreshold: "Warning remaining percent",
     dangerThreshold: "Danger remaining percent",
@@ -480,6 +484,8 @@ const chinese: SettingsCopy = {
     resetCreditUnavailable: "重置额度通知暂不可用，后续用量历史功能将启用此选项。",
     refreshFailure: "刷新连续失败三次或恢复",
     updateAvailable: "有新版本可用",
+    pricingChanged: "公开模型定价发生变化",
+    pricingRefreshFailure: "定价目录连续刷新失败或恢复",
     thresholdsTitle: "剩余额度阈值",
     warningThreshold: "预警剩余百分比",
     dangerThreshold: "危险剩余百分比",

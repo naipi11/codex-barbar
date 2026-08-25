@@ -43,6 +43,8 @@ export interface NotificationPreferencesDto {
   resetCreditIncreaseEnabled: boolean;
   refreshFailureEnabled: boolean;
   updateAvailableEnabled: boolean;
+  pricingChangedEnabled: boolean;
+  pricingRefreshFailureEnabled: boolean;
   warningRemainingPercent: number;
   dangerRemainingPercent: number;
 }
@@ -114,6 +116,7 @@ export interface AppSettingsDto {
   taskbarPresentation: TaskbarPresentationPreferencesDto;
   menu: MenuPreferencesDto;
   panel: PanelPreferencesDto;
+  pricingDisplayCurrency: "USD" | "CNY";
 }
 
 export type StatusSurfaceKind = "taskbarStatus" | "floatBall";

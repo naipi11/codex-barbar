@@ -3,6 +3,7 @@
 mod app_error;
 mod aws_signing;
 mod cost_pricing;
+mod http;
 mod http_proxy;
 mod jsonl_scanner;
 mod models_dev_pricing;
@@ -18,6 +19,7 @@ pub use crate::pricing::{CostResolution, Currency, MoneyMicros, PriceProvenance,
 pub use app_error::*;
 pub use aws_signing::{hex, hmac_sha256, sanitized_body, sha256_hex};
 pub use cost_pricing::*;
+pub use http::{HttpClient, credentialed_http_client_builder, public_http_client};
 pub use http_proxy::*;
 pub use jsonl_scanner::*;
 pub use profile_usage::*;

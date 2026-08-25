@@ -54,6 +54,7 @@ pub struct AppSettingsDto {
     pub taskbar_presentation: TaskbarPresentationPreferencesDto,
     pub menu: MenuPreferencesDto,
     pub panel: PanelPreferencesDto,
+    pub pricing_display_currency: &'static str,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -143,6 +144,8 @@ pub struct NotificationPreferencesDto {
     pub reset_credit_increase_enabled: bool,
     pub refresh_failure_enabled: bool,
     pub update_available_enabled: bool,
+    pub pricing_changed_enabled: bool,
+    pub pricing_refresh_failure_enabled: bool,
     pub warning_remaining_percent: u8,
     pub danger_remaining_percent: u8,
 }
@@ -158,6 +161,8 @@ impl NotificationPreferencesDto {
             reset_credit_increase_enabled: preferences.reset_credit_increase_enabled,
             refresh_failure_enabled: preferences.refresh_failure_enabled,
             update_available_enabled: preferences.update_available_enabled,
+            pricing_changed_enabled: preferences.pricing_changed_enabled,
+            pricing_refresh_failure_enabled: preferences.pricing_refresh_failure_enabled,
             warning_remaining_percent: preferences.warning_remaining_percent,
             danger_remaining_percent: preferences.danger_remaining_percent,
         }
@@ -223,6 +228,7 @@ impl Default for AppSettingsDto {
             taskbar_presentation: TaskbarPresentationPreferencesDto::default(),
             menu: MenuPreferencesDto::default(),
             panel: PanelPreferencesDto::default(),
+            pricing_display_currency: "USD",
         }
     }
 }
@@ -241,6 +247,7 @@ pub struct SettingsPatchDto {
     pub taskbar_transparency_percent: Option<u8>,
     pub float_ball_transparency_percent: Option<u8>,
     pub float_ball_glow_percent: Option<u8>,
+    pub pricing_display_currency: Option<String>,
     #[serde(rename = "taskbarStatusOpacity")]
     pub legacy_taskbar_status_opacity: Option<u8>,
     #[serde(rename = "floatBallOpacity")]
@@ -306,6 +313,8 @@ pub struct NotificationPreferencesPatchDto {
     pub reset_credit_increase_enabled: Option<bool>,
     pub refresh_failure_enabled: Option<bool>,
     pub update_available_enabled: Option<bool>,
+    pub pricing_changed_enabled: Option<bool>,
+    pub pricing_refresh_failure_enabled: Option<bool>,
     pub warning_remaining_percent: Option<u8>,
     pub danger_remaining_percent: Option<u8>,
 }
@@ -355,6 +364,10 @@ impl AppSettingsDto {
             ),
             menu: MenuPreferencesDto::from_preferences(&settings.menu),
             panel: PanelPreferencesDto::from_preferences(&settings.panel),
+            pricing_display_currency: match settings.pricing_display_currency {
+                codexbar::pricing::Currency::Usd => "USD",
+                codexbar::pricing::Currency::Cny => "CNY",
+            },
         }
     }
 }
@@ -418,6 +431,14 @@ impl SettingsPatchDto {
             taskbar_tray,
             menu: None,
             panel,
+            pricing_display_currency: self
+                .pricing_display_currency
+                .map(|value| match value.as_str() {
+                    "USD" => Ok(codexbar::pricing::Currency::Usd),
+                    "CNY" => Ok(codexbar::pricing::Currency::Cny),
+                    _ => Err("unsupported pricing currency".to_string()),
+                })
+                .transpose()?,
         })
     }
 }
@@ -444,6 +465,8 @@ impl NotificationPreferencesPatchDto {
             reset_credit_increase_enabled: self.reset_credit_increase_enabled,
             refresh_failure_enabled: self.refresh_failure_enabled,
             update_available_enabled: self.update_available_enabled,
+            pricing_changed_enabled: self.pricing_changed_enabled,
+            pricing_refresh_failure_enabled: self.pricing_refresh_failure_enabled,
             warning_remaining_percent: self.warning_remaining_percent,
             danger_remaining_percent: self.danger_remaining_percent,
         })

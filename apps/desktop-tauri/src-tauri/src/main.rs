@@ -8,6 +8,7 @@ mod float_ball;
 mod float_ball_motion;
 mod geometry_store;
 mod notification_controller;
+mod pricing_refresh;
 mod proof_harness;
 mod shell;
 mod state;
@@ -351,6 +352,7 @@ fn main() {
             status_surfaces::start_monitor(app.handle().clone());
             auto_refresh::start(app.handle().clone());
             notification_controller::start_update_check_loop(app.handle().clone());
+            pricing_refresh::start_pricing_refresh_monitor(app.handle().clone());
             tracing::debug!(
                 milestones = ?coordinator.trace_names(),
                 planned = ?app_coordinator::cached_start_steps()
