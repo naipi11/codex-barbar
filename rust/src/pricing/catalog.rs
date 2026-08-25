@@ -138,7 +138,7 @@ impl PricingCatalog {
         Self {
             schema_version: PRICING_CATALOG_SCHEMA_VERSION,
             entries: Vec::new(),
-            aliases: ModelAliasResolver::default(),
+            aliases: ModelAliasResolver::empty(),
         }
     }
 
@@ -291,6 +291,13 @@ impl CostResolution {
     }
 }
 
+pub(crate) fn validate_catalog_entry(
+    entry: &CatalogEntry,
+    index: usize,
+) -> Result<(), CatalogValidationError> {
+    validate_entry(entry, index)
+}
+
 fn validate_entry(entry: &CatalogEntry, index: usize) -> Result<(), CatalogValidationError> {
     for (field, value) in [
         ("canonical model", entry.canonical_model.as_str()),
@@ -333,7 +340,7 @@ fn validate_entry(entry: &CatalogEntry, index: usize) -> Result<(), CatalogValid
     Ok(())
 }
 
-fn valid_public_source_url(value: &str) -> bool {
+pub(crate) fn valid_public_source_url(value: &str) -> bool {
     let Ok(url) = reqwest::Url::parse(value) else {
         return false;
     };
@@ -495,7 +502,7 @@ mod tests {
     }
 
     fn catalog_with(entry: CatalogEntry) -> PricingCatalog {
-        PricingCatalog::new(vec![entry], ModelAliasResolver::default()).unwrap()
+        PricingCatalog::new(vec![entry], ModelAliasResolver::empty()).unwrap()
     }
 
     #[test]
@@ -683,7 +690,7 @@ mod tests {
 
             assert!(
                 matches!(
-                    PricingCatalog::new(vec![invalid], ModelAliasResolver::default()),
+                    PricingCatalog::new(vec![invalid], ModelAliasResolver::empty()),
                     Err(CatalogValidationError::InvalidSourceUrl { .. })
                 ),
                 "accepted invalid source URL {source_url}"

@@ -1,0 +1,18 @@
+{
+  "currency": "CNY",
+  "tokenUnit": "million",
+  "models": [
+    {
+      "id": "deepseek-v4-flash",
+      "cacheMissInputPerMillion": "1.00",
+      "cacheHitInputPerMillion": "0.10",
+      "outputPerMillion": "2.00"
+    },
+    {
+      "id": "deepseek-v4-pro",
+      "cacheMissInputPerMillion": "2.00",
+      "cacheHitInputPerMillion": "0.20",
+      "outputPerMillion": "8.00"
+    }
+  ]
+}

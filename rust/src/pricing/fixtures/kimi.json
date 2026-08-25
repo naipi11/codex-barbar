@@ -1,0 +1,12 @@
+{
+  "currency": "CNY",
+  "tokenUnit": "million",
+  "models": [
+    {
+      "id": "kimi-k3",
+      "inputPerMillion": "2.00",
+      "cachedInputPerMillion": "0.40",
+      "outputPerMillion": "8.00"
+    }
+  ]
+}

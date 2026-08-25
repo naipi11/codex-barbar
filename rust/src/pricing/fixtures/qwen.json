@@ -1,0 +1,12 @@
+{
+  "currency": "CNY",
+  "tokenUnit": "million",
+  "models": [
+    {
+      "id": "qwen3-plus",
+      "inputPerMillion": "0.80",
+      "cachedInputPerMillion": "0.16",
+      "outputPerMillion": "3.20"
+    }
+  ]
+}

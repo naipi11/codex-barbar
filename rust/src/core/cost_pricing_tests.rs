@@ -24,7 +24,7 @@ fn fixture_catalog(model: &str) -> PricingCatalog {
             parser_revision: "fixture-v1".to_string(),
             provenance: PriceProvenance::OfficialCached,
         }],
-        ModelAliasResolver::default(),
+        ModelAliasResolver::empty(),
     )
     .unwrap()
 }

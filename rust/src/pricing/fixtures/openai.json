@@ -1,0 +1,32 @@
+{
+  "currency": "USD",
+  "tokenUnit": "million",
+  "models": [
+    {
+      "id": "gpt-5.6-sol",
+      "inputPerMillion": "2.00",
+      "cachedInputPerMillion": "0.20",
+      "outputPerMillion": "8.00",
+      "contextTiers": [
+        {
+          "aboveInputTokens": 200000,
+          "inputPerMillion": "4.00",
+          "cachedInputPerMillion": "0.40",
+          "outputPerMillion": "16.00"
+        }
+      ]
+    },
+    {
+      "id": "gpt-5.6-terra",
+      "inputPerMillion": "1.50",
+      "cachedInputPerMillion": "0.15",
+      "outputPerMillion": "6.00"
+    },
+    {
+      "id": "gpt-5.6-luna",
+      "inputPerMillion": "0.80",
+      "cachedInputPerMillion": "0.08",
+      "outputPerMillion": "3.20"
+    }
+  ]
+}

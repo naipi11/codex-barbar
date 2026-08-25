@@ -21,10 +21,51 @@ enum AliasTarget {
 /// Keys and targets are normalized only for surrounding whitespace and ASCII
 /// case. Prefix stripping, partial versions, and nearest-name matching belong
 /// nowhere in this type: sources must register every accepted alias explicitly.
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(transparent)]
 pub struct ModelAliasResolver {
     mappings: BTreeMap<String, AliasTarget>,
+}
+
+const DEFAULT_GATEWAY_PREFIXES: &[&str] = &[
+    "4sapi-gpt/",
+    "4sapi-kimi/",
+    "openai/",
+    "deepseek/",
+    "xai/",
+    "kimi/",
+    "qwen/",
+];
+
+const DEFAULT_CANONICAL_MODELS: &[&str] = &[
+    "gpt-5.6-sol",
+    "gpt-5.6-terra",
+    "gpt-5.6-luna",
+    "deepseek-v4-flash",
+    "deepseek-v4-pro",
+    "grok-4.6",
+    "kimi-k3",
+    "qwen3-plus",
+];
+
+impl ModelAliasResolver {
+    pub fn empty() -> Self {
+        Self {
+            mappings: BTreeMap::new(),
+        }
+    }
+}
+
+impl Default for ModelAliasResolver {
+    fn default() -> Self {
+        let mut resolver = Self::empty();
+        for prefix in DEFAULT_GATEWAY_PREFIXES {
+            for model in DEFAULT_CANONICAL_MODELS {
+                resolver.register(&format!("{prefix}{model}"), model);
+            }
+        }
+        resolver
+    }
 }
 
 impl ModelAliasResolver {
@@ -34,7 +75,7 @@ impl ModelAliasResolver {
         A: AsRef<str>,
         C: AsRef<str>,
     {
-        let mut resolver = Self::default();
+        let mut resolver = Self::empty();
         for (alias, canonical) in mappings {
             resolver.register(alias.as_ref(), canonical.as_ref());
         }
@@ -136,6 +177,27 @@ mod tests {
         );
         assert_eq!(
             aliases.resolve_alias("gateway/gpt-test-latest"),
+            AliasResolution::None
+        );
+    }
+
+    #[test]
+    fn default_gateway_alias_maps_only_an_exact_model_suffix() {
+        let aliases = ModelAliasResolver::default();
+        assert_eq!(
+            aliases.resolve_alias("4sapi-gpt/gpt-5.6-sol"),
+            AliasResolution::Exact("gpt-5.6-sol".to_string())
+        );
+        assert_eq!(
+            aliases.resolve_alias("4sapi-gpt/gpt-5.6"),
+            AliasResolution::None
+        );
+        assert_eq!(
+            aliases.resolve_alias("xai/grok-4.6"),
+            AliasResolution::Exact("grok-4.6".to_string())
+        );
+        assert_eq!(
+            aliases.resolve_alias("openai/gpt-5.6"),
             AliasResolution::None
         );
     }

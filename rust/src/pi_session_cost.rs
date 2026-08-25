@@ -366,7 +366,7 @@ mod tests {
                 parser_revision: "fixture-v1".to_string(),
                 provenance: PriceProvenance::OfficialCached,
             }],
-            ModelAliasResolver::default(),
+            ModelAliasResolver::empty(),
         )
         .unwrap()
     }

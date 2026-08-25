@@ -189,6 +189,8 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tokio::sync::{Mutex as AsyncMutex, watch};
 
 const MODELS_DEV_URL: &str = "https://models.dev/api.json";
+/// Supplemental catalog used by pricing::sources::ModelsDevAdapter.
+/// Official source adapters outrank this URL when a later merge is implemented.
 const CACHE_TTL: Duration = Duration::from_secs(24 * 60 * 60);
 const REFRESH_ATTEMPT_WINDOW: Duration = Duration::from_secs(15 * 60);
 

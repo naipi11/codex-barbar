@@ -1,0 +1,12 @@
+{
+  "currency": "USD",
+  "tokenUnit": "million",
+  "models": [
+    {
+      "id": "grok-4.6",
+      "inputPerMillion": "3.00",
+      "cachedInputPerMillion": "0.75",
+      "outputPerMillion": "15.00"
+    }
+  ]
+}
