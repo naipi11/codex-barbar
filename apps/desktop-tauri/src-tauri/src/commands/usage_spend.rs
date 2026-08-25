@@ -4,11 +4,17 @@
 //! local token/cost report. No reset redemption, purchase, account mutation,
 //! or arbitrary file access exists here.
 
+use std::path::Path;
 use std::sync::Mutex;
+use std::time::Duration as StdDuration;
 
 use chrono::{DateTime, Duration, Local, Utc};
 use codexbar::core::{Freshness, ProfileUsageSnapshot, ProfileUsageState, UsageWindow};
-use codexbar::pricing::{CatalogStore, ModelAliasResolver, PricingCatalog};
+use codexbar::pricing::source::ModelsDevAdapter;
+use codexbar::pricing::{
+    CatalogStore, ModelAliasResolver, PricingCatalog, PricingRefreshCoordinator,
+    PricingSourceAdapter, refresh_catalog, refresh_due,
+};
 use codexbar::usage_spend::{
     CodexUsageRange, LocalUsageSpendError, LocalUsageSpendReport, scan_local_codex_usage,
 };
@@ -118,6 +124,55 @@ fn resolve_range(
             Ok(CodexUsageRange { start, end })
         }
     }
+}
+
+fn pricing_catalog_missing_or_stale(catalog: Option<&PricingCatalog>) -> bool {
+    let Some(catalog) = catalog else {
+        return true;
+    };
+    catalog.entries.is_empty()
+        || codexbar::pricing::refresh::latest_catalog_timestamp(catalog)
+            .is_none_or(|last| refresh_due(last, Utc::now()))
+}
+
+fn with_default_aliases(mut catalog: PricingCatalog) -> PricingCatalog {
+    let available = catalog
+        .entries
+        .iter()
+        .map(|entry| entry.canonical_model.clone())
+        .collect::<Vec<_>>();
+    catalog.aliases = ModelAliasResolver::for_available_models(available);
+    catalog
+}
+
+async fn fetch_models_dev_catalog(cache_root: &Path) -> Option<PricingCatalog> {
+    let client = codexbar::core::public_http_client().ok()?;
+    let snapshot = ModelsDevAdapter.fetch(&client).await.ok()?;
+    let catalog = codexbar::pricing::refresh::merge_source_snapshots(&[snapshot]).ok()?;
+    let store = CatalogStore::for_cache_root(cache_root);
+    let _ = store.save(&catalog);
+    Some(with_default_aliases(catalog))
+}
+
+async fn load_pricing_catalog(cache_root: &Path) -> PricingCatalog {
+    let store = CatalogStore::for_cache_root(cache_root);
+    let cached = store.load().ok().flatten();
+    if pricing_catalog_missing_or_stale(cached.as_ref())
+        && let Ok(client) = codexbar::core::public_http_client()
+    {
+        let coordinator = PricingRefreshCoordinator::default();
+        let _ = tokio::time::timeout(
+            StdDuration::from_secs(30),
+            refresh_catalog(&client, cache_root, Utc::now(), &coordinator),
+        )
+        .await;
+    }
+    if let Some(catalog) = store.load().ok().flatten().or(cached) {
+        return with_default_aliases(catalog);
+    }
+    fetch_models_dev_catalog(cache_root)
+        .await
+        .unwrap_or_else(PricingCatalog::empty)
 }
 
 fn unpriced_estimate() -> CostEstimateDto {
@@ -273,18 +328,8 @@ pub async fn get_usage_spend(
     };
 
     let cache_root = cache_root();
+    let catalog = load_pricing_catalog(&cache_root).await;
     let scanned = tauri::async_runtime::spawn_blocking(move || {
-        let store = CatalogStore::for_cache_root(&cache_root);
-        let mut catalog = store
-            .load()
-            .ok()
-            .flatten()
-            .unwrap_or_else(PricingCatalog::empty);
-        if catalog.aliases.resolve_alias("4sapi-gpt/gpt-5.6-sol")
-            == codexbar::pricing::AliasResolution::None
-        {
-            catalog.aliases = ModelAliasResolver::default();
-        }
         scan_local_codex_usage(codex_range, &cache_root, &catalog, None)
     })
     .await
@@ -367,6 +412,14 @@ mod tests {
             freshness,
             manual_cooldown_until: None,
         }
+    }
+
+    #[test]
+    fn missing_or_empty_pricing_catalog_requires_refresh() {
+        assert!(pricing_catalog_missing_or_stale(None));
+        assert!(pricing_catalog_missing_or_stale(Some(
+            &PricingCatalog::empty()
+        )));
     }
 
     #[test]

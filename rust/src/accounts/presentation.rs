@@ -26,8 +26,8 @@ pub fn presentation_identity(
     email: Option<&str>,
     status: AccountStatus,
 ) -> PresentationIdentity {
-    let display_name = clean(username)
-        .or_else(|| clean(display_name))
+    let display_name = clean(display_name)
+        .or_else(|| clean(username))
         .or_else(|| email.and_then(email_local_part))
         .unwrap_or_else(|| status_fallback(status).to_string());
     PresentationIdentity {
@@ -73,7 +73,7 @@ mod tests {
     use super::presentation_identity;
 
     #[test]
-    fn handle_precedes_display_name_and_email_local_part() {
+    fn display_name_precedes_handle_and_email_local_part() {
         let identity = presentation_identity(
             Some("stack"),
             Some("Stack User"),
@@ -81,7 +81,7 @@ mod tests {
             AccountStatus::SignedIn,
         );
 
-        assert_eq!(identity.display_name, "stack");
+        assert_eq!(identity.display_name, "Stack User");
         assert_eq!(identity.avatar_kind, AvatarKind::Default);
         assert_eq!(identity.avatar_revision, None);
     }

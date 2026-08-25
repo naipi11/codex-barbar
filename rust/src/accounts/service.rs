@@ -2,6 +2,8 @@
 //! and refresh orchestration.
 
 use std::collections::BTreeMap;
+use std::fs;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -308,6 +310,11 @@ impl AccountProfileService {
                 return Ok(false);
             }
         };
+        let account = if let Some(home) = current_cli_codex_home() {
+            enrich_identity_from_auth_file(account, &home)
+        } else {
+            account
+        };
         if let Err(error) = self.cache_identity(profile_id, &account).await {
             tracing::warn!(code = "IDENTITY_CACHE_WRITE_FAILED", %error, "account identity cache update failed");
         } else {
@@ -406,6 +413,7 @@ impl AccountProfileService {
                 return Err(AccountServiceError::App(error));
             }
         };
+        let account = enrich_identity_from_auth_file(account, runtime.codex_home());
         if let Err(error) = self.cache_identity(profile_id, &account).await {
             tracing::warn!(code = "IDENTITY_CACHE_WRITE_FAILED", %error, "account identity cache update failed");
         } else {
@@ -660,6 +668,7 @@ impl AccountProfileService {
                         return Err(AccountServiceError::App(error));
                     }
                 };
+                let account = enrich_identity_from_auth_file(account, runtime.codex_home());
                 if let Err(error) = self.cache_identity(profile_id, &account).await {
                     tracing::warn!(code = "IDENTITY_CACHE_WRITE_FAILED", %error, "account identity cache update failed");
                 }
@@ -898,26 +907,11 @@ impl AccountProfileService {
         profile_id: ProfileId,
         account: &AccountIdentity,
     ) -> Result<(), IdentityCacheError> {
-        if self.avatar_store.is_enabled() {
-            match account.avatar_candidate.as_deref() {
-                Some(candidate) => match download_official_avatar(candidate).await {
-                    Ok(bytes) => {
-                        if self
-                            .avatar_store
-                            .write_official(profile_id, &bytes)
-                            .is_err()
-                        {
-                            let _ = self.avatar_store.clear_official(profile_id);
-                        }
-                    }
-                    Err(_) => {
-                        let _ = self.avatar_store.clear_official(profile_id);
-                    }
-                },
-                None => {
-                    let _ = self.avatar_store.clear_official(profile_id);
-                }
-            }
+        if self.avatar_store.is_enabled()
+            && let Some(candidate) = account.avatar_candidate.as_deref()
+            && let Ok(bytes) = download_official_avatar(candidate).await
+        {
+            let _ = self.avatar_store.write_official(profile_id, &bytes);
         }
         let mut presentation = presentation_identity(
             account.username.as_deref(),
@@ -960,13 +954,50 @@ fn set_presentation_avatar(
     }
 }
 
+fn enrich_identity_from_auth(mut account: AccountIdentity, auth_raw: &str) -> AccountIdentity {
+    if let Some(hint) = crate::accounts::local_identity::identity_hint_from_auth_json(auth_raw) {
+        let email_matches = hint.email.as_deref().is_some_and(|hint_email| {
+            account
+                .email
+                .as_deref()
+                .is_some_and(|account_email| account_email.eq_ignore_ascii_case(hint_email))
+        });
+        if email_matches {
+            if account.display_name.is_none() {
+                account.display_name = hint.display_name;
+            }
+            if account.avatar_candidate.is_none() {
+                account.avatar_candidate = hint.avatar_candidate;
+            }
+        }
+    }
+    account
+}
+
+fn enrich_identity_from_auth_file(account: AccountIdentity, codex_home: &Path) -> AccountIdentity {
+    let path = codex_home.join("auth.json");
+    let Ok(raw) = fs::read_to_string(path) else {
+        return account;
+    };
+    enrich_identity_from_auth(account, &raw)
+}
+
+fn current_cli_codex_home() -> Option<PathBuf> {
+    std::env::var_os("CODEX_HOME")
+        .map(PathBuf::from)
+        .or_else(|| dirs::home_dir().map(|home| home.join(".codex")))
+}
+
 fn storage_error(error: crate::storage::StorageError) -> AccountServiceError {
     AccountServiceError::App(error.into_app_error())
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{AccountIdentityRecord, Utc, presentation_identity};
+    use super::{
+        AccountIdentity, AccountIdentityRecord, Utc, enrich_identity_from_auth,
+        presentation_identity,
+    };
     use crate::accounts::avatar::AvatarKind;
     use crate::accounts::model::{AccountServiceEvent, StartManagedLogin};
     use crate::accounts::test_support::{fixture, fixture_with_disabled_avatar_store, managed_id};
@@ -1059,6 +1090,62 @@ mod tests {
             terminal_refresh_results(&mut events, fixture.current_cli_id),
             vec![true]
         );
+    }
+
+    #[test]
+    fn auth_profile_name_fills_missing_app_server_display_name() {
+        let raw = serde_json::json!({
+            "tokens": {
+                "id_token": "e.eyJlbWFpbCI6InVzZXJAZXhhbXBsZS5jb20iLCJuYW1lIjoic3RhY2sifQ.s"
+            }
+        })
+        .to_string();
+        let account = AccountIdentity {
+            auth_mode: crate::core::AuthMode::ChatGpt,
+            username: None,
+            display_name: None,
+            email: Some("user@example.com".to_string()),
+            plan_type: Some("plus".to_string()),
+            avatar_candidate: None,
+        };
+        let enriched = enrich_identity_from_auth(account, &raw);
+        assert_eq!(enriched.display_name.as_deref(), Some("stack"));
+    }
+
+    #[tokio::test]
+    async fn missing_avatar_candidate_preserves_existing_official_asset() {
+        let fixture = fixture();
+        let bytes = vec![
+            137, 80, 78, 71, 13, 10, 26, 10, 0, 0, 0, 13, 73, 72, 68, 82, 0, 0, 0, 1, 0, 0, 0, 1,
+            8, 6, 0, 0, 0, 31, 21, 196, 137, 0, 0, 0, 13, 73, 68, 65, 84, 8, 215, 99, 248, 207,
+            192, 240, 31, 0, 5, 0, 1, 255, 114, 156, 82, 103, 0, 0, 0, 0, 73, 69, 78, 68, 174, 66,
+            96, 130,
+        ];
+        fixture
+            .service
+            .avatar_store
+            .write_official(fixture.current_cli_id, &bytes)
+            .unwrap();
+        let account = AccountIdentity {
+            auth_mode: crate::core::AuthMode::ChatGpt,
+            username: Some("naipi122899".to_string()),
+            display_name: Some("stack".to_string()),
+            email: Some("user@example.com".to_string()),
+            plan_type: Some("plus".to_string()),
+            avatar_candidate: None,
+        };
+        fixture
+            .service
+            .cache_identity(fixture.current_cli_id, &account)
+            .await
+            .unwrap();
+        let record = fixture
+            .service
+            .identity_for(fixture.current_cli_id)
+            .unwrap()
+            .unwrap();
+        assert_eq!(record.presentation.avatar_kind, AvatarKind::Official);
+        assert!(record.presentation.avatar_revision.is_some());
     }
 
     #[tokio::test]
@@ -1212,7 +1299,7 @@ mod tests {
 
         assert_eq!(record.presentation.avatar_kind, AvatarKind::Default);
         assert_eq!(record.presentation.avatar_revision, None);
-        assert_eq!(record.presentation.display_name, "stack");
+        assert_eq!(record.presentation.display_name, "Stack User");
     }
 
     #[tokio::test]

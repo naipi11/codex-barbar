@@ -16,13 +16,13 @@ const TOAST_EXIT_APP_DISABLED: i32 = 20;
 const TOAST_EXIT_GLOBAL_DISABLED: i32 = 21;
 const TOAST_EXIT_UNSUPPORTED: i32 = 22;
 const NOTIFICATION_REGISTRATION_SCRIPT: &str = r#"try {
-    $appIdPath = 'HKCU:\SOFTWARE\Classes\AppUserModelId\CodexBar'
+    $appIdPath = 'HKCU:\SOFTWARE\Classes\AppUserModelId\CodexBarbar'
     New-Item -Path $appIdPath -Force | Out-Null
     New-ItemProperty -Path $appIdPath -Name DisplayName -Value 'codex-barbar' -PropertyType String -Force | Out-Null
 } catch { exit 1 }"#;
 const NOTIFICATION_SETTING_SCRIPT: &str = r#"try {
     [Windows.UI.Notifications.ToastNotificationManager, Windows.UI.Notifications, ContentType = WindowsRuntime] | Out-Null
-    $notifier = [Windows.UI.Notifications.ToastNotificationManager]::CreateToastNotifier('CodexBar')
+    $notifier = [Windows.UI.Notifications.ToastNotificationManager]::CreateToastNotifier('CodexBarbar')
     if ($null -eq $notifier) { exit 1 }
     [Console]::Out.Write([int]$notifier.Setting)
 } catch { exit 1 }"#;
@@ -503,7 +503,7 @@ fn windows_toast_script(title: &str, body: &str, play_sound: bool) -> String {
     };
     format!(
         r#"try {{
-    $appIdPath = 'HKCU:\SOFTWARE\Classes\AppUserModelId\CodexBar'
+    $appIdPath = 'HKCU:\SOFTWARE\Classes\AppUserModelId\CodexBarbar'
     New-Item -Path $appIdPath -Force | Out-Null
     New-ItemProperty -Path $appIdPath -Name DisplayName -Value 'codex-barbar' -PropertyType String -Force | Out-Null
     [Windows.UI.Notifications.ToastNotificationManager, Windows.UI.Notifications, ContentType = WindowsRuntime] | Out-Null
@@ -514,7 +514,7 @@ fn windows_toast_script(title: &str, body: &str, play_sound: bool) -> String {
     $xml = New-Object Windows.Data.Xml.Dom.XmlDocument
     $xml.LoadXml($template)
     $toast = [Windows.UI.Notifications.ToastNotification]::new($xml)
-    $notifier = [Windows.UI.Notifications.ToastNotificationManager]::CreateToastNotifier('CodexBar')
+    $notifier = [Windows.UI.Notifications.ToastNotificationManager]::CreateToastNotifier('CodexBarbar')
     if ($null -eq $notifier) {{ exit {TOAST_EXIT_UNSUPPORTED} }}
     $setting = [int]$notifier.Setting
     if ($setting -eq 1) {{ exit {TOAST_EXIT_APP_DISABLED} }}
@@ -1092,7 +1092,7 @@ mod tests {
     fn notification_registration_script_writes_only_fixed_aumid_metadata() {
         assert!(
             NOTIFICATION_REGISTRATION_SCRIPT
-                .contains("HKCU:\\SOFTWARE\\Classes\\AppUserModelId\\CodexBar")
+                .contains("HKCU:\\SOFTWARE\\Classes\\AppUserModelId\\CodexBarbar")
         );
         assert!(NOTIFICATION_REGISTRATION_SCRIPT.contains("-Name DisplayName"));
         assert!(!NOTIFICATION_REGISTRATION_SCRIPT.contains("-Name Enabled"));

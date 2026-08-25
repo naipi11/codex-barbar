@@ -40,8 +40,9 @@ impl PricingSourceAdapter for ModelsDevAdapter {
                 continue;
             };
             for (_model_key, model) in models {
-                if let Some(entry) = supplemental_model_entry(self, model)? {
-                    entries.push(entry);
+                match supplemental_model_entry(self, model) {
+                    Ok(Some(entry)) => entries.push(entry),
+                    Ok(None) | Err(_) => continue,
                 }
             }
         }
@@ -99,4 +100,25 @@ fn supplemental_model_entry(
         },
         Utc::now(),
     )?))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::ModelsDevAdapter;
+    use crate::pricing::source::PricingSourceAdapter;
+
+    #[test]
+    fn malformed_models_are_skipped_when_other_entries_are_priceable() {
+        let body = r#"{
+            "providers": {
+                "test": {"models": {
+                    "bad": {"id": "bad", "cost": {"input": {"nested": true}}},
+                    "good": {"id": "good", "cost": {"input": 1.0, "output": 2.0}}
+                }}
+            }
+        }"#;
+        let snapshot = ModelsDevAdapter.parse(body).expect("valid entries remain");
+        assert_eq!(snapshot.entries.len(), 1);
+        assert_eq!(snapshot.entries[0].canonical_model, "good");
+    }
 }

@@ -127,25 +127,18 @@ async fn refresh_catalog_inner(
     {
         return PricingRefreshOutcome::Unchanged;
     }
-    let mut snapshots = Vec::new();
-    if let Ok(snapshot) = OpenAiAdapter.fetch(client).await {
-        snapshots.push(snapshot);
-    }
-    if let Ok(snapshot) = DeepSeekAdapter.fetch(client).await {
-        snapshots.push(snapshot);
-    }
-    if let Ok(snapshot) = XaiAdapter.fetch(client).await {
-        snapshots.push(snapshot);
-    }
-    if let Ok(snapshot) = KimiAdapter.fetch(client).await {
-        snapshots.push(snapshot);
-    }
-    if let Ok(snapshot) = QwenAdapter.fetch(client).await {
-        snapshots.push(snapshot);
-    }
-    if let Ok(snapshot) = ModelsDevAdapter.fetch(client).await {
-        snapshots.push(snapshot);
-    }
+    let (openai, deepseek, xai, kimi, qwen, models_dev) = tokio::join!(
+        OpenAiAdapter.fetch(client),
+        DeepSeekAdapter.fetch(client),
+        XaiAdapter.fetch(client),
+        KimiAdapter.fetch(client),
+        QwenAdapter.fetch(client),
+        ModelsDevAdapter.fetch(client),
+    );
+    let snapshots = [openai, deepseek, xai, kimi, qwen, models_dev]
+        .into_iter()
+        .filter_map(Result::ok)
+        .collect::<Vec<_>>();
     let Ok(merged) = merge_source_snapshots(&snapshots) else {
         return if previous.is_some() {
             PricingRefreshOutcome::UsedCached

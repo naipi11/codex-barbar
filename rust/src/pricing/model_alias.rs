@@ -101,6 +101,26 @@ impl ModelAliasResolver {
         }
     }
 
+    pub fn for_available_models<I, S>(models: I) -> Self
+    where
+        I: IntoIterator<Item = S>,
+        S: AsRef<str>,
+    {
+        let available = models
+            .into_iter()
+            .map(|model| normalize_model_id(model.as_ref()))
+            .collect::<std::collections::BTreeSet<_>>();
+        let mut resolver = Self::empty();
+        for prefix in DEFAULT_GATEWAY_PREFIXES {
+            for model in DEFAULT_CANONICAL_MODELS {
+                if available.contains(*model) {
+                    resolver.register(&format!("{prefix}{model}"), model);
+                }
+            }
+        }
+        resolver
+    }
+
     pub fn resolve_alias(&self, model: &str) -> AliasResolution {
         match self.mappings.get(&normalize_model_id(model)) {
             Some(AliasTarget::Exact(canonical)) => AliasResolution::Exact(canonical.clone()),
@@ -177,6 +197,19 @@ mod tests {
         );
         assert_eq!(
             aliases.resolve_alias("gateway/gpt-test-latest"),
+            AliasResolution::None
+        );
+    }
+
+    #[test]
+    fn available_default_aliases_omit_missing_targets() {
+        let aliases = ModelAliasResolver::for_available_models(["gpt-5.6-sol"]);
+        assert_eq!(
+            aliases.resolve_alias("4sapi-gpt/gpt-5.6-sol"),
+            AliasResolution::Exact("gpt-5.6-sol".to_string())
+        );
+        assert_eq!(
+            aliases.resolve_alias("4sapi-gpt/gpt-5.6-terra"),
             AliasResolution::None
         );
     }

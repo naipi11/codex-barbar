@@ -4,6 +4,7 @@ pub mod actor;
 pub mod avatar;
 pub mod credential_bundle;
 pub mod identity;
+pub mod local_identity;
 pub mod model;
 pub mod presentation;
 pub mod recovery;
