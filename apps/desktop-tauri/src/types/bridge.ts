@@ -200,10 +200,18 @@ export interface OfficialUsageDto {
   resetCredits: ResetCreditsStateDto;
 }
 
+export interface CostEstimateDto {
+  amount: number | null;
+  currency: "USD" | "CNY";
+  provenance: "exactObserved" | "officialDirect" | "officialEquivalent" | "unpriced";
+  canonicalModel: string | null;
+  sourceUpdatedAt: string | null;
+}
+
 export interface DailyUsageSpendDto {
   date: string;
   totalTokens: number;
-  estimatedCostUsd: number | null;
+  estimatedCost: CostEstimateDto;
 }
 
 export interface ModelUsageSpendDto {
@@ -212,7 +220,7 @@ export interface ModelUsageSpendDto {
   cachedInputTokens: number;
   outputTokens: number;
   totalTokens: number;
-  estimatedCostUsd: number | null;
+  estimatedCost: CostEstimateDto;
 }
 
 export interface LocalUsageSpendDto {
@@ -223,7 +231,11 @@ export interface LocalUsageSpendDto {
   outputTokens: number;
   totalTokens: number;
   sessionsCount: number;
-  estimatedCostUsd: number | null;
+  estimatedCost: CostEstimateDto;
+  displayCurrency: "USD" | "CNY";
+  pricingStatus: "complete" | "partial" | "unpriced";
+  partialEstimate: boolean;
+  unpricedModelCount: number;
   unknownModels: string[];
   daily: DailyUsageSpendDto[];
   models: ModelUsageSpendDto[];

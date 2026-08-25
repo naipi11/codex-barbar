@@ -678,10 +678,20 @@ pub struct OfficialUsageDto {
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
+pub struct CostEstimateDto {
+    pub amount: Option<f64>,
+    pub currency: &'static str,
+    pub provenance: &'static str,
+    pub canonical_model: Option<String>,
+    pub source_updated_at: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct DailyUsageSpendDto {
     pub date: String,
     pub total_tokens: u64,
-    pub estimated_cost_usd: Option<f64>,
+    pub estimated_cost: CostEstimateDto,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -692,7 +702,7 @@ pub struct ModelUsageSpendDto {
     pub cached_input_tokens: u64,
     pub output_tokens: u64,
     pub total_tokens: u64,
-    pub estimated_cost_usd: Option<f64>,
+    pub estimated_cost: CostEstimateDto,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -705,7 +715,11 @@ pub struct LocalUsageSpendDto {
     pub output_tokens: u64,
     pub total_tokens: u64,
     pub sessions_count: u32,
-    pub estimated_cost_usd: Option<f64>,
+    pub estimated_cost: CostEstimateDto,
+    pub display_currency: &'static str,
+    pub pricing_status: &'static str,
+    pub partial_estimate: bool,
+    pub unpriced_model_count: u32,
     pub unknown_models: Vec<String>,
     pub daily: Vec<DailyUsageSpendDto>,
     pub models: Vec<ModelUsageSpendDto>,

@@ -36,11 +36,11 @@ function local(overrides: Partial<LocalUsageSpendDto> = {}): LocalUsageSpendDto 
     outputTokens: 15,
     totalTokens: 165,
     sessionsCount: 2,
-    estimatedCostUsd: 0.42,
+    estimatedCost: { amount: 0.42, currency: "USD", provenance: "officialDirect", canonicalModel: null, sourceUpdatedAt: null }, displayCurrency: "USD", pricingStatus: "partial", partialEstimate: true, unpricedModelCount: 1,
     unknownModels: [],
     daily: [
-      { date: "2026-08-20", totalTokens: 80, estimatedCostUsd: 0.2 },
-      { date: "2026-08-21", totalTokens: 85, estimatedCostUsd: 0.22 },
+      { date: "2026-08-20", totalTokens: 80, estimatedCost: { amount: 0.2, currency: "USD", provenance: "officialDirect", canonicalModel: null, sourceUpdatedAt: null } },
+      { date: "2026-08-21", totalTokens: 85, estimatedCost: { amount: 0.22, currency: "USD", provenance: "officialDirect", canonicalModel: null, sourceUpdatedAt: null } },
     ],
     models: [
       {
@@ -49,7 +49,7 @@ function local(overrides: Partial<LocalUsageSpendDto> = {}): LocalUsageSpendDto 
         cachedInputTokens: 25,
         outputTokens: 10,
         totalTokens: 135,
-        estimatedCostUsd: 0.4,
+        estimatedCost: { amount: 0.4, currency: "USD", provenance: "officialEquivalent", canonicalModel: "gpt-5.6-sol", sourceUpdatedAt: null },
       },
       {
         model: "gpt-mystery",
@@ -57,7 +57,7 @@ function local(overrides: Partial<LocalUsageSpendDto> = {}): LocalUsageSpendDto 
         cachedInputTokens: 0,
         outputTokens: 5,
         totalTokens: 30,
-        estimatedCostUsd: null,
+        estimatedCost: { amount: null, currency: "USD", provenance: "unpriced", canonicalModel: null, sourceUpdatedAt: null },
       },
     ],
     state: "ready",
@@ -125,7 +125,7 @@ describe("UsageSpendTab", () => {
     renderWith(
       dto({
         local: local({
-          estimatedCostUsd: null,
+          estimatedCost: { amount: null, currency: "USD", provenance: "unpriced", canonicalModel: null, sourceUpdatedAt: null },
           unknownModels: ["gpt-mystery"],
           models: [
             {
@@ -134,7 +134,7 @@ describe("UsageSpendTab", () => {
               cachedInputTokens: 0,
               outputTokens: 5,
               totalTokens: 30,
-              estimatedCostUsd: null,
+              estimatedCost: { amount: null, currency: "USD", provenance: "unpriced", canonicalModel: null, sourceUpdatedAt: null },
             },
           ],
         }),
@@ -174,6 +174,14 @@ describe("UsageSpendTab", () => {
     await waitFor(() =>
       expect(getUsageSpendMock).toHaveBeenCalledWith("today"),
     );
+  });
+
+  it("labels a mapped gateway row as an official-equivalent estimate", async () => {
+    getUsageSpendMock.mockResolvedValue(dto());
+    render(<UsageSpendTab copy={settingsCopy("en-US")} language="en-US" />);
+    await screen.findByTestId("usage-spend-tab");
+    expect(screen.getByText(/Official-equivalent estimate/)).toBeInTheDocument();
+    expect(screen.getAllByRole("columnheader", { name: "Cost" }).length).toBeGreaterThan(0);
   });
 
   it("sorts daily rows and model rows deterministically", async () => {

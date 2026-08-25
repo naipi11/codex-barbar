@@ -8,14 +8,14 @@ use std::sync::Mutex;
 
 use chrono::{DateTime, Duration, Local, Utc};
 use codexbar::core::{Freshness, ProfileUsageSnapshot, ProfileUsageState, UsageWindow};
-use codexbar::pricing::PricingCatalog;
+use codexbar::pricing::{CatalogStore, ModelAliasResolver, PricingCatalog};
 use codexbar::usage_spend::{
     CodexUsageRange, LocalUsageSpendError, LocalUsageSpendReport, scan_local_codex_usage,
 };
 use tauri::Manager;
 
 use super::bridge::{
-    DailyUsageSpendDto, LocalUsageSpendDto, ModelUsageSpendDto, OfficialUsageDto,
+    CostEstimateDto, DailyUsageSpendDto, LocalUsageSpendDto, ModelUsageSpendDto, OfficialUsageDto,
     ResetCreditsStateDto, UsageSpendDto,
 };
 use crate::state::AppState;
@@ -120,6 +120,28 @@ fn resolve_range(
     }
 }
 
+fn unpriced_estimate() -> CostEstimateDto {
+    CostEstimateDto {
+        amount: None,
+        currency: "USD",
+        provenance: "unpriced",
+        canonical_model: None,
+        source_updated_at: None,
+    }
+}
+fn usd_estimate(amount: Option<f64>) -> CostEstimateDto {
+    CostEstimateDto {
+        amount,
+        currency: "USD",
+        provenance: if amount.is_some() {
+            "officialDirect"
+        } else {
+            "unpriced"
+        },
+        canonical_model: None,
+        source_updated_at: None,
+    }
+}
 fn local_unavailable(range: UsageSpendRangeDto) -> LocalUsageSpendDto {
     LocalUsageSpendDto {
         attribution: "deviceCombined",
@@ -129,7 +151,11 @@ fn local_unavailable(range: UsageSpendRangeDto) -> LocalUsageSpendDto {
         output_tokens: 0,
         total_tokens: 0,
         sessions_count: 0,
-        estimated_cost_usd: None,
+        estimated_cost: unpriced_estimate(),
+        display_currency: "USD",
+        pricing_status: "unpriced",
+        partial_estimate: false,
+        unpriced_model_count: 0,
         unknown_models: Vec::new(),
         daily: Vec::new(),
         models: Vec::new(),
@@ -152,7 +178,17 @@ fn local_dto(report: LocalUsageSpendReport, range: UsageSpendRangeDto) -> LocalU
         output_tokens: report.output_tokens,
         total_tokens: report.total_tokens,
         sessions_count: report.sessions_count,
-        estimated_cost_usd: report.estimated_cost_usd,
+        estimated_cost: usd_estimate(report.estimated_cost_usd),
+        display_currency: "USD",
+        pricing_status: if report.estimated_cost_usd.is_some() && report.unknown_models.is_empty() {
+            "complete"
+        } else if report.estimated_cost_usd.is_some() {
+            "partial"
+        } else {
+            "unpriced"
+        },
+        partial_estimate: report.estimated_cost_usd.is_some() && !report.unknown_models.is_empty(),
+        unpriced_model_count: report.unknown_models.len() as u32,
         unknown_models: report.unknown_models,
         daily: report
             .daily
@@ -160,7 +196,7 @@ fn local_dto(report: LocalUsageSpendReport, range: UsageSpendRangeDto) -> LocalU
             .map(|row| DailyUsageSpendDto {
                 date: row.date.format("%Y-%m-%d").to_string(),
                 total_tokens: row.total_tokens,
-                estimated_cost_usd: row.estimated_cost_usd,
+                estimated_cost: usd_estimate(row.estimated_cost_usd),
             })
             .collect(),
         models: report
@@ -172,7 +208,7 @@ fn local_dto(report: LocalUsageSpendReport, range: UsageSpendRangeDto) -> LocalU
                 cached_input_tokens: row.cached_input_tokens,
                 output_tokens: row.output_tokens,
                 total_tokens: row.total_tokens,
-                estimated_cost_usd: row.estimated_cost_usd,
+                estimated_cost: usd_estimate(row.estimated_cost_usd),
             })
             .collect(),
         state,
@@ -238,8 +274,18 @@ pub async fn get_usage_spend(
 
     let cache_root = cache_root();
     let scanned = tauri::async_runtime::spawn_blocking(move || {
-        let pricing = PricingCatalog::empty();
-        scan_local_codex_usage(codex_range, &cache_root, &pricing, None)
+        let store = CatalogStore::for_cache_root(&cache_root);
+        let mut catalog = store
+            .load()
+            .ok()
+            .flatten()
+            .unwrap_or_else(PricingCatalog::empty);
+        if catalog.aliases.resolve_alias("4sapi-gpt/gpt-5.6-sol")
+            == codexbar::pricing::AliasResolution::None
+        {
+            catalog.aliases = ModelAliasResolver::default();
+        }
+        scan_local_codex_usage(codex_range, &cache_root, &catalog, None)
     })
     .await
     .map_err(|_| "USAGE_SPEND_SCAN_FAILED".to_string())?;

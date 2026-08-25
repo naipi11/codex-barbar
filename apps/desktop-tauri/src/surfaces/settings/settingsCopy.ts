@@ -114,7 +114,9 @@ export interface SettingsCopy {
     emptyState: string;
     unavailableState: string;
     cancelledState: string;
-    costUnavailable: string;
+    cost: string;
+    officialEquivalent: string;
+    partialEstimate: string;
     costUsd: (value: number) => string;
     costUnknown: string;
     loading: string;
@@ -316,7 +318,9 @@ const english: SettingsCopy = {
     emptyState: "No local Codex session logs found in this range.",
     unavailableState: "Local usage is unavailable for this range.",
     cancelledState: "Local scan was cancelled.",
-    costUnavailable: "Cost unavailable",
+    cost: "Cost",
+    officialEquivalent: "Official-equivalent estimate",
+    partialEstimate: "Partial estimate",
     costUsd: (value) => `$${value.toFixed(2)}`,
     costUnknown: "—",
     loading: "Loading usage data…",
@@ -463,7 +467,9 @@ const chinese: SettingsCopy = {
     emptyState: "该范围内未找到本地 Codex 会话日志。",
     unavailableState: "该范围暂无法提供本地用量。",
     cancelledState: "本地扫描已取消。",
-    costUnavailable: "费用不可用",
+    cost: "费用",
+    officialEquivalent: "官方等价估算",
+    partialEstimate: "部分估算",
     costUsd: (value) => `$${value.toFixed(2)}`,
     costUnknown: "—",
     loading: "正在加载用量数据…",

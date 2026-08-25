@@ -34,6 +34,12 @@ function formatDateTime(value: string | null, language: string): string {
   }).format(parsed);
 }
 
+function formatCost(cost: { amount: number | null; provenance: string } | undefined, usageCopy: SettingsCopy["usageSpend"]): string {
+  if (!cost || cost.amount == null) return usageCopy.costUnknown;
+  const amount = usageCopy.costUsd(cost.amount);
+  return cost.provenance === "officialEquivalent" ? `${amount} (${usageCopy.officialEquivalent})` : amount;
+}
+
 export default function UsageSpendTab({
   copy,
   language,
@@ -209,11 +215,11 @@ export default function UsageSpendTab({
             <span>{usageCopy.totalTokens}: <strong>{local?.totalTokens ?? 0}</strong></span>
             <span>{usageCopy.sessions}: <strong>{local?.sessionsCount ?? 0}</strong></span>
             <span>
-              {usageCopy.costUnavailable}:{" "}
+              {usageCopy.cost}:{" "}
               <strong>
-                {local?.estimatedCostUsd == null
-                  ? usageCopy.costUnknown
-                  : usageCopy.costUsd(local.estimatedCostUsd)}
+                {local?.partialEstimate
+                  ? `${usageCopy.partialEstimate}: ${formatCost(local.estimatedCost, usageCopy)}`
+                  : formatCost(local?.estimatedCost, usageCopy)}
               </strong>
             </span>
           </div>
@@ -234,7 +240,7 @@ export default function UsageSpendTab({
                   <tr>
                     <th scope="col">{usageCopy.dateColumn}</th>
                     <th scope="col">{usageCopy.totalTokens}</th>
-                    <th scope="col">{usageCopy.costUnavailable}</th>
+                    <th scope="col">{usageCopy.cost}</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -243,9 +249,7 @@ export default function UsageSpendTab({
                       <td>{formatDate(row.date, language)}</td>
                       <td>{row.totalTokens}</td>
                       <td>
-                        {row.estimatedCostUsd == null
-                          ? usageCopy.costUnknown
-                          : usageCopy.costUsd(row.estimatedCostUsd)}
+                        {formatCost(row.estimatedCost, usageCopy)}
                       </td>
                     </tr>
                   ))}
@@ -267,7 +271,7 @@ export default function UsageSpendTab({
                     <th scope="col">{usageCopy.cachedInputTokens}</th>
                     <th scope="col">{usageCopy.outputTokens}</th>
                     <th scope="col">{usageCopy.totalTokens}</th>
-                    <th scope="col">{usageCopy.costUnavailable}</th>
+                    <th scope="col">{usageCopy.cost}</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -279,9 +283,7 @@ export default function UsageSpendTab({
                       <td>{row.outputTokens}</td>
                       <td>{row.totalTokens}</td>
                       <td>
-                        {row.estimatedCostUsd == null
-                          ? usageCopy.costUnknown
-                          : usageCopy.costUsd(row.estimatedCostUsd)}
+                        {formatCost(row.estimatedCost, usageCopy)}
                       </td>
                     </tr>
                   ))}
