@@ -119,6 +119,15 @@ export interface AppSettingsDto {
   pricingDisplayCurrency: "USD" | "CNY";
 }
 
+export type MotionState = "idle" | "thinking" | "fast";
+
+export interface FloatBallMotionDto {
+  state: MotionState;
+  observedAt?: string;
+  thinking?: boolean;
+  fast?: boolean;
+}
+
 export type StatusSurfaceKind = "taskbarStatus" | "floatBall";
 
 export interface StatusSurfaceFeedbackDto {

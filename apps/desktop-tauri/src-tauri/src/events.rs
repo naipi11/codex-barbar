@@ -11,6 +11,7 @@ pub const SETTINGS_CHANGED: &str = "settings-changed";
 pub const LOCALE_CHANGED: &str = "locale-changed";
 pub const UPDATE_STATE_CHANGED: &str = "update-state-changed";
 pub const STATUS_SURFACE_FEEDBACK_CHANGED: &str = "status-surface-feedback-changed";
+pub const FLOAT_BALL_MOTION_CHANGED: &str = "codexbar:float-ball-motion-changed";
 
 pub const TRAY_REBUILD_EVENTS: [&str; 6] = [
     PROFILE_USAGE_STATE_CHANGED,
@@ -21,7 +22,7 @@ pub const TRAY_REBUILD_EVENTS: [&str; 6] = [
     LOCALE_CHANGED,
 ];
 
-pub const ALL: [&str; 9] = [
+pub const ALL: [&str; 10] = [
     PROFILE_USAGE_STATE_CHANGED,
     REFRESH_STATE_CHANGED,
     ACCOUNTS_UPDATED,
@@ -31,6 +32,7 @@ pub const ALL: [&str; 9] = [
     LOCALE_CHANGED,
     UPDATE_STATE_CHANGED,
     STATUS_SURFACE_FEEDBACK_CHANGED,
+    FLOAT_BALL_MOTION_CHANGED,
 ];
 
 #[cfg(test)]
@@ -51,6 +53,7 @@ mod tests {
                 "locale-changed",
                 "update-state-changed",
                 "status-surface-feedback-changed",
+                "codexbar:float-ball-motion-changed",
             ]
         );
     }

@@ -68,7 +68,8 @@ html, body, #root { width: 100%; height: 100%; margin: 0; overflow: hidden; back
 
 .float-ball-shell {
   --float-glow: 0.25;
-  --float-spin-duration: 2.222s;
+  --float-rotation-deg: 0;
+  --float-speed: 1;
   --quota-high: #30d158;
   --quota-medium: #ffd60a;
   --quota-low: #ff453a;
@@ -104,7 +105,7 @@ html, body, #root { width: 100%; height: 100%; margin: 0; overflow: hidden; back
   place-items: center;
   color: var(--band);
   opacity: calc(0.22 + var(--surface-bg-alpha) * 0.78);
-  animation: float-ball-spin var(--float-spin-duration) linear infinite;
+  transform: rotate(calc(var(--float-rotation-deg) * 1deg));
   will-change: transform;
   filter:
     drop-shadow(0 0 calc(2px + var(--float-glow) * 10px) color-mix(in srgb, var(--band) calc(40% + var(--float-glow) * 60%), transparent))
@@ -114,10 +115,6 @@ html, body, #root { width: 100%; height: 100%; margin: 0; overflow: hidden; back
   width: 100%;
   height: 100%;
 }
-@keyframes float-ball-spin {
-  from { transform: rotate(0deg); }
-  to { transform: rotate(360deg); }
-}
 @media (prefers-reduced-motion: reduce) {
-  .float-ball__spin { animation: none; }
+  .float-ball__spin { transform: none; }
 }

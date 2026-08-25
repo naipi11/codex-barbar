@@ -352,6 +352,7 @@ fn main() {
             status_surfaces::apply_status_surface_settings_non_fatal(app.handle(), &settings);
             crate::shell::foreground_events::start_foreground_event_monitor(app.handle().clone());
             status_surfaces::start_monitor(app.handle().clone());
+            float_ball_motion::start_float_ball_motion_monitor(app.handle().clone());
             auto_refresh::start(app.handle().clone());
             notification_controller::start_update_check_loop(app.handle().clone());
             pricing_refresh::start_pricing_refresh_monitor(app.handle().clone());

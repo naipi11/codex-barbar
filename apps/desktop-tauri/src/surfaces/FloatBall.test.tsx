@@ -75,8 +75,8 @@ describe("FloatBall", () => {
     expect(ball.querySelector(".float-ball__blossom")).not.toBeNull();
     expect(screen.queryByText("42")).toBeNull();
     expect(screen.queryByTestId("float-ball-ring-progress")).toBeNull();
-    expect(floatBallCss).toContain("float-ball-spin");
-    expect(floatBallCss).toContain("rotate(360deg)");
+    expect(floatBallCss).toContain("--float-rotation-deg");
+    expect(floatBallCss).toContain("rotate(calc(var(--float-rotation-deg) * 1deg))");
     expect(floatBallCss).toContain("width: 40px");
     expect(floatBallCss).toContain("height: 40px");
     expect(floatBallCss).toMatch(/\.float-ball__spin \{[\s\S]*inset: 0;/);
@@ -321,6 +321,23 @@ describe("FloatBall", () => {
       await waitFor(() => expect(shell).toHaveAttribute("data-motion", "fast"));
     },
   );
+
+  it("applies a fast event without recreating the rotation phase", async () => {
+    invokeMock.mockImplementation(async (command: string) => {
+      if (command === "get_float_ball_motion") {
+        return { state: "idle", thinking: false, fast: false };
+      }
+      return bootstrapWithTwoProfiles();
+    });
+    render(<FloatBall />);
+    const shell = await screen.findByTestId("float-ball-shell");
+    expect(shell).toHaveAttribute("data-motion", "idle");
+    await act(async () => {
+      eventHarness.emit("codexbar:float-ball-motion-changed", { state: "fast" });
+    });
+    await waitFor(() => expect(shell).toHaveAttribute("data-motion", "fast"));
+    expect(shell.style.getPropertyValue("--float-speed")).toBe("3");
+  });
 
   it("restores close feedback after the float window is recreated", async () => {
     const bootstrap = bootstrapWithTwoProfiles();

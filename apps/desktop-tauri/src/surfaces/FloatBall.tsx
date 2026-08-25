@@ -1,31 +1,17 @@
-import { useEffect, useRef, useState } from "react";
+import { useRef } from "react";
 import type { CSSProperties, PointerEvent as ReactPointerEvent } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { getFloatBallMotion } from "../lib/tauri";
 import { surfaceAlphaFromTransparency } from "../lib/surfaceTransparency";
+import { useFloatBallMotion } from "../hooks/useFloatBallMotion";
 import { useStatusSurface } from "../hooks/useStatusSurface";
 import { useTheme } from "../hooks/useTheme";
 import ChatGptMark from "../theme/ChatGptMark";
 import "./FloatBall.css";
 
 const DRAG_THRESHOLD = 4;
-const IDLE_SECONDS = 2.222;
 
 function clampPercent(value: number | undefined): number {
   return Math.max(0, Math.min(100, value ?? 20));
-}
-
-function motionFromSnapshot(snapshot: { thinking: boolean; fast: boolean }): "idle" | "thinking" | "fast" {
-  if (snapshot.fast && snapshot.thinking) return "fast";
-  if (snapshot.fast) return "fast";
-  if (snapshot.thinking) return "thinking";
-  return "idle";
-}
-
-function detectMotion(): { thinking: boolean; fast: boolean } {
-  // Best-effort local probe: any live Codex/ChatGPT process counts as thinking.
-  // Fast is inferred from the current Codex config service tier / model name.
-  return { thinking: false, fast: false };
 }
 
 export default function FloatBall() {
@@ -34,7 +20,7 @@ export default function FloatBall() {
   const closeError = surface.closeFailedBySurface.floatBall ? "关闭失败，请重试" : null;
   const pointerRef = useRef<{ id: number; x: number; y: number; dragged: boolean } | null>(null);
   const skipNextClickRef = useRef(false);
-  const [motion, setMotion] = useState<"idle" | "thinking" | "fast">("idle");
+  const { motion, speed, bindRotation } = useFloatBallMotion();
   const metric = surface.universalMetric;
   const displayedPercent = metric?.displayedPercent ?? null;
   const language = surface.bootstrap?.settings.language;
@@ -43,29 +29,9 @@ export default function FloatBall() {
     (language !== "en-US" && (navigator.language || "").toLowerCase().startsWith("zh"));
   const glow = clampPercent(surface.bootstrap?.settings.floatBallGlowPercent);
   const transparency = clampPercent(surface.bootstrap?.settings.floatBallTransparencyPercent);
-  const speedSeconds =
-    motion === "fast" ? IDLE_SECONDS / 3 : motion === "thinking" ? IDLE_SECONDS / 2 : IDLE_SECONDS;
   const bodyLabel = `${chinese ? "打开完整面板" : "Open panel"}，${surface.displayName}，${
     displayedPercent === null ? (chinese ? "额度不可用" : "quota unavailable") : `${displayedPercent}%`
   }，${motion}`;
-
-  useEffect(() => {
-    let cancelled = false;
-    const tick = async () => {
-      try {
-        const snapshot = await getFloatBallMotion();
-        if (!cancelled) setMotion(motionFromSnapshot(snapshot));
-      } catch {
-        if (!cancelled) setMotion(motionFromSnapshot(detectMotion()));
-      }
-    };
-    void tick();
-    const id = window.setInterval(() => void tick(), 4000);
-    return () => {
-      cancelled = true;
-      window.clearInterval(id);
-    };
-  }, []);
 
   const startDrag = (event: ReactPointerEvent<HTMLButtonElement>) => {
     pointerRef.current = { id: event.pointerId, x: event.clientX, y: event.clientY, dragged: false };
@@ -107,11 +73,12 @@ export default function FloatBall() {
       data-dragging={surface.isDragging}
       data-trust={surface.trustState}
       data-motion={motion}
+      ref={(node) => bindRotation(node)}
       style={
         {
           "--surface-bg-alpha": String(surfaceAlphaFromTransparency(transparency)),
           "--float-glow": String(glow / 100),
-          "--float-spin-duration": `${speedSeconds}s`,
+          "--float-speed": String(speed),
         } as CSSProperties
       }
     >

@@ -17,6 +17,7 @@ import type {
   SettingsPatchDto,
   UsageSpendDto,
   UsageSpendRange,
+  FloatBallMotionDto,
 } from "../types/bridge";
 
 /** Frozen invoke names. Keep this list in sync with the Rust command registry. */
@@ -67,6 +68,7 @@ export const events = {
   selectedProfileChanged: "selected-profile-changed",
   settingsChanged: "settings-changed",
   statusSurfaceFeedbackChanged: "status-surface-feedback-changed",
+  floatBallMotionChanged: "codexbar:float-ball-motion-changed",
   localeChanged: "locale-changed",
   updateStateChanged: "update-state-changed",
 } as const;
@@ -203,4 +205,4 @@ export const getCurrentSurfaceState = () =>
 export const quitApp = () => invoke<void>(commands.quitApp);
 
 export const getFloatBallMotion = () =>
-  invoke<{ thinking: boolean; fast: boolean }>(commands.getFloatBallMotion);
+  invoke<FloatBallMotionDto>(commands.getFloatBallMotion);

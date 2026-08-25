@@ -101,6 +101,7 @@ describe("V1 bridge contract", () => {
       statusSurfaceFeedbackChanged: "status-surface-feedback-changed",
       localeChanged: "locale-changed",
       updateStateChanged: "update-state-changed",
+      floatBallMotionChanged: "codexbar:float-ball-motion-changed",
     });
   });
 
@@ -250,6 +251,7 @@ describe("V1 bridge contract", () => {
       taskbarTransparencyPercent: 0,
       floatBallTransparencyPercent: 80,
       floatBallGlowPercent: 40,
+      pricingDisplayCurrency: "USD",
       taskbarPresentation: {
         showTaskbarIcon: true,
         showTaskbarAccount: true,

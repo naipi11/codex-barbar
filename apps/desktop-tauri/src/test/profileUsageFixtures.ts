@@ -19,6 +19,7 @@ export const defaultSettings: AppSettingsDto = {
   taskbarTransparencyPercent: 20,
   floatBallTransparencyPercent: 20,
   floatBallGlowPercent: 20,
+  pricingDisplayCurrency: "USD",
   taskbarPresentation: {
     showTaskbarIcon: true,
     showTaskbarAccount: true,
