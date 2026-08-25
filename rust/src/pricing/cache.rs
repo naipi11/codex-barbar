@@ -221,6 +221,47 @@ mod tests {
     }
 
     #[test]
+    fn cache_rejects_non_normalized_alias_keys() {
+        let dir = tempdir().unwrap();
+        let store = CatalogStore::for_test(dir.path());
+        let mut catalog = catalog_with("gpt-test");
+        catalog.aliases = ModelAliasResolver::from_mappings([("gateway/gpt-test", "gpt-test")]);
+        let mut encoded = serde_json::to_value(catalog).unwrap();
+        let aliases = encoded["aliases"].as_object_mut().unwrap();
+        let target = aliases.remove("gateway/gpt-test").unwrap();
+        aliases.insert(" Gateway/GPT-Test ".to_string(), target);
+        fs::create_dir_all(store.path().parent().unwrap()).unwrap();
+        fs::write(store.path(), serde_json::to_vec_pretty(&encoded).unwrap()).unwrap();
+
+        assert!(matches!(
+            store.load(),
+            Err(CatalogStoreError::IncompleteCatalog(
+                CatalogValidationError::InvalidAliases
+            ))
+        ));
+    }
+
+    #[test]
+    fn cache_rejects_non_normalized_alias_targets() {
+        let dir = tempdir().unwrap();
+        let store = CatalogStore::for_test(dir.path());
+        let mut catalog = catalog_with("gpt-test");
+        catalog.aliases = ModelAliasResolver::from_mappings([("gateway/gpt-test", "gpt-test")]);
+        let mut encoded = serde_json::to_value(catalog).unwrap();
+        encoded["aliases"]["gateway/gpt-test"]["canonicalModel"] =
+            serde_json::Value::String(" GPT-Test ".to_string());
+        fs::create_dir_all(store.path().parent().unwrap()).unwrap();
+        fs::write(store.path(), serde_json::to_vec_pretty(&encoded).unwrap()).unwrap();
+
+        assert!(matches!(
+            store.load(),
+            Err(CatalogStoreError::IncompleteCatalog(
+                CatalogValidationError::InvalidAliases
+            ))
+        ));
+    }
+
+    #[test]
     fn failed_atomic_replace_preserves_the_previous_file() {
         let dir = tempdir().unwrap();
         let path = dir.path().join("catalog.json");

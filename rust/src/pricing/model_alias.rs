@@ -75,11 +75,18 @@ impl ModelAliasResolver {
         })
     }
 
+    pub(crate) fn keys(&self) -> impl Iterator<Item = &str> {
+        self.mappings.keys().map(String::as_str)
+    }
+
     pub(crate) fn is_valid(&self) -> bool {
         self.mappings.iter().all(|(alias, target)| {
             !alias.is_empty()
+                && alias == &normalize_model_id(alias)
                 && match target {
-                    AliasTarget::Exact(canonical) => !canonical.is_empty(),
+                    AliasTarget::Exact(canonical) => {
+                        !canonical.is_empty() && canonical == &normalize_model_id(canonical)
+                    }
                     AliasTarget::Ambiguous => true,
                 }
         })

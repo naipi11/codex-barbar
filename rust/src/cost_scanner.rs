@@ -9,7 +9,8 @@
 //! cancel flags between files.
 
 use chrono::{DateTime, Duration, Local, NaiveDate, Utc};
-use serde::Deserialize;
+use serde::ser::SerializeStruct;
+use serde::{Deserialize, Serialize, Serializer};
 use std::collections::{HashMap, HashSet};
 use std::fs::{self, File};
 use std::io::{BufRead, BufReader};
@@ -29,14 +30,130 @@ use crate::core::{
     CostScanOptions, CostUsageCache, CostUsageDayRange, CostUsageFileUsage, CostUsagePricing,
     JsonlScanner, ProviderId,
 };
-use crate::pricing::{CostResolution, Currency, PricingCatalog, PricingResolver};
+use crate::pricing::{CostResolution, Currency, MoneyMicros, PricingCatalog, PricingResolver};
 use crate::settings::Settings;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub enum CostCompleteness {
+    Complete,
+    Partial,
+    Unpriced,
+}
+
+/// Fixed-point USD aggregate that distinguishes true zero from incomplete cost.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct CostAggregate {
+    known_micros: MoneyMicros,
+    has_priced_usage: bool,
+    has_unpriced_usage: bool,
+}
+
+impl Default for CostAggregate {
+    fn default() -> Self {
+        Self {
+            known_micros: MoneyMicros::from_micros(0),
+            has_priced_usage: false,
+            has_unpriced_usage: false,
+        }
+    }
+}
+
+impl CostAggregate {
+    pub fn completeness(self) -> CostCompleteness {
+        match (self.has_priced_usage, self.has_unpriced_usage) {
+            (true, true) => CostCompleteness::Partial,
+            (false, true) => CostCompleteness::Unpriced,
+            _ => CostCompleteness::Complete,
+        }
+    }
+
+    pub fn total_micros(self) -> Option<MoneyMicros> {
+        (!self.has_unpriced_usage).then_some(self.known_micros)
+    }
+
+    pub fn known_micros(self) -> Option<MoneyMicros> {
+        self.has_priced_usage.then_some(self.known_micros)
+    }
+
+    pub fn total_usd(self) -> Option<f64> {
+        self.total_micros().map(MoneyMicros::to_major_units_f64)
+    }
+
+    pub fn known_usd(self) -> Option<f64> {
+        self.known_micros().map(MoneyMicros::to_major_units_f64)
+    }
+
+    pub fn record_resolution(&mut self, resolution: &CostResolution) {
+        let Some(amount) = resolution.amount.filter(|amount| amount.micros() >= 0) else {
+            self.mark_unpriced_usage();
+            return;
+        };
+        if resolution.currency != Currency::Usd {
+            self.mark_unpriced_usage();
+            return;
+        }
+        self.record_usd_amount(amount);
+    }
+
+    fn record_usd_amount(&mut self, amount: MoneyMicros) {
+        if amount.micros() < 0 {
+            self.mark_unpriced_usage();
+            return;
+        }
+        let Some(total) = self.known_micros.micros().checked_add(amount.micros()) else {
+            self.mark_unpriced_usage();
+            return;
+        };
+        self.known_micros = MoneyMicros::from_micros(total);
+        self.has_priced_usage = true;
+    }
+
+    fn mark_unpriced_usage(&mut self) {
+        self.has_unpriced_usage = true;
+    }
+
+    pub fn format_usd(self) -> String {
+        match self.completeness() {
+            CostCompleteness::Complete => {
+                format!("${:.2}", self.total_usd().unwrap_or_default())
+            }
+            CostCompleteness::Partial => {
+                format!(
+                    "Partial (known ${:.2})",
+                    self.known_usd().unwrap_or_default()
+                )
+            }
+            CostCompleteness::Unpriced => "Unpriced".to_string(),
+        }
+    }
+}
+
+impl std::fmt::Display for CostAggregate {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str(&self.format_usd())
+    }
+}
+
+impl Serialize for CostAggregate {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        let mut state = serializer.serialize_struct("CostAggregate", 4)?;
+        state.serialize_field("total_usd", &self.total_usd())?;
+        state.serialize_field("known_usd", &self.known_usd())?;
+        state.serialize_field("currency", "USD")?;
+        state.serialize_field("completeness", &self.completeness())?;
+        state.end()
+    }
+}
 
 /// Cost summary from scanning local logs
 #[derive(Debug, Clone, Default)]
 pub struct CostSummary {
-    /// Total cost in USD for the period
-    pub total_cost_usd: f64,
+    /// Complete, partial, or unavailable USD total for the period.
+    pub total_cost: CostAggregate,
     /// Total input tokens
     pub input_tokens: u64,
     /// Total output tokens
@@ -46,11 +163,11 @@ pub struct CostSummary {
     /// Number of sessions/conversations scanned
     pub sessions_count: u32,
     /// Cost breakdown by model
-    pub by_model: HashMap<String, f64>,
+    pub by_model: HashMap<String, CostAggregate>,
     /// Token breakdown by model
     pub by_model_tokens: HashMap<String, ModelTokenCounts>,
     /// Codex cost split by speed/tier when local logs expose it.
-    pub by_speed: HashMap<String, f64>,
+    pub by_speed: HashMap<String, CostAggregate>,
     /// Codex token split by speed/tier when local logs expose it.
     pub by_speed_tokens: HashMap<String, ModelTokenCounts>,
     /// Model IDs that remain unpriced because no safe catalog resolution is available.
@@ -77,7 +194,7 @@ impl ModelTokenCounts {
 
 impl CostSummary {
     pub fn format_total(&self) -> String {
-        format!("${:.2}", self.total_cost_usd)
+        self.total_cost.format_usd()
     }
 }
 
@@ -135,13 +252,10 @@ fn resolve_claude_with_cache_ttl(
     }
     // Claude logs expose uncached input and cache-read tokens separately, while
     // the shared resolver's input dimension includes cached input.
-    CostUsagePricing::resolve(
-        pricing,
-        model,
-        input.saturating_add(cache_read),
-        cache_read,
-        output,
-    )
+    let Some(total_input) = input.checked_add(cache_read) else {
+        return CostResolution::unpriced();
+    };
+    CostUsagePricing::resolve(pricing, model, total_input, cache_read, output)
 }
 
 /// JSONL event structures for Codex
@@ -365,13 +479,7 @@ impl CostScanner {
             && (!cache.days.is_empty() || !cache.files.is_empty())
         {
             stats.used_cache_debounce = true;
-            let (cost, _) = add_codex_days_map_to_summary(
-                &mut summary,
-                &cache.days,
-                &range,
-                self.pricing.as_ref(),
-            );
-            summary.total_cost_usd += cost;
+            add_codex_days_map_to_summary(&mut summary, &cache.days, &range, self.pricing.as_ref());
             summary.sessions_count = cache
                 .files
                 .values()
@@ -587,10 +695,9 @@ impl CostScanner {
             && entry.parsed_bytes.unwrap_or(0) >= size
             && size > 0
         {
-            let (session_cost, has_tokens) =
+            let has_tokens =
                 add_codex_days_map_to_summary(summary, &entry.days, range, self.pricing.as_ref());
             if has_tokens {
-                summary.total_cost_usd += session_cost;
                 summary.sessions_count += 1;
             }
             stats.files_skipped += 1;
@@ -619,10 +726,9 @@ impl CostScanner {
                 let mut days = entry.days.clone();
                 merge_codex_records_into_days(&mut days, &parse_result.records);
 
-                let (session_cost, has_tokens) =
+                let has_tokens =
                     add_codex_days_map_to_summary(summary, &days, range, self.pricing.as_ref());
                 if has_tokens {
-                    summary.total_cost_usd += session_cost;
                     summary.sessions_count += 1;
                 }
 
@@ -653,7 +759,7 @@ impl CostScanner {
         let mut days = HashMap::new();
         merge_codex_records_into_days(&mut days, &parse_result.records);
 
-        let (session_cost, has_tokens) = add_codex_records_to_summary(
+        let has_tokens = add_codex_records_to_summary(
             summary,
             &parse_result.records,
             range,
@@ -661,7 +767,6 @@ impl CostScanner {
         );
 
         if has_tokens {
-            summary.total_cost_usd += session_cost;
             summary.sessions_count += 1;
         }
 
@@ -1116,10 +1221,13 @@ fn add_claude_record_to_summary(summary: &mut CostSummary, record: &ClaudeUsageR
     summary.input_tokens += record.input;
     summary.output_tokens += record.output;
     summary.cached_tokens += record.cache_create + record.cache_read;
-    if let Some(cost) = usd_cost(&record.cost) {
-        summary.total_cost_usd += cost;
-        *summary.by_model.entry(record.model.clone()).or_insert(0.0) += cost;
-    } else {
+    summary.total_cost.record_resolution(&record.cost);
+    summary
+        .by_model
+        .entry(record.model.clone())
+        .or_default()
+        .record_resolution(&record.cost);
+    if record.cost.amount.is_none() || record.cost.currency != Currency::Usd {
         summary.unknown_models.insert(record.model.clone());
     }
 
@@ -1136,7 +1244,7 @@ fn add_claude_record_to_summary(summary: &mut CostSummary, record: &ClaudeUsageR
 /// own timestamp in the local timezone. Records outside the initialized
 /// date range (or without a timestamp) are ignored.
 fn add_claude_record_to_daily_costs(
-    daily_costs: &mut HashMap<String, f64>,
+    daily_costs: &mut HashMap<String, CostAggregate>,
     record: &ClaudeUsageRecord,
 ) {
     let Some(timestamp) = record.timestamp else {
@@ -1147,18 +1255,9 @@ fn add_claude_record_to_daily_costs(
         .date_naive()
         .format("%Y-%m-%d")
         .to_string();
-    if let Some(cost) = daily_costs.get_mut(&date_str)
-        && let Some(record_cost) = usd_cost(&record.cost)
-    {
-        *cost += record_cost;
+    if let Some(cost) = daily_costs.get_mut(&date_str) {
+        cost.record_resolution(&record.cost);
     }
-}
-
-fn usd_cost(resolution: &CostResolution) -> Option<f64> {
-    if resolution.currency != Currency::Usd {
-        return None;
-    }
-    resolution.amount.map(|amount| amount.to_major_units_f64())
 }
 
 /// Check if any cost usage sources are available
@@ -1176,17 +1275,17 @@ pub fn has_cost_usage_sources() -> bool {
 }
 
 /// Get daily cost history for the last N days
-/// Returns Vec of (date_string, cost_usd) sorted by date
-pub fn get_daily_cost_history(provider: &str, days: u32) -> Vec<(String, f64)> {
+/// Returns complete/partial/unpriced daily USD aggregates sorted by date.
+pub fn get_daily_cost_history(provider: &str, days: u32) -> Vec<(String, CostAggregate)> {
     let scanner = CostScanner::new(days);
     let today = Local::now().date_naive();
-    let mut daily_costs: HashMap<String, f64> = HashMap::new();
+    let mut daily_costs: HashMap<String, CostAggregate> = HashMap::new();
 
     // Initialize all days with 0
     for days_ago in 0..days {
         let date = today - Duration::days(days_ago as i64);
         let date_str = date.format("%Y-%m-%d").to_string();
-        daily_costs.insert(date_str, 0.0);
+        daily_costs.insert(date_str, CostAggregate::default());
     }
 
     match provider {
@@ -1205,13 +1304,13 @@ pub fn get_daily_cost_history(provider: &str, days: u32) -> Vec<(String, f64)> {
                 let mut one_day = HashMap::new();
                 one_day.insert(day_key.clone(), models.clone());
                 let mut scratch = CostSummary::default();
-                let (cost, _) = add_codex_days_map_to_summary(
+                add_codex_days_map_to_summary(
                     &mut scratch,
                     &one_day,
                     &day_range,
                     scanner.pricing.as_ref(),
                 );
-                *slot = cost;
+                *slot = scratch.total_cost;
             }
         }
         "claude" => {
@@ -1240,7 +1339,7 @@ pub fn get_daily_cost_history(provider: &str, days: u32) -> Vec<(String, f64)> {
     }
 
     // Convert to sorted vector
-    let mut result: Vec<(String, f64)> = daily_costs.into_iter().collect();
+    let mut result: Vec<(String, CostAggregate)> = daily_costs.into_iter().collect();
     result.sort_by(|a, b| a.0.cmp(&b.0));
     result
 }
@@ -1307,9 +1406,69 @@ mod tests {
 
         add_claude_record_to_summary(&mut summary, &record);
 
-        assert_eq!(summary.total_cost_usd, 0.0);
-        assert!(!summary.by_model.contains_key("claude-retired-unknown"));
+        assert_eq!(
+            summary.total_cost.completeness(),
+            CostCompleteness::Unpriced
+        );
+        assert_eq!(summary.total_cost.total_usd(), None);
+        assert_eq!(summary.total_cost.known_usd(), None);
+        assert_eq!(summary.format_total(), "Unpriced");
+        let wire = serde_json::to_value(summary.total_cost).unwrap();
+        assert_eq!(wire["total_usd"], serde_json::Value::Null);
+        assert_eq!(wire["known_usd"], serde_json::Value::Null);
+        assert_eq!(wire["completeness"], "unpriced");
+        assert_eq!(
+            summary.by_model["claude-retired-unknown"].completeness(),
+            CostCompleteness::Unpriced
+        );
         assert!(summary.unknown_models.contains("claude-retired-unknown"));
+    }
+
+    #[test]
+    fn mixed_priced_and_unpriced_usage_is_explicitly_partial() {
+        let catalog = fixture_catalog("claude-test");
+        let priced: ClaudeEvent = serde_json::from_str(
+            r#"{"type":"assistant","message":{"id":"priced","model":"claude-test","usage":{"input_tokens":100,"output_tokens":5}}}"#,
+        )
+        .unwrap();
+        let unpriced: ClaudeEvent = serde_json::from_str(
+            r#"{"type":"assistant","message":{"id":"unpriced","model":"claude-mystery","usage":{"input_tokens":10,"output_tokens":1}}}"#,
+        )
+        .unwrap();
+        let mut summary = CostSummary::default();
+
+        add_claude_record_to_summary(
+            &mut summary,
+            &claude_usage_record_from_event(&priced, &catalog).unwrap(),
+        );
+        add_claude_record_to_summary(
+            &mut summary,
+            &claude_usage_record_from_event(&unpriced, &catalog).unwrap(),
+        );
+
+        assert_eq!(summary.total_cost.completeness(), CostCompleteness::Partial);
+        assert_eq!(summary.total_cost.total_usd(), None);
+        assert_eq!(summary.total_cost.known_micros().unwrap().micros(), 240);
+        assert_eq!(summary.format_total(), "Partial (known $0.00)");
+        let wire = serde_json::to_value(summary.total_cost).unwrap();
+        assert_eq!(wire["total_usd"], serde_json::Value::Null);
+        assert_eq!(wire["known_usd"], 0.000_240);
+        assert_eq!(wire["completeness"], "partial");
+    }
+
+    #[test]
+    fn no_billable_usage_preserves_a_complete_true_zero() {
+        let summary = CostSummary::default();
+
+        assert_eq!(
+            summary.total_cost.completeness(),
+            CostCompleteness::Complete
+        );
+        assert_eq!(summary.total_cost.total_micros().unwrap().micros(), 0);
+        assert_eq!(summary.format_total(), "$0.00");
+        let wire = serde_json::to_value(summary.total_cost).unwrap();
+        assert_eq!(wire["total_usd"], 0.0);
+        assert_eq!(wire["completeness"], "complete");
     }
 
     #[test]
@@ -1330,6 +1489,19 @@ mod tests {
 
         assert_eq!(result.provenance, PriceProvenance::Unpriced);
         assert_eq!(result.amount, None);
+    }
+
+    #[test]
+    fn claude_dimension_translation_overflow_is_unpriced() {
+        let mut catalog = fixture_catalog("claude-test");
+        catalog.entries[0].rates.input_per_million = MoneyMicros::from_micros(0);
+        catalog.entries[0].rates.cached_input_per_million = MoneyMicros::from_micros(0);
+        catalog.entries[0].rates.output_per_million = MoneyMicros::from_micros(0);
+
+        let result = resolve_claude_with_cache_ttl(&catalog, "claude-test", u64::MAX, 0, 0, 1, 0);
+
+        assert_eq!(result.amount, None);
+        assert_eq!(result.provenance, PriceProvenance::Unpriced);
     }
 
     #[test]
@@ -1371,7 +1543,12 @@ mod tests {
                 .map(ModelTokenCounts::total),
             Some(140)
         );
-        assert_eq!(scan_codex_file_cost(&path, &PricingCatalog::empty()), None);
+        assert_eq!(
+            scan_codex_file_cost(&path, &PricingCatalog::empty())
+                .unwrap()
+                .completeness(),
+            CostCompleteness::Unpriced
+        );
         let _ = std::fs::remove_file(&path);
     }
 
@@ -1522,8 +1699,8 @@ mod tests {
                 .to_string()
         };
         let mut daily_costs = HashMap::new();
-        daily_costs.insert(day_key(&day_one), 0.0);
-        daily_costs.insert(day_key(&day_two), 0.0);
+        daily_costs.insert(day_key(&day_one), CostAggregate::default());
+        daily_costs.insert(day_key(&day_two), CostAggregate::default());
 
         let cutoff = Utc::now() - Duration::days(30);
         let mut seen = HashSet::new();
@@ -1536,16 +1713,45 @@ mod tests {
 
         let day_one_cost = daily_costs[&day_key(&day_one)];
         let day_two_cost = daily_costs[&day_key(&day_two)];
-        assert!(day_one_cost > 0.0, "day one should carry real cost");
+        assert_eq!(day_one_cost.completeness(), CostCompleteness::Complete);
+        assert!(day_one_cost.total_usd().unwrap() > 0.0);
         // Identical usage on both days: equal buckets proves the file-b
         // replay was de-duplicated (a leak would double day one).
         assert!(
-            (day_one_cost - day_two_cost).abs() < f64::EPSILON,
+            (day_one_cost.total_usd().unwrap() - day_two_cost.total_usd().unwrap()).abs()
+                < f64::EPSILON,
             "each day should hold exactly one record's cost, got {day_one_cost} vs {day_two_cost}"
         );
 
         let _ = std::fs::remove_file(&file_a);
         let _ = std::fs::remove_file(&file_b);
+    }
+
+    #[test]
+    fn daily_unpriced_usage_is_not_serialized_as_zero() {
+        let timestamp = Utc::now() - Duration::hours(1);
+        let day = timestamp
+            .with_timezone(&Local)
+            .date_naive()
+            .format("%Y-%m-%d")
+            .to_string();
+        let event: ClaudeEvent = serde_json::from_str(&format!(
+            r#"{{"type":"assistant","timestamp":"{}","message":{{"id":"daily-unpriced","model":"claude-mystery","usage":{{"input_tokens":10,"output_tokens":1}}}}}}"#,
+            timestamp.to_rfc3339()
+        ))
+        .unwrap();
+        let record = claude_usage_record_from_event(&event, &PricingCatalog::empty()).unwrap();
+        let mut daily_costs = HashMap::from([(day.clone(), CostAggregate::default())]);
+
+        add_claude_record_to_daily_costs(&mut daily_costs, &record);
+
+        assert_eq!(daily_costs[&day].completeness(), CostCompleteness::Unpriced);
+        assert_eq!(daily_costs[&day].total_usd(), None);
+    }
+
+    #[test]
+    fn public_daily_history_exposes_typed_cost_aggregates() {
+        let _function: fn(&str, u32) -> Vec<(String, CostAggregate)> = get_daily_cost_history;
     }
 
     #[test]
@@ -1609,7 +1815,7 @@ mod tests {
         let (summary1, stats1) = scanner.scan_codex_detailed(None);
         assert_eq!(stats1.files_parsed, 2, "first pass parses both files");
         assert_eq!(stats1.files_skipped, 0);
-        assert!(summary1.total_cost_usd > 0.0);
+        assert!(summary1.total_cost.total_usd().unwrap() > 0.0);
         assert_eq!(summary1.sessions_count, 2);
 
         // Second pass with default debounce still inspects files but skips re-parse.
@@ -1619,7 +1825,7 @@ mod tests {
         assert_eq!(stats2.files_skipped, 2, "cache hit skips re-parse");
         assert_eq!(stats2.files_parsed, 0);
         assert_eq!(summary2.input_tokens, summary1.input_tokens);
-        assert!((summary2.total_cost_usd - summary1.total_cost_usd).abs() < 1e-9);
+        assert_eq!(summary2.total_cost, summary1.total_cost);
 
         // Force path already used above; confirm debounce short-circuit with default options.
         let debounced = CostScanner::new(7)

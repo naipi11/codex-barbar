@@ -2,6 +2,7 @@ use super::model_alias::{AliasResolution, ModelAliasResolver, normalize_model_id
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeSet;
+use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 use thiserror::Error;
 
 const TOKENS_PER_MILLION: i128 = 1_000_000;
@@ -114,6 +115,8 @@ pub enum CatalogValidationError {
     EmptyField { index: usize, field: &'static str },
     #[error("pricing catalog entry {index} has an invalid public source URL")]
     InvalidSourceUrl { index: usize },
+    #[error("pricing catalog entry {index} has a non-normalized canonical model")]
+    InvalidCanonicalModel { index: usize },
     #[error("pricing catalog entry {index} uses invalid provenance")]
     InvalidProvenance { index: usize },
     #[error("pricing catalog entry {index} contains a negative rate")]
@@ -124,6 +127,8 @@ pub enum CatalogValidationError {
     DuplicateModel(String),
     #[error("pricing catalog alias points to missing model {0}")]
     MissingAliasTarget(String),
+    #[error("pricing catalog alias collides with canonical model {0}")]
+    AliasCanonicalCollision(String),
     #[error("pricing catalog alias registry is invalid")]
     InvalidAliases,
 }
@@ -180,12 +185,6 @@ impl PricingCatalog {
                     field: "canonical model",
                 });
             }
-            if normalized != entry.canonical_model {
-                return Err(CatalogValidationError::EmptyField {
-                    index,
-                    field: "normalized canonical model",
-                });
-            }
             if !models.insert(normalized.clone()) {
                 return Err(CatalogValidationError::DuplicateModel(normalized));
             }
@@ -195,6 +194,13 @@ impl PricingCatalog {
             if !models.contains(canonical) {
                 return Err(CatalogValidationError::MissingAliasTarget(
                     canonical.to_string(),
+                ));
+            }
+        }
+        for alias in self.aliases.keys() {
+            if models.contains(alias) {
+                return Err(CatalogValidationError::AliasCanonicalCollision(
+                    alias.to_string(),
                 ));
             }
         }
@@ -209,13 +215,17 @@ impl PricingCatalog {
     }
 
     fn resolved_entry(&self, model: &str) -> Option<(&CatalogEntry, bool)> {
+        match self.aliases.resolve_alias(model) {
+            AliasResolution::Ambiguous => return None,
+            AliasResolution::Exact(canonical) => {
+                return self.lookup(&canonical).map(|entry| (entry, true));
+            }
+            AliasResolution::None => {}
+        }
         if let Some(entry) = self.lookup(model) {
             return Some((entry, false));
         }
-        let AliasResolution::Exact(canonical) = self.aliases.resolve_alias(model) else {
-            return None;
-        };
-        self.lookup(&canonical).map(|entry| (entry, true))
+        None
     }
 }
 
@@ -243,6 +253,9 @@ impl CostResolution {
     }
 
     pub fn from_rates(entry: &CatalogEntry, input: u64, cached: u64, output: u64) -> Self {
+        if validate_entry(entry, 0).is_err() {
+            return Self::unpriced();
+        }
         Self::from_entry(entry, false, input, cached, output)
     }
 
@@ -288,6 +301,9 @@ fn validate_entry(entry: &CatalogEntry, index: usize) -> Result<(), CatalogValid
             return Err(CatalogValidationError::EmptyField { index, field });
         }
     }
+    if normalize_model_id(&entry.canonical_model) != entry.canonical_model {
+        return Err(CatalogValidationError::InvalidCanonicalModel { index });
+    }
     if !valid_public_source_url(&entry.source_url) {
         return Err(CatalogValidationError::InvalidSourceUrl { index });
     }
@@ -318,14 +334,79 @@ fn validate_entry(entry: &CatalogEntry, index: usize) -> Result<(), CatalogValid
 }
 
 fn valid_public_source_url(value: &str) -> bool {
-    let Some(remainder) = value.strip_prefix("https://") else {
+    let Ok(url) = reqwest::Url::parse(value) else {
         return false;
     };
-    let authority = remainder.split('/').next().unwrap_or_default();
-    !authority.is_empty()
-        && !authority.contains('@')
-        && !value.contains('?')
-        && !value.contains('#')
+    if url.scheme() != "https"
+        || !url.username().is_empty()
+        || url.password().is_some()
+        || url.query().is_some()
+        || url.fragment().is_some()
+    {
+        return false;
+    }
+    let Some(host) = url.host_str() else {
+        return false;
+    };
+    let normalized_host = host.trim_end_matches('.').to_ascii_lowercase();
+    if normalized_host.is_empty()
+        || normalized_host == "localhost"
+        || normalized_host.ends_with(".localhost")
+        || normalized_host.ends_with(".local")
+    {
+        return false;
+    }
+    match normalized_host.parse::<std::net::IpAddr>() {
+        Ok(address) => is_public_source_ip(address),
+        Err(_) => normalized_host.contains('.'),
+    }
+}
+
+fn is_public_source_ip(address: std::net::IpAddr) -> bool {
+    match address {
+        IpAddr::V4(address) => is_public_source_ipv4(address),
+        IpAddr::V6(address) => is_public_source_ipv6(address),
+    }
+}
+
+fn is_public_source_ipv4(ip: Ipv4Addr) -> bool {
+    let [a, b, c, _d] = ip.octets();
+    !(a == 0
+        || ip.is_private()
+        || (a == 100 && b & 0b1100_0000 == 0b0100_0000)
+        || ip.is_loopback()
+        || ip.is_link_local()
+        || (a == 192 && b == 0 && c == 0)
+        || ip.is_documentation()
+        || (a == 192 && b == 31 && c == 196)
+        || (a == 192 && b == 52 && c == 193)
+        || (a == 192 && b == 88 && c == 99)
+        || (a == 192 && b == 175 && c == 48)
+        || (a == 198 && (b == 18 || b == 19))
+        || a >= 224)
+}
+
+fn is_public_source_ipv6(ip: Ipv6Addr) -> bool {
+    let segments = ip.segments();
+    if segments[0] & 0xe000 != 0x2000 {
+        return false;
+    }
+    !(ip.is_unspecified()
+        || ip.is_loopback()
+        || ip.to_ipv4_mapped().is_some()
+        || matches!(segments, [0x64, 0xff9b, 0, 0, 0, 0, _, _])
+        || matches!(segments, [0x64, 0xff9b, 1, _, _, _, _, _])
+        || matches!(segments, [0x100, 0, 0, 0, _, _, _, _])
+        || matches!(segments, [0x2001, b, _, _, _, _, _, _] if b < 0x200)
+        || matches!(segments, [0x2002, _, _, _, _, _, _, _])
+        || matches!(segments, [0x2001, 0xdb8, _, _, _, _, _, _])
+        || segments[0] & 0xfff0 == 0x3ff0
+        || matches!(segments, [0x5f00, ..])
+        || matches!(segments, [0x2620, 0x4f, 0x8000, _, _, _, _, _])
+        || ip.is_unique_local()
+        || ip.is_unicast_link_local()
+        || (segments[0] & 0xffc0 == 0xfec0)
+        || ip.is_multicast())
 }
 
 fn rates_are_non_negative(rates: &TokenRates) -> bool {
@@ -442,6 +523,28 @@ mod tests {
     }
 
     #[test]
+    fn direct_rate_constructor_rejects_mutated_negative_rates() {
+        let mut invalid = entry("gpt-test", usd_rates(2, 1, 8));
+        invalid.rates.input_per_million = MoneyMicros::from_micros(-1);
+
+        let result = CostResolution::from_rates(&invalid, 1_000_000, 0, 0);
+
+        assert_eq!(result.amount, None);
+        assert_eq!(result.provenance, PriceProvenance::Unpriced);
+    }
+
+    #[test]
+    fn direct_rate_constructor_rejects_non_normalized_model_ids() {
+        let mut invalid = entry("gpt-test", usd_rates(2, 1, 8));
+        invalid.canonical_model = " GPT-Test ".to_string();
+
+        let result = CostResolution::from_rates(&invalid, 1_000_000, 0, 0);
+
+        assert_eq!(result.amount, None);
+        assert_eq!(result.provenance, PriceProvenance::Unpriced);
+    }
+
+    #[test]
     fn unknown_model_is_unpriced_not_zero() {
         let result = PricingCatalog::empty().resolve("mystery-model", 9, 0, 3);
 
@@ -473,6 +576,43 @@ mod tests {
         let result = catalog.resolve("gateway/gpt-test", 1_000_000, 0, 0);
 
         assert_eq!(result.provenance, PriceProvenance::SupplementalCatalog);
+    }
+
+    #[test]
+    fn ambiguous_alias_key_cannot_collide_with_a_canonical_model() {
+        let aliases = ModelAliasResolver::from_mappings([
+            ("shared-test", "gpt-test"),
+            ("shared-test", "other-test"),
+        ]);
+        let result = PricingCatalog::new(
+            vec![
+                entry("shared-test", usd_rates(1, 1, 1)),
+                entry("gpt-test", usd_rates(2, 1, 8)),
+                entry("other-test", usd_rates(3, 1, 9)),
+            ],
+            aliases,
+        );
+
+        assert!(matches!(
+            result,
+            Err(CatalogValidationError::AliasCanonicalCollision(model))
+                if model == "shared-test"
+        ));
+    }
+
+    #[test]
+    fn mutated_ambiguous_alias_is_unpriced_even_if_it_matches_a_canonical_model() {
+        let mut catalog = catalog_with(entry("shared-test", usd_rates(1, 1, 1)));
+        catalog.aliases = ModelAliasResolver::from_mappings([
+            ("shared-test", "gpt-test"),
+            ("shared-test", "other-test"),
+        ]);
+
+        let result = catalog.resolve("shared-test", 1_000_000, 0, 0);
+
+        assert_eq!(result.amount, None);
+        assert_eq!(result.provenance, PriceProvenance::Unpriced);
+        assert_eq!(result.canonical_model, None);
     }
 
     #[test]
@@ -521,5 +661,33 @@ mod tests {
 
         assert_eq!(result.amount, None);
         assert_eq!(result.provenance, PriceProvenance::Unpriced);
+    }
+
+    #[test]
+    fn catalog_rejects_non_public_or_malformed_source_urls() {
+        for source_url in [
+            "https://localhost/pricing",
+            "https://pricing.local/catalog",
+            "https://192.168.1.10/catalog",
+            "https://127.0.0.1/catalog",
+            "https://[::1]/catalog",
+            "https://[::808:808]/catalog",
+            "https://[4000::1]/catalog",
+            "https://example.com:bad/catalog",
+            "https://user:pass@example.com/catalog",
+            "https://pricing.example.com/catalog?token=not-public",
+            "https://pricing.example.com/catalog#private-fragment",
+        ] {
+            let mut invalid = entry("gpt-test", usd_rates(2, 1, 8));
+            invalid.source_url = source_url.to_string();
+
+            assert!(
+                matches!(
+                    PricingCatalog::new(vec![invalid], ModelAliasResolver::default()),
+                    Err(CatalogValidationError::InvalidSourceUrl { .. })
+                ),
+                "accepted invalid source URL {source_url}"
+            );
+        }
     }
 }

@@ -318,10 +318,7 @@ async fn cost_response(provider: Option<&str>) -> String {
                 "provider": provider_id.cli_name(),
                 "supported": true,
                 "days_scanned": 30,
-                "cost": {
-                    "total_usd": summary.total_cost_usd,
-                    "currency": "USD"
-                },
+                "cost": summary.total_cost,
                 "tokens": {
                     "input": summary.input_tokens,
                     "output": summary.output_tokens,

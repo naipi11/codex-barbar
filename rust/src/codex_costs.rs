@@ -6,7 +6,7 @@ use chrono::{Duration, NaiveDate};
 use std::path::Path;
 
 use crate::core::{CodexUsageRecord, CostUsageDayRange, CostUsagePricing, JsonlScanner};
-use crate::cost_scanner::{CostSummary, ModelTokenCounts};
+use crate::cost_scanner::{CostAggregate, CostSummary, ModelTokenCounts};
 use crate::pricing::{CostResolution, Currency, PricingResolver};
 
 pub(crate) fn codex_period_start(today: NaiveDate, days: u32) -> NaiveDate {
@@ -33,25 +33,19 @@ pub(crate) fn add_codex_records_to_summary(
     records: &[CodexUsageRecord],
     range: &CostUsageDayRange,
     pricing: &dyn PricingResolver,
-) -> (f64, bool) {
-    let mut total_cost = 0.0;
+) -> bool {
     let mut has_tokens = false;
 
     for record in records.iter().filter(|record| {
         CostUsageDayRange::is_in_range(&record.day_key, &range.since_key, &range.until_key)
     }) {
         let tokens = CodexTokenCounts::from_values(record.input, record.cached, record.output);
-        if let Some(resolution) =
-            add_codex_tokens_to_summary(summary, &record.model, tokens, pricing)
-        {
-            if let Some(cost) = usd_cost(&resolution) {
-                total_cost += cost;
-            }
+        if add_codex_tokens_to_summary(summary, &record.model, tokens, pricing).is_some() {
             has_tokens = true;
         }
     }
 
-    (total_cost, has_tokens)
+    has_tokens
 }
 
 /// Merge billable records into a day→model→`[input,cached,output]` map.
@@ -92,31 +86,24 @@ pub(crate) fn add_codex_packed_tokens_to_summary(
 }
 
 /// Fold day→model→packed token maps into a cost summary (range-filtered).
-/// Returns `(session_cost, has_tokens)` — caller adds cost to `total_cost_usd`.
 pub(crate) fn add_codex_days_map_to_summary(
     summary: &mut CostSummary,
     days: &std::collections::HashMap<String, std::collections::HashMap<String, Vec<i32>>>,
     range: &CostUsageDayRange,
     pricing: &dyn PricingResolver,
-) -> (f64, bool) {
-    let mut total_cost = 0.0;
+) -> bool {
     let mut has_tokens = false;
     for (day_key, models) in days {
         if !CostUsageDayRange::is_in_range(day_key, &range.since_key, &range.until_key) {
             continue;
         }
         for (model, packed) in models {
-            if let Some(resolution) =
-                add_codex_packed_tokens_to_summary(summary, model, packed, pricing)
-            {
-                if let Some(cost) = usd_cost(&resolution) {
-                    total_cost += cost;
-                }
+            if add_codex_packed_tokens_to_summary(summary, model, packed, pricing).is_some() {
                 has_tokens = true;
             }
         }
     }
-    (total_cost, has_tokens)
+    has_tokens
 }
 
 #[cfg_attr(not(test), allow(dead_code))]
@@ -124,17 +111,20 @@ pub(crate) fn scan_codex_file_cost_for_range(
     path: &Path,
     range: &CostUsageDayRange,
     pricing: &dyn PricingResolver,
-) -> Option<f64> {
+) -> Option<CostAggregate> {
     let parse_result = match JsonlScanner::parse_codex_file(path, range, 0, None, None) {
         Ok(result) => result,
         Err(_) => return None,
     };
 
-    codex_records_cost(&parse_result.records, range, pricing)
+    Some(codex_records_cost(&parse_result.records, range, pricing))
 }
 
 #[cfg(test)]
-pub(crate) fn scan_codex_file_cost(path: &Path, pricing: &dyn PricingResolver) -> Option<f64> {
+pub(crate) fn scan_codex_file_cost(
+    path: &Path,
+    pricing: &dyn PricingResolver,
+) -> Option<CostAggregate> {
     let today = Local::now().date_naive();
     let range = CostUsageDayRange::new(codex_period_start(today, 30), today);
     scan_codex_file_cost_for_range(path, &range, pricing)
@@ -210,13 +200,20 @@ fn add_codex_tokens_to_summary(
         tokens.cached,
         tokens.output,
     );
-    if let Some(cost) = usd_cost(&resolution) {
-        *summary.by_model.entry(model_key.clone()).or_insert(0.0) += cost;
-        *summary
-            .by_speed
-            .entry(speed_bucket.to_string())
-            .or_insert(0.0) += cost;
-    } else if !CostUsagePricing::is_codex_unattributed_model(&model_key) {
+    summary.total_cost.record_resolution(&resolution);
+    summary
+        .by_model
+        .entry(model_key.clone())
+        .or_default()
+        .record_resolution(&resolution);
+    summary
+        .by_speed
+        .entry(speed_bucket.to_string())
+        .or_default()
+        .record_resolution(&resolution);
+    if !resolution_is_priced_usd(&resolution)
+        && !CostUsagePricing::is_codex_unattributed_model(&model_key)
+    {
         summary.unknown_models.insert(model_key);
     }
     Some(resolution)
@@ -227,16 +224,12 @@ fn codex_records_cost(
     records: &[CodexUsageRecord],
     range: &CostUsageDayRange,
     pricing: &dyn PricingResolver,
-) -> Option<f64> {
-    let mut total_cost = 0.0;
-    let mut complete = true;
+) -> CostAggregate {
+    let mut total_cost = CostAggregate::default();
 
     for record in records.iter().filter(|record| {
         CostUsageDayRange::is_in_range(&record.day_key, &range.since_key, &range.until_key)
     }) {
-        if CostUsagePricing::is_codex_unattributed_model(&record.model) {
-            continue;
-        }
         let tokens = CodexTokenCounts::from_values(record.input, record.cached, record.output);
         if !tokens.is_empty() {
             let resolution = CostUsagePricing::resolve(
@@ -246,14 +239,11 @@ fn codex_records_cost(
                 tokens.cached,
                 tokens.output,
             );
-            match usd_cost(&resolution) {
-                Some(cost) => total_cost += cost,
-                None => complete = false,
-            }
+            total_cost.record_resolution(&resolution);
         }
     }
 
-    complete.then_some(total_cost)
+    total_cost
 }
 
 fn codex_speed_bucket(model: &str) -> &'static str {
@@ -269,11 +259,8 @@ fn codex_speed_bucket(model: &str) -> &'static str {
     }
 }
 
-fn usd_cost(resolution: &CostResolution) -> Option<f64> {
-    if resolution.currency != Currency::Usd {
-        return None;
-    }
-    resolution.amount.map(|amount| amount.to_major_units_f64())
+fn resolution_is_priced_usd(resolution: &CostResolution) -> bool {
+    resolution.currency == Currency::Usd && resolution.amount.is_some()
 }
 
 #[cfg(test)]
@@ -340,12 +327,11 @@ mod tests {
         let mut summary = CostSummary::default();
         let catalog = fixture_catalog("gpt-test");
 
-        let (cost, has_tokens) =
-            add_codex_records_to_summary(&mut summary, &records, &range, &catalog);
+        let has_tokens = add_codex_records_to_summary(&mut summary, &records, &range, &catalog);
 
         assert!(has_tokens);
         assert_eq!(summary.input_tokens, 400_000);
-        assert!((cost - 0.8).abs() < f64::EPSILON);
+        assert_eq!(summary.total_cost.total_micros().unwrap().micros(), 800_000);
     }
 
     #[test]
@@ -362,17 +348,15 @@ mod tests {
         let mut summary = CostSummary::default();
         let catalog = fixture_catalog(CostUsagePricing::CODEX_UNATTRIBUTED_MODEL);
 
-        let (cost, has_tokens) =
-            add_codex_records_to_summary(&mut summary, &records, &range, &catalog);
+        let has_tokens = add_codex_records_to_summary(&mut summary, &records, &range, &catalog);
 
         assert!(has_tokens);
-        assert_eq!(cost, 0.0);
         assert_eq!(summary.input_tokens, 55_000_000);
-        assert!(
-            !summary
-                .by_model
-                .contains_key(CostUsagePricing::CODEX_UNATTRIBUTED_MODEL)
+        assert_eq!(
+            summary.total_cost.completeness(),
+            crate::cost_scanner::CostCompleteness::Unpriced
         );
+        assert_eq!(summary.total_cost.total_usd(), None);
         assert!(summary.unknown_models.is_empty());
     }
 
@@ -389,12 +373,15 @@ mod tests {
         }];
         let mut summary = CostSummary::default();
 
-        let (cost, has_tokens) =
+        let has_tokens =
             add_codex_records_to_summary(&mut summary, &records, &range, &PricingCatalog::empty());
 
         assert!(has_tokens);
-        assert_eq!(cost, 0.0);
-        assert!(!summary.by_model.contains_key("gpt-mystery"));
+        assert_eq!(summary.total_cost.total_usd(), None);
+        assert_eq!(
+            summary.by_model["gpt-mystery"].completeness(),
+            crate::cost_scanner::CostCompleteness::Unpriced
+        );
         assert!(summary.unknown_models.contains("gpt-mystery"));
     }
 

@@ -79,10 +79,15 @@ fn apply_entry(summary: &mut CostSummary, entry: &PiEntry) {
     summary.input_tokens += entry.input;
     summary.output_tokens += entry.output;
     summary.cached_tokens += entry.cache_read + entry.cache_create;
-    if let Some(cost) = usd_cost(&entry.cost) {
-        summary.total_cost_usd += cost;
-        *summary.by_model.entry(entry.model.clone()).or_insert(0.0) += cost;
-    } else if !CostUsagePricing::is_codex_unattributed_model(&entry.model) {
+    summary.total_cost.record_resolution(&entry.cost);
+    summary
+        .by_model
+        .entry(entry.model.clone())
+        .or_default()
+        .record_resolution(&entry.cost);
+    if (entry.cost.amount.is_none() || entry.cost.currency != Currency::Usd)
+        && !CostUsagePricing::is_codex_unattributed_model(&entry.model)
+    {
         summary.unknown_models.insert(entry.model.clone());
     }
     let tokens = summary
@@ -283,17 +288,20 @@ fn parse_pi_assistant_entry(
         return None;
     }
 
-    let cost = if mapped == PiMappedProvider::Claude && cache_create > 0 {
-        // The Task 1 resolver has no cache-creation dimension. Keep these rows
-        // visible and unpriced until a source can represent that dimension.
-        CostResolution::unpriced()
-    } else {
-        let resolver_input = if mapped == PiMappedProvider::Claude {
-            input.saturating_add(cache_read)
-        } else {
-            input
-        };
-        CostUsagePricing::resolve(pricing, &model, resolver_input, cache_read, output)
+    let cost = match mapped {
+        PiMappedProvider::Claude if cache_create > 0 => {
+            // Task 1 has no cache-creation rate dimension.
+            CostResolution::unpriced()
+        }
+        PiMappedProvider::Claude => match input.checked_add(cache_read) {
+            Some(total_input) => {
+                CostUsagePricing::resolve(pricing, &model, total_input, cache_read, output)
+            }
+            None => CostResolution::unpriced(),
+        },
+        PiMappedProvider::Codex => {
+            CostUsagePricing::resolve(pricing, &model, input, cache_read, output)
+        }
     };
 
     Some(PiEntry {
@@ -304,13 +312,6 @@ fn parse_pi_assistant_entry(
         cache_create,
         cost,
     })
-}
-
-fn usd_cost(resolution: &CostResolution) -> Option<f64> {
-    if resolution.currency != Currency::Usd {
-        return None;
-    }
-    resolution.amount.map(|amount| amount.to_major_units_f64())
 }
 
 fn num(usage: &Value, keys: &[&str]) -> u64 {
@@ -419,6 +420,26 @@ mod tests {
         .unwrap();
 
         assert_eq!(entry.cost.amount.unwrap().micros(), 260);
+    }
+
+    #[test]
+    fn claude_pi_dimension_translation_overflow_is_unpriced() {
+        let mut catalog = fixture_catalog("claude-test");
+        catalog.entries[0].rates.input_per_million = MoneyMicros::from_micros(0);
+        catalog.entries[0].rates.cached_input_per_million = MoneyMicros::from_micros(0);
+        catalog.entries[0].rates.output_per_million = MoneyMicros::from_micros(0);
+        let raw = serde_json::json!({
+            "id": "msg-overflow",
+            "role": "assistant",
+            "provider": "anthropic",
+            "model": "claude-test",
+            "usage": { "input": u64::MAX, "cacheRead": 1 }
+        });
+
+        let entry = parse_pi_assistant_entry(&raw, PiMappedProvider::Claude, &catalog).unwrap();
+
+        assert_eq!(entry.cost.amount, None);
+        assert_eq!(entry.cost.provenance, PriceProvenance::Unpriced);
     }
 
     #[test]

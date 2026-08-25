@@ -154,9 +154,13 @@ fn print_text_output(results: &[CostResult], use_color: bool, days: u32) {
             if !result.summary.by_model.is_empty() {
                 println!("  By model:");
                 let mut models: Vec<_> = result.summary.by_model.iter().collect();
-                models.sort_by(|a, b| b.1.partial_cmp(a.1).unwrap_or(std::cmp::Ordering::Equal));
+                models.sort_by(|a, b| {
+                    b.1.known_micros()
+                        .map(|amount| amount.micros())
+                        .cmp(&a.1.known_micros().map(|amount| amount.micros()))
+                });
                 for (model, cost) in models {
-                    println!("    {}: ${:.2}", model, cost);
+                    println!("    {}: {}", model, cost);
                 }
             }
 
@@ -170,7 +174,7 @@ fn print_text_output(results: &[CostResult], use_color: bool, days: u32) {
                             .get(bucket)
                             .map(|counts| format_number(counts.total()))
                             .unwrap_or_else(|| "0".to_string());
-                        println!("    {}: ${:.2} ({} tokens)", bucket, cost, tokens);
+                        println!("    {}: {} ({} tokens)", bucket, cost, tokens);
                     }
                 }
             }
@@ -198,10 +202,7 @@ fn print_json_output(results: &[CostResult], pretty: bool, days: u32) -> anyhow:
                     "provider": r.provider,
                     "supported": true,
                     "days_scanned": days,
-                    "cost": {
-                        "total_usd": r.summary.total_cost_usd,
-                        "currency": "USD"
-                    },
+                    "cost": r.summary.total_cost,
                     "tokens": {
                         "input": r.summary.input_tokens,
                         "output": r.summary.output_tokens,
