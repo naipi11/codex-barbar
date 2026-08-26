@@ -478,6 +478,16 @@ fn test_start_at_login_uses_the_canonical_run_value_name() {
 }
 
 #[test]
+fn test_start_at_login_ignores_unrelated_test_executables() {
+    assert!(!Settings::is_supported_start_at_login_executable(
+        Path::new(r"C:\work\target\debug\deps\codexbar-abc123.exe")
+    ));
+    assert!(Settings::is_supported_start_at_login_executable(Path::new(
+        r"C:\Program Files\codex-barbar\codex-barbar.exe"
+    )));
+}
+
+#[test]
 fn test_start_at_login_prefers_desktop_sibling_when_called_from_cli() {
     let temp = tempfile::tempdir().expect("temp dir");
     let cli_path = temp.path().join("codexbar-cli.exe");

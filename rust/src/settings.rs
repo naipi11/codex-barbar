@@ -641,6 +641,22 @@ impl Settings {
         current_exe.to_path_buf()
     }
 
+    fn is_supported_start_at_login_executable(current_exe: &std::path::Path) -> bool {
+        current_exe
+            .file_name()
+            .and_then(|name| name.to_str())
+            .is_some_and(|name| {
+                matches!(
+                    name.to_ascii_lowercase().as_str(),
+                    "codex-barbar.exe"
+                        | "codexbar.exe"
+                        | "codexbar-cli.exe"
+                        | "codexbar-desktop.exe"
+                        | "codexbar-desktop-tauri.exe"
+                )
+            })
+    }
+
     fn start_at_login_command(current_exe: &std::path::Path) -> String {
         let exe_path = Self::start_at_login_exe_path(current_exe);
         format!("\"{}\" --background", exe_path.display())
@@ -693,7 +709,10 @@ impl Settings {
         let Ok(existing) = existing else { return false };
 
         match std::env::current_exe() {
-            Ok(exe_path) if Self::start_at_login_command_needs_repair(&existing, &exe_path) => {
+            Ok(exe_path)
+                if Self::is_supported_start_at_login_executable(&exe_path)
+                    && Self::start_at_login_command_needs_repair(&existing, &exe_path) =>
+            {
                 let command = Self::start_at_login_command(&exe_path);
                 if let Err(error) = run_key.set_value(Self::start_at_login_value_name(), &command) {
                     tracing::warn!("Failed to repair CodexBar start-at-login command: {error}");
