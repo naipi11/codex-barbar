@@ -368,16 +368,15 @@ fn main() {
                     }
                 }
             });
-            if let Some(settings) = loaded_settings.as_ref() {
-                if let Err(error) = codexbar::platform::windows::autostart::set_enabled(
-                    settings.start_at_login,
-                ) {
-                    tracing::warn!(
-                        code = "AUTOSTART_STARTUP_RECONCILE_FAILED",
-                        error = %error,
-                        "startup autostart reconciliation did not complete"
-                    );
-                }
+            if let Some(settings) = loaded_settings.as_ref()
+                && let Err(error) =
+                    codexbar::platform::windows::autostart::set_enabled(settings.start_at_login)
+            {
+                tracing::warn!(
+                    code = "AUTOSTART_STARTUP_RECONCILE_FAILED",
+                    error = %error,
+                    "startup autostart reconciliation did not complete"
+                );
             }
             let settings = loaded_settings.unwrap_or_default();
             status_surfaces::apply_status_surface_settings_non_fatal(app.handle(), &settings);
