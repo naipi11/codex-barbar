@@ -63,10 +63,12 @@ fn reduce_surface_phase(current: SurfacePhase, foreground: ForegroundClass) -> S
     };
     let action = if next.suspension_reason == SurfaceSuspensionReason::Fullscreen {
         ReconcileAction::Suspend
-    } else if foreground == ForegroundClass::ShellTransient {
-        // The desktop shell can remain foreground after Start, Explorer,
-        // taskbar, or Win+D. Re-run the non-activating restore path so a
-        // shell-owned z-order change cannot make enabled surfaces disappear.
+    } else if current.foreground != ForegroundClass::ShellTransient
+        && foreground == ForegroundClass::ShellTransient
+    {
+        // Restore once when entering a shell-owned foreground state. If the
+        // desktop shell remains foreground, reconciliation uses the cheaper
+        // non-activating topmost assertion below.
         ReconcileAction::Restore
     } else if current.suspension_reason == SurfaceSuspensionReason::Fullscreen
         || current.foreground == ForegroundClass::ShellTransient
@@ -519,7 +521,7 @@ mod tests {
         };
         assert_eq!(
             reduce_surface_phase(current, ForegroundClass::ShellTransient).action,
-            ReconcileAction::Restore
+            ReconcileAction::KeepVisible
         );
     }
 
