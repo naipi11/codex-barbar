@@ -96,7 +96,7 @@ export interface SettingsCopy {
     localEstimateBadge: string;
     deviceCombined: string;
     rangeLabel: string;
-    ranges: readonly [string, string, string, string];
+    ranges: readonly [string, string, string, string, string];
     refreshLocal: string;
     refreshingLocal: string;
     inputTokens: string;
@@ -105,6 +105,9 @@ export interface SettingsCopy {
     totalTokens: string;
     sessions: string;
     dailyTrendTitle: string;
+    heatmapTitle: string;
+    heatmapDescription: string;
+    heatmapCell: (date: string, cost: string, tokens: string) => string;
     dateColumn: string;
     modelTableTitle: string;
     modelColumn: string;
@@ -194,6 +197,16 @@ export interface SettingsCopy {
     removeConfirm: (label: string) => string;
     newAccountLabel: string;
     addAccount: string;
+    avatarTitle: string;
+    avatarDescription: string;
+    avatarInput: string;
+    avatarRestore: string;
+    avatarSaved: string;
+    avatarRestored: string;
+    avatarInvalid: string;
+    avatarTooLarge: string;
+    avatarFailed: string;
+    avatarUnavailable: string;
   };
   login: {
     dialogLabel: string;
@@ -299,7 +312,7 @@ const english: SettingsCopy = {
     localEstimateBadge: "Local estimate, not an OpenAI bill",
     deviceCombined: "This device combined",
     rangeLabel: "Local range",
-    ranges: ["Today", "Last 7 days", "Last 30 days", "Current weekly"],
+    ranges: ["Today", "Last 7 days", "Last 30 days", "Last 365 days", "Current weekly"],
     refreshLocal: "Refresh local data",
     refreshingLocal: "Refreshing local data…",
     inputTokens: "Input tokens",
@@ -308,6 +321,9 @@ const english: SettingsCopy = {
     totalTokens: "Total tokens",
     sessions: "Local sessions",
     dailyTrendTitle: "Daily trend",
+    heatmapTitle: "Daily cost heatmap",
+    heatmapDescription: "Estimated spend for each day in the last 365 days.",
+    heatmapCell: (date, cost, tokens) => `${date}: ${cost}; ${tokens} tokens`,
     dateColumn: "Date",
     modelTableTitle: "Per-model totals",
     modelColumn: "Model",
@@ -362,7 +378,7 @@ const english: SettingsCopy = {
   },
   advanced: { title: "Advanced", executablePath: "Codex executable path", executablePlaceholder: "C:\\Program Files\\Codex\\codex.exe", validateAndSave: "Validate and save", exportDiagnostics: "Export diagnostics", compatible: (version) => `Compatible (${version}).`, notFound: "Codex executable not found.", unsupported: "Unsupported Codex executable.", exported: (path) => `Diagnostics exported to ${path}`, exportFailed: (error) => `Diagnostics export failed: ${error}`, unknownVersion: "unknown version", validationFailed: "Could not validate the Codex executable.", exportFailedFriendly: "Could not export diagnostics." },
   about: { title: "About", checkForUpdates: "Check for updates", checking: "Checking…", openReleases: "Open Releases", description: "codex-barbar – a Windows 11 tray companion for Codex usage.", version: (version) => `Version ${version}`, license: "MIT License. Windows port of CodexBar.", updateAvailable: (version) => `Update available: ${version}`, updateCurrent: "You are on the latest version.", updateUnavailable: "Release feed is unavailable right now.", updateCheckFailed: "Could not check for updates." },
-  accounts: { title: "Accounts", managed: "Managed", signedOut: "Signed out", selected: "selected", rename: "Rename", remove: "Remove", renamePrompt: "Rename account", removeConfirm: (label) => `Remove ${label}?`, newAccountLabel: "New account label", addAccount: "Add account" },
+  accounts: { title: "Accounts", managed: "Managed", signedOut: "Signed out", selected: "selected", rename: "Rename", remove: "Remove", renamePrompt: "Rename account", removeConfirm: (label) => `Remove ${label}?`, newAccountLabel: "New account label", addAccount: "Add account", avatarTitle: "Profile avatar", avatarDescription: "Choose a PNG avatar for the selected account.", avatarInput: "Profile avatar", avatarRestore: "Restore default avatar", avatarSaved: "Avatar saved", avatarRestored: "Avatar restored", avatarInvalid: "Choose a PNG image.", avatarTooLarge: "PNG avatars must be 1 MiB or smaller.", avatarFailed: "Avatar could not be saved. Try again.", avatarUnavailable: "Select an account to use a custom avatar." },
   login: { dialogLabel: "Add or re-login account", title: "Account login", starting: "Starting login…", returnAfterSignIn: "Complete the sign-in, then return here.", code: "Code", cancel: "Cancel", succeeded: "Signed in successfully.", cancelled: "Login cancelled.", failed: "Login failed. Try again with a device code.", retryWithDeviceCode: "Retry with device code", browser: "Browser login", deviceCode: "Device code", close: "Close" },
 };
 
@@ -449,7 +465,7 @@ const chinese: SettingsCopy = {
     localEstimateBadge: "本地估算，并非 OpenAI 账单",
     deviceCombined: "此设备合计",
     rangeLabel: "本地统计范围",
-    ranges: ["今天", "最近 7 天", "最近 30 天", "当前每周"],
+    ranges: ["今天", "最近 7 天", "最近 30 天", "最近 365 天", "当前每周"],
     refreshLocal: "刷新本地数据",
     refreshingLocal: "正在刷新本地数据…",
     inputTokens: "输入令牌",
@@ -458,6 +474,9 @@ const chinese: SettingsCopy = {
     totalTokens: "令牌总数",
     sessions: "本地会话",
     dailyTrendTitle: "每日趋势",
+    heatmapTitle: "每日费用热力图",
+    heatmapDescription: "最近 365 天每天的估算费用。",
+    heatmapCell: (date, cost, tokens) => `${date}：${cost}；${tokens} 个令牌`,
     dateColumn: "日期",
     modelTableTitle: "按模型统计",
     modelColumn: "模型",
@@ -511,7 +530,7 @@ const chinese: SettingsCopy = {
   },
   advanced: { title: "高级", executablePath: "Codex 可执行文件路径", executablePlaceholder: "C:\\Program Files\\Codex\\codex.exe", validateAndSave: "验证并保存", exportDiagnostics: "导出诊断信息", compatible: (version) => `兼容 (${version})。`, notFound: "未找到 Codex 可执行文件。", unsupported: "不支持此 Codex 可执行文件。", exported: (path) => `诊断信息已导出到 ${path}`, exportFailed: (error) => `导出诊断信息失败：${error}`, unknownVersion: "未知版本", validationFailed: "无法验证 Codex 可执行文件。", exportFailedFriendly: "无法导出诊断信息。" },
   about: { title: "关于", checkForUpdates: "检查更新", checking: "正在检查…", openReleases: "打开发布页", description: "codex-barbar 是适用于 Codex 用量的 Windows 11 托盘伴侣。", version: (version) => `当前版本 ${version}`, license: "MIT 许可证。CodexBar 的 Windows 移植版。", updateAvailable: (version) => `有可用更新：${version}`, updateCurrent: "当前已是最新版本。", updateUnavailable: "暂时无法获取发布信息。", updateCheckFailed: "暂时无法检查更新。" },
-  accounts: { title: "账户", managed: "托管账户", signedOut: "未登录", selected: "已选择", rename: "重命名", remove: "移除", renamePrompt: "重命名账户", removeConfirm: (label) => `移除 ${label}？`, newAccountLabel: "新账户名称", addAccount: "添加账户" },
+  accounts: { title: "账户", managed: "托管账户", signedOut: "未登录", selected: "已选择", rename: "重命名", remove: "移除", renamePrompt: "重命名账户", removeConfirm: (label) => `移除 ${label}？`, newAccountLabel: "新账户名称", addAccount: "添加账户", avatarTitle: "账户头像", avatarDescription: "为当前选中的账户选择 PNG 头像。", avatarInput: "账户头像", avatarRestore: "恢复默认头像", avatarSaved: "头像已保存", avatarRestored: "头像已恢复", avatarInvalid: "请选择 PNG 图片。", avatarTooLarge: "PNG 头像不能超过 1 MiB。", avatarFailed: "无法保存头像，请重试。", avatarUnavailable: "请先选择账户再设置自定义头像。" },
   login: { dialogLabel: "添加或重新登录账户", title: "账户登录", starting: "正在开始登录…", returnAfterSignIn: "请完成登录后返回此处。", code: "代码", cancel: "取消", succeeded: "登录成功。", cancelled: "已取消登录。", failed: "登录失败。请使用设备代码重试。", retryWithDeviceCode: "使用设备代码重试", browser: "浏览器登录", deviceCode: "设备代码", close: "关闭" },
 };
 

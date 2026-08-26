@@ -722,6 +722,7 @@ pub struct LocalUsageSpendDto {
     pub unpriced_model_count: u32,
     pub unknown_models: Vec<String>,
     pub daily: Vec<DailyUsageSpendDto>,
+    pub activity: Vec<DailyUsageSpendDto>,
     pub models: Vec<ModelUsageSpendDto>,
     pub state: &'static str,
     pub malformed_records_skipped: u64,

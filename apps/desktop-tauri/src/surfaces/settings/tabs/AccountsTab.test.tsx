@@ -1,7 +1,14 @@
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { currentCliProfile, managedProfile } from "../../../test/profileUsageFixtures";
 import AccountsTab from "./AccountsTab";
+
+import { clearProfileAvatar, saveProfileAvatar } from "../../../lib/tauri";
+
+vi.mock("../../../lib/tauri", () => ({
+  clearProfileAvatar: vi.fn(),
+  saveProfileAvatar: vi.fn(),
+}));
 
 const baseProps = {
   selectedProfileId: "personal",
@@ -52,5 +59,43 @@ describe("AccountsTab", () => {
     expect(screen.getByRole("button", { name: /work-user/ })).toBeInTheDocument();
     expect(screen.getByText("work-user")).toBeInTheDocument();
     expect(screen.queryByText("work@example.com")).not.toBeInTheDocument();
+  });
+
+  it("saves a selected PNG avatar and can restore the default", async () => {
+    vi.mocked(saveProfileAvatar).mockResolvedValue({
+      profiles: [],
+      selectedProfileId: "work",
+    });
+    vi.mocked(clearProfileAvatar).mockResolvedValue({
+      profiles: [],
+      selectedProfileId: "work",
+    });
+
+    render(
+      <AccountsTab
+        {...baseProps}
+        profiles={[managedProfile({ id: "work", presentationName: "work-user" })]}
+        selectedProfileId="work"
+      />,
+    );
+
+    const file = new File([new Uint8Array([137, 80, 78, 71])], "avatar.png", {
+      type: "image/png",
+    });
+    fireEvent.change(screen.getByLabelText("Profile avatar"), {
+      target: { files: [file] },
+    });
+
+    await waitFor(() =>
+      expect(saveProfileAvatar).toHaveBeenCalledWith(
+        "work",
+        expect.stringMatching(/^data:image\/png;base64,/),
+      ),
+    );
+    expect(await screen.findByRole("status")).toHaveTextContent("Avatar saved");
+
+    fireEvent.click(screen.getByRole("button", { name: "Restore default avatar" }));
+    await waitFor(() => expect(clearProfileAvatar).toHaveBeenCalledWith("work"));
+    expect(await screen.findByRole("status")).toHaveTextContent("Avatar restored");
   });
 });

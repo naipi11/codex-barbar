@@ -191,7 +191,12 @@ export type RefreshStatus =
   | "blocked";
 
 
-export type UsageSpendRange = "today" | "last7Days" | "last30Days" | "currentWeekly";
+export type UsageSpendRange =
+  | "today"
+  | "last7Days"
+  | "last30Days"
+  | "last365Days"
+  | "currentWeekly";
 export type ResetCreditsState = "available" | "unsupported" | "stale";
 export type LocalUsageState = "ready" | "empty" | "unavailable" | "cancelled";
 
@@ -247,6 +252,7 @@ export interface LocalUsageSpendDto {
   unpricedModelCount: number;
   unknownModels: string[];
   daily: DailyUsageSpendDto[];
+  activity: DailyUsageSpendDto[];
   models: ModelUsageSpendDto[];
   state: LocalUsageState;
   malformedRecordsSkipped: number;

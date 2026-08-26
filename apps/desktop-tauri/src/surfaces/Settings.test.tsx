@@ -189,6 +189,16 @@ describe("Settings surface", () => {
     expect(accounts).toHaveAttribute("aria-pressed", "true");
   });
 
+  it("exposes only the settings title area as a native window drag region", async () => {
+    renderSettings("en-US");
+    const heading = await screen.findByRole("heading", { name: "codex-barbar Settings" });
+    const dragRegion = heading.parentElement;
+    expect(dragRegion).toHaveAttribute("data-tauri-drag-region");
+    expect(screen.getByRole("button", { name: "Close" })).not.toHaveAttribute(
+      "data-tauri-drag-region",
+    );
+  });
+
   it("closes through both the visible control and Escape outside native fields", async () => {
     renderSettings("en-US");
     await screen.findByRole("heading", { name: "codex-barbar Settings" });

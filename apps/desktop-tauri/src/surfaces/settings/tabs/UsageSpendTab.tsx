@@ -10,6 +10,7 @@ const RANGES: readonly UsageSpendRange[] = [
   "today",
   "last7Days",
   "last30Days",
+  "last365Days",
   "currentWeekly",
 ];
 
@@ -20,6 +21,88 @@ function formatDate(date: string, language: string): string {
     month: "short",
     day: "numeric",
   }).format(parsed);
+}
+
+function formatLongDate(date: string, language: string): string {
+  const parsed = new Date(`${date}T00:00:00`);
+  if (Number.isNaN(parsed.getTime())) return date;
+  return new Intl.DateTimeFormat(language === "zh-CN" ? "zh-CN" : "en-US", {
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+  }).format(parsed);
+}
+
+export function formatTokenCount(value: number, language: string): string {
+  const amount = Number.isFinite(value) ? Math.max(0, value) : 0;
+  const chinese = language === "zh-CN";
+  const units = chinese
+    ? ([
+        [100_000_000, "亿"],
+        [10_000, "万"],
+      ] as const)
+    : ([
+        [1_000_000_000, "B"],
+        [1_000_000, "M"],
+        [1_000, "K"],
+      ] as const);
+  for (const [threshold, suffix] of units) {
+    if (amount >= threshold) {
+      return `${(amount / threshold).toFixed(2).replace(/\.00$|(?<=\.[0-9])0$/, "")}${suffix}`;
+    }
+  }
+  return Math.round(amount).toLocaleString(chinese ? "zh-CN" : "en-US");
+}
+
+function recentDateKeys(count: number): string[] {
+  const end = new Date();
+  end.setHours(12, 0, 0, 0);
+  return Array.from({ length: count }, (_, index) => {
+    const date = new Date(end);
+    date.setDate(end.getDate() - (count - index - 1));
+    return [date.getFullYear(), date.getMonth() + 1, date.getDate()]
+      .map((part, partIndex) => (partIndex === 0 ? String(part) : String(part).padStart(2, "0")))
+      .join("-");
+  });
+}
+
+export function buildHeatmapCells(count: number): Array<string | null> {
+  const dates = recentDateKeys(count);
+  const first = dates[0];
+  const leading = first
+    ? new Date(`${first}T12:00:00`).getDay()
+    : 0;
+  const totalCells = Math.ceil((leading + dates.length) / 7) * 7;
+  return [
+    ...Array.from({ length: leading }, () => null),
+    ...dates,
+    ...Array.from({ length: totalCells - leading - dates.length }, () => null),
+  ];
+}
+
+function heatmapMonthLabels(
+  cells: Array<string | null>,
+  language: string,
+): Array<{ column: number; label: string }> {
+  const formatter = new Intl.DateTimeFormat(
+    language === "zh-CN" ? "zh-CN" : "en-US",
+    { month: "short" },
+  );
+  let previousMonth = "";
+  return cells.reduce<Array<{ column: number; label: string }>>(
+    (labels, date, index) => {
+      if (date === null) return labels;
+      const month = date.slice(0, 7);
+      if (month === previousMonth) return labels;
+      previousMonth = month;
+      labels.push({
+        column: Math.floor(index / 7) + 1,
+        label: formatter.format(new Date(`${date}T12:00:00`)),
+      });
+      return labels;
+    },
+    [],
+  );
 }
 
 function formatDateTime(value: string | null, language: string): string {
@@ -38,6 +121,11 @@ function formatCost(cost: { amount: number | null; provenance: string } | undefi
   if (!cost || cost.amount == null) return usageCopy.costUnknown;
   const amount = usageCopy.costUsd(cost.amount);
   return cost.provenance === "officialEquivalent" ? `${amount} (${usageCopy.officialEquivalent})` : amount;
+}
+
+function heatmapLevel(amount: number | null, maxCost: number): string {
+  if (amount == null || amount <= 0 || maxCost <= 0) return "neutral";
+  return `cost-${Math.min(4, Math.max(1, Math.ceil((amount / maxCost) * 4)))}`;
 }
 
 export default function UsageSpendTab({
@@ -209,10 +297,10 @@ export default function UsageSpendTab({
           ) : null}
 
           <div className="usage-spend-token-grid" aria-live="polite">
-            <span>{usageCopy.inputTokens}: <strong>{local?.inputTokens ?? 0}</strong></span>
-            <span>{usageCopy.cachedInputTokens}: <strong>{local?.cachedInputTokens ?? 0}</strong></span>
-            <span>{usageCopy.outputTokens}: <strong>{local?.outputTokens ?? 0}</strong></span>
-            <span>{usageCopy.totalTokens}: <strong>{local?.totalTokens ?? 0}</strong></span>
+            <span>{usageCopy.inputTokens}: <strong>{formatTokenCount(local?.inputTokens ?? 0, language)}</strong></span>
+            <span>{usageCopy.cachedInputTokens}: <strong>{formatTokenCount(local?.cachedInputTokens ?? 0, language)}</strong></span>
+            <span>{usageCopy.outputTokens}: <strong>{formatTokenCount(local?.outputTokens ?? 0, language)}</strong></span>
+            <span>{usageCopy.totalTokens}: <strong>{formatTokenCount(local?.totalTokens ?? 0, language)}</strong></span>
             <span>{usageCopy.sessions}: <strong>{local?.sessionsCount ?? 0}</strong></span>
             <span>
               {usageCopy.cost}:{" "}
@@ -228,6 +316,67 @@ export default function UsageSpendTab({
             <p className="settings-preference-group__hint">
               {usageCopy.malformedSkipped(local.malformedRecordsSkipped)}
             </p>
+          ) : null}
+
+          {local && local.state !== "unavailable" && local.state !== "cancelled" ? (
+            <>
+              <p className="settings-preference-group__subheading">
+                {usageCopy.heatmapTitle}
+              </p>
+              <p className="settings-preference-group__description">
+                {usageCopy.heatmapDescription}
+              </p>
+              <div className="usage-spend-heatmap-wrap">
+                {(() => {
+                  const byDate = new Map(local.activity.map((row) => [row.date, row]));
+                  const maxCost = Math.max(
+                    0,
+                    ...local.activity.map((row) => row.estimatedCost.amount ?? 0),
+                  );
+                  const cells = buildHeatmapCells(365);
+                  return (
+                    <>
+                      <div className="usage-spend-heatmap__months" aria-hidden="true">
+                        {heatmapMonthLabels(cells, language).map(({ column, label }) => (
+                          <span key={`${column}-${label}`} style={{ gridColumn: column }}>
+                            {label}
+                          </span>
+                        ))}
+                      </div>
+                      <div className="usage-spend-heatmap" role="grid" aria-label={usageCopy.heatmapTitle}>
+                        {cells.map((date, index) => {
+                          if (date === null) {
+                            return <span key={`empty-${index}`} className="usage-spend-heatmap__cell usage-spend-heatmap__cell--empty" aria-hidden="true" />;
+                          }
+                          const row = byDate.get(date);
+                          const cost = formatCost(row?.estimatedCost, usageCopy);
+                          const tokens = formatTokenCount(row?.totalTokens ?? 0, language);
+                          const label = usageCopy.heatmapCell(
+                            formatLongDate(date, language),
+                            cost,
+                            tokens,
+                          );
+                          const level = heatmapLevel(
+                            row?.estimatedCost.amount ?? null,
+                            maxCost,
+                          );
+                          return (
+                            <span
+                              key={date}
+                              role="gridcell"
+                              tabIndex={0}
+                              title={label}
+                              aria-label={label}
+                              className={`usage-spend-heatmap__cell usage-spend-heatmap__cell--${level === "neutral" ? "neutral" : "cost"} ${level === "neutral" ? "" : `usage-spend-heatmap__cell--${level}`}`}
+                            />
+                          );
+                        })}
+                      </div>
+                    </>
+                  );
+                })()}
+              </div>
+            </>
           ) : null}
 
           {local && local.daily.length > 0 ? (
@@ -247,7 +396,7 @@ export default function UsageSpendTab({
                   {local.daily.map((row) => (
                     <tr key={row.date}>
                       <td>{formatDate(row.date, language)}</td>
-                      <td>{row.totalTokens}</td>
+                      <td>{formatTokenCount(row.totalTokens, language)}</td>
                       <td>
                         {formatCost(row.estimatedCost, usageCopy)}
                       </td>
@@ -278,10 +427,10 @@ export default function UsageSpendTab({
                   {local.models.map((row) => (
                     <tr key={row.model}>
                       <td>{row.model}</td>
-                      <td>{row.inputTokens}</td>
-                      <td>{row.cachedInputTokens}</td>
-                      <td>{row.outputTokens}</td>
-                      <td>{row.totalTokens}</td>
+                      <td>{formatTokenCount(row.inputTokens, language)}</td>
+                      <td>{formatTokenCount(row.cachedInputTokens, language)}</td>
+                      <td>{formatTokenCount(row.outputTokens, language)}</td>
+                      <td>{formatTokenCount(row.totalTokens, language)}</td>
                       <td>
                         {formatCost(row.estimatedCost, usageCopy)}
                       </td>

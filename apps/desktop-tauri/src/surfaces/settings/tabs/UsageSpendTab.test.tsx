@@ -8,7 +8,7 @@ import type {
   UsageSpendRange,
 } from "../../../types/bridge";
 import { settingsCopy } from "../settingsCopy";
-import UsageSpendTab from "./UsageSpendTab";
+import UsageSpendTab, { buildHeatmapCells, formatTokenCount } from "./UsageSpendTab";
 
 vi.mock("../../../lib/tauri", () => ({
   getUsageSpend: vi.fn(),
@@ -39,6 +39,10 @@ function local(overrides: Partial<LocalUsageSpendDto> = {}): LocalUsageSpendDto 
     estimatedCost: { amount: 0.42, currency: "USD", provenance: "officialDirect", canonicalModel: null, sourceUpdatedAt: null }, displayCurrency: "USD", pricingStatus: "partial", partialEstimate: true, unpricedModelCount: 1,
     unknownModels: [],
     daily: [
+      { date: "2026-08-20", totalTokens: 80, estimatedCost: { amount: 0.2, currency: "USD", provenance: "officialDirect", canonicalModel: null, sourceUpdatedAt: null } },
+      { date: "2026-08-21", totalTokens: 85, estimatedCost: { amount: 0.22, currency: "USD", provenance: "officialDirect", canonicalModel: null, sourceUpdatedAt: null } },
+    ],
+    activity: [
       { date: "2026-08-20", totalTokens: 80, estimatedCost: { amount: 0.2, currency: "USD", provenance: "officialDirect", canonicalModel: null, sourceUpdatedAt: null } },
       { date: "2026-08-21", totalTokens: 85, estimatedCost: { amount: 0.22, currency: "USD", provenance: "officialDirect", canonicalModel: null, sourceUpdatedAt: null } },
     ],
@@ -216,5 +220,121 @@ describe("UsageSpendTab", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Refresh local data" }));
     expect(await screen.findByText("66% remaining")).toBeInTheDocument();
+  });
+
+  it("renders a continuous 365-day cost heatmap with accessible day details", async () => {
+    const dateForDaysAgo = (daysAgo: number) => {
+      const date = new Date();
+      date.setHours(12, 0, 0, 0);
+      date.setDate(date.getDate() - daysAgo);
+      return [date.getFullYear(), date.getMonth() + 1, date.getDate()]
+        .map((part, index) => (index === 0 ? String(part) : String(part).padStart(2, "0")))
+        .join("-");
+    };
+    const paidDate = dateForDaysAgo(6);
+    const neutralDate = dateForDaysAgo(5);
+    const paidLabel = new Intl.DateTimeFormat("en-US", {
+      year: "numeric",
+      month: "short",
+      day: "numeric",
+    }).format(new Date(`${paidDate}T00:00:00`));
+    const neutralLabel = new Intl.DateTimeFormat("en-US", {
+      year: "numeric",
+      month: "short",
+      day: "numeric",
+    }).format(new Date(`${neutralDate}T00:00:00`));
+    renderWith(
+      dto({
+        local: local({
+          range: "last7Days",
+          daily: [],
+          activity: [
+            {
+              date: paidDate,
+              totalTokens: 80,
+              estimatedCost: {
+                amount: 0.2,
+                currency: "USD",
+                provenance: "officialDirect",
+                canonicalModel: null,
+                sourceUpdatedAt: null,
+              },
+            },
+            {
+              date: neutralDate,
+              totalTokens: 1_234_567,
+              estimatedCost: {
+                amount: null,
+                currency: "USD",
+                provenance: "unpriced",
+                canonicalModel: null,
+                sourceUpdatedAt: null,
+              },
+            },
+          ],
+        }),
+      }),
+    );
+
+    await screen.findByTestId("usage-spend-tab");
+    expect(getUsageSpendMock).toHaveBeenCalledWith("last7Days");
+    const grid = screen.queryByRole("grid", { name: "Daily cost heatmap" });
+    expect(grid).toBeInTheDocument();
+    if (!grid) return;
+    expect(within(grid).getAllByRole("gridcell")).toHaveLength(365);
+    expect(
+      within(grid).getByRole("gridcell", {
+        name: new RegExp(`${paidLabel}.*\\$0\\.20.*80 tokens`, "i"),
+      }),
+    ).toHaveClass("usage-spend-heatmap__cell--cost");
+    expect(
+      within(grid).getByRole("gridcell", {
+        name: new RegExp(`${neutralLabel}.*—.*1\\.23M tokens`, "i"),
+      }),
+    ).toHaveClass("usage-spend-heatmap__cell--neutral");
+  });
+
+  it("formats token totals with compact English and Chinese units", async () => {
+    expect(formatTokenCount(1_234, "en-US")).toBe("1.23K");
+    expect(formatTokenCount(1_234_567_890, "en-US")).toBe("1.23B");
+    expect(formatTokenCount(12_345, "zh-CN")).toBe("1.23万");
+    renderWith(
+      dto({
+        local: local({
+          inputTokens: 1_234_567,
+          cachedInputTokens: 10_000,
+          outputTokens: 100_000_000,
+          totalTokens: 101_244_567,
+        }),
+      }),
+    );
+    await screen.findByTestId("usage-spend-tab");
+    expect(screen.getByText("101.24M")).toBeInTheDocument();
+
+    const zh = renderWith(
+      dto({
+        local: local({
+          inputTokens: 1_234_567,
+          cachedInputTokens: 10_000,
+          outputTokens: 100_000_000,
+          totalTokens: 123_456_789,
+        }),
+      }),
+      "zh-CN",
+    );
+    await within(zh.container).findByTestId("usage-spend-tab");
+    expect(within(zh.container).getByText("1.23亿")).toBeInTheDocument();
+    zh.unmount();
+  });
+
+  it("pads the heatmap to complete Sunday-first calendar weeks", () => {
+    const cells = buildHeatmapCells(365);
+    expect(cells.length % 7).toBe(0);
+    expect(cells.filter((date): date is string => date !== null)).toHaveLength(365);
+    const firstDate = cells.find((date): date is string => date !== null);
+    expect(firstDate).toBeTruthy();
+    expect(cells.indexOf(firstDate ?? "")).toBe(
+      new Date(`${firstDate}T12:00:00`).getDay(),
+    );
   });
 });

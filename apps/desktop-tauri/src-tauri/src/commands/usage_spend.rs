@@ -16,7 +16,8 @@ use codexbar::pricing::{
     PricingSourceAdapter, refresh_catalog, refresh_due,
 };
 use codexbar::usage_spend::{
-    CodexUsageRange, LocalUsageSpendError, LocalUsageSpendReport, scan_local_codex_usage,
+    CodexUsageRange, DailyUsageSpend, LocalUsageSpendError, LocalUsageSpendReport,
+    scan_local_codex_usage,
 };
 use tauri::Manager;
 
@@ -34,6 +35,7 @@ pub enum UsageSpendRangeDto {
     Today,
     Last7Days,
     Last30Days,
+    Last365Days,
     CurrentWeekly,
 }
 
@@ -43,6 +45,7 @@ impl UsageSpendRangeDto {
             Self::Today => "today",
             Self::Last7Days => "last7Days",
             Self::Last30Days => "last30Days",
+            Self::Last365Days => "last365Days",
             Self::CurrentWeekly => "currentWeekly",
         }
     }
@@ -110,6 +113,10 @@ fn resolve_range(
         }),
         UsageSpendRangeDto::Last30Days => Ok(CodexUsageRange {
             start: today - Duration::days(29),
+            end: today,
+        }),
+        UsageSpendRangeDto::Last365Days => Ok(CodexUsageRange {
+            start: today - Duration::days(364),
             end: today,
         }),
         UsageSpendRangeDto::CurrentWeekly => {
@@ -213,13 +220,28 @@ fn local_unavailable(range: UsageSpendRangeDto) -> LocalUsageSpendDto {
         unpriced_model_count: 0,
         unknown_models: Vec::new(),
         daily: Vec::new(),
+        activity: Vec::new(),
         models: Vec::new(),
         state: "unavailable",
         malformed_records_skipped: 0,
     }
 }
 
-fn local_dto(report: LocalUsageSpendReport, range: UsageSpendRangeDto) -> LocalUsageSpendDto {
+fn daily_dto(rows: Vec<DailyUsageSpend>) -> Vec<DailyUsageSpendDto> {
+    rows.into_iter()
+        .map(|row| DailyUsageSpendDto {
+            date: row.date.format("%Y-%m-%d").to_string(),
+            total_tokens: row.total_tokens,
+            estimated_cost: usd_estimate(row.estimated_cost_usd),
+        })
+        .collect()
+}
+
+fn local_dto(
+    report: LocalUsageSpendReport,
+    activity: Option<LocalUsageSpendReport>,
+    range: UsageSpendRangeDto,
+) -> LocalUsageSpendDto {
     let state = if report.sessions_count == 0 && report.total_tokens == 0 {
         "empty"
     } else {
@@ -245,15 +267,10 @@ fn local_dto(report: LocalUsageSpendReport, range: UsageSpendRangeDto) -> LocalU
         partial_estimate: report.estimated_cost_usd.is_some() && !report.unknown_models.is_empty(),
         unpriced_model_count: report.unknown_models.len() as u32,
         unknown_models: report.unknown_models,
-        daily: report
-            .daily
-            .into_iter()
-            .map(|row| DailyUsageSpendDto {
-                date: row.date.format("%Y-%m-%d").to_string(),
-                total_tokens: row.total_tokens,
-                estimated_cost: usd_estimate(row.estimated_cost_usd),
-            })
-            .collect(),
+        daily: daily_dto(report.daily),
+        activity: activity
+            .map(|value| daily_dto(value.daily))
+            .unwrap_or_default(),
         models: report
             .models
             .into_iter()
@@ -329,19 +346,27 @@ pub async fn get_usage_spend(
 
     let cache_root = cache_root();
     let catalog = load_pricing_catalog(&cache_root).await;
+    let activity_range = CodexUsageRange {
+        start: Local::now().date_naive() - Duration::days(364),
+        end: Local::now().date_naive(),
+    };
+    let activity_cache_root = cache_root.clone();
     let scanned = tauri::async_runtime::spawn_blocking(move || {
-        scan_local_codex_usage(codex_range, &cache_root, &catalog, None)
+        let selected = scan_local_codex_usage(codex_range, &cache_root, &catalog, None);
+        let activity = scan_local_codex_usage(activity_range, &activity_cache_root, &catalog, None);
+        (selected, activity)
     })
     .await
     .map_err(|_| "USAGE_SPEND_SCAN_FAILED".to_string())?;
 
     let local = match scanned {
-        Ok(report) => local_dto(report, range),
-        Err(LocalUsageSpendError::Cancelled) => LocalUsageSpendDto {
+        (Ok(report), Ok(activity)) => local_dto(report, Some(activity), range),
+        (Ok(report), Err(_)) => local_dto(report, None, range),
+        (Err(LocalUsageSpendError::Cancelled), _) => LocalUsageSpendDto {
             state: "cancelled",
             ..local_unavailable(range)
         },
-        Err(LocalUsageSpendError::InvalidRange) => local_unavailable(range),
+        (Err(LocalUsageSpendError::InvalidRange), _) => local_unavailable(range),
     };
     Ok(UsageSpendDto { official, local })
 }
@@ -516,7 +541,10 @@ mod tests {
             models: Vec::new(),
             malformed_records_skipped: 0,
         };
-        assert_eq!(local_dto(empty, UsageSpendRangeDto::Today).state, "empty");
+        assert_eq!(
+            local_dto(empty, None, UsageSpendRangeDto::Today).state,
+            "empty"
+        );
 
         let cancelled = LocalUsageSpendDto {
             state: "cancelled",

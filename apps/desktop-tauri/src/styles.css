@@ -199,6 +199,14 @@ html:has(.float-ball-shell) {
   gap: 12px;
 }
 
+.settings-panel__drag-region {
+  flex: 1;
+  min-width: 0;
+  min-height: 30px;
+  display: flex;
+  align-items: center;
+}
+
 .settings-panel__header h1 {
   font-size: 16px;
   margin: 0;
@@ -342,6 +350,31 @@ html:has(.float-ball-shell) {
 .account-row__actions {
   display: flex;
   gap: 6px;
+}
+
+.account-avatar-settings__content {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.account-avatar-settings__content > .account-avatar {
+  flex: 0 0 auto;
+  border-radius: 50%;
+  background: var(--app-bg);
+}
+
+.account-avatar-settings__actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.account-avatar-settings__actions [role="status"] {
+  flex-basis: 100%;
+  color: var(--app-muted);
+  font-size: 12px;
 }
 
 .login-dialog {
@@ -596,6 +629,73 @@ html:has(.tray-panel) body {
 
 .usage-spend-token-grid strong {
   font-variant-numeric: tabular-nums;
+}
+
+.usage-spend-heatmap-wrap {
+  overflow-x: auto;
+  padding: 8px 2px;
+}
+
+.usage-spend-heatmap__months,
+.usage-spend-heatmap {
+  display: grid;
+  grid-template-columns: repeat(53, minmax(8px, 1fr));
+  grid-auto-flow: column;
+  gap: 3px;
+  min-width: 440px;
+}
+
+.usage-spend-heatmap__months {
+  grid-template-rows: 16px;
+  color: var(--app-muted);
+  font-size: 10px;
+  white-space: nowrap;
+}
+
+.usage-spend-heatmap__months span {
+  overflow: hidden;
+}
+
+.usage-spend-heatmap__cell {
+  display: block;
+  min-width: 8px;
+  min-height: 8px;
+  border-radius: 2px;
+  background: var(--app-surface-muted, var(--app-border));
+  outline: none;
+}
+
+.usage-spend-heatmap {
+  grid-template-rows: repeat(7, 8px);
+}
+
+.usage-spend-heatmap__cell--empty {
+  visibility: hidden;
+}
+
+.usage-spend-heatmap__cell--neutral {
+  background: color-mix(in srgb, var(--app-border) 74%, var(--app-surface));
+}
+
+.usage-spend-heatmap__cell--cost-1 {
+  background: color-mix(in srgb, #a78bfa 35%, var(--app-surface));
+}
+
+.usage-spend-heatmap__cell--cost-2 {
+  background: color-mix(in srgb, #8b5cf6 55%, var(--app-surface));
+}
+
+.usage-spend-heatmap__cell--cost-3 {
+  background: color-mix(in srgb, #7c3aed 75%, var(--app-surface));
+}
+
+.usage-spend-heatmap__cell--cost-4 {
+  background: #6d28d9;
+}
+
+.usage-spend-heatmap__cell:focus-visible {
+  outline: 2px solid var(--app-accent);
+  outline-offset: 1px;
 }
 
 .usage-spend-table {

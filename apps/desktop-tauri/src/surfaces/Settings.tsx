@@ -116,7 +116,9 @@ export default function Settings() {
   return (
     <main className="settings-panel" aria-label={copy.title}>
       <header className="settings-panel__header">
-        <h1>{copy.title}</h1>
+        <div className="settings-panel__drag-region" data-tauri-drag-region>
+          <h1>{copy.title}</h1>
+        </div>
         <button type="button" onClick={dismiss}>
           {copy.close}
         </button>
