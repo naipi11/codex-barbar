@@ -3,9 +3,30 @@
 
 use tauri::{Emitter, Manager, PhysicalPosition, WebviewUrl};
 
-const SETTINGS_LABEL: &str = "settings";
+pub const SETTINGS_LABEL: &str = "settings";
 const SETTINGS_WIDTH: f64 = 680.0;
 const SETTINGS_HEIGHT: f64 = 500.0;
+
+#[derive(Debug, Clone, Copy)]
+struct SettingsWindowChrome {
+    decorations: bool,
+    resizable: bool,
+    minimizable: bool,
+    maximizable: bool,
+    closable: bool,
+}
+
+const SETTINGS_WINDOW_CHROME: SettingsWindowChrome = SettingsWindowChrome {
+    decorations: true,
+    resizable: true,
+    minimizable: true,
+    maximizable: true,
+    closable: true,
+};
+
+fn settings_window_chrome() -> SettingsWindowChrome {
+    SETTINGS_WINDOW_CHROME
+}
 
 /// Open the detached Settings window, or focus it if already open.
 ///
@@ -22,18 +43,22 @@ pub fn open_or_focus(app: &tauri::AppHandle, tab: &str) -> Result<(), String> {
 
     let url = WebviewUrl::App(format!("index.html?window=settings&tab={tab}").into());
 
+    let chrome = settings_window_chrome();
     let win = tauri::WebviewWindowBuilder::new(app, SETTINGS_LABEL, url)
         .title("codex-barbar")
         .inner_size(SETTINGS_WIDTH, SETTINGS_HEIGHT)
-        .decorations(false)
-        .shadow(false)
+        .decorations(chrome.decorations)
+        .shadow(true)
         .theme(Some(tauri::Theme::Dark))
-        .resizable(true)
+        .resizable(chrome.resizable)
+        .minimizable(chrome.minimizable)
+        .maximizable(chrome.maximizable)
+        .closable(chrome.closable)
         .build()
         .map_err(|e| e.to_string())?;
 
-    // Force DWM caption to dark; keep WS_THICKFRAME since window is resizable
-    super::dwm::force_dark_caption_resizable(&win);
+    // Keep the native caption dark while leaving its standard controls intact.
+    super::dwm::force_native_dark_caption(&win);
 
     // Manually center: Tauri's .center() is unreliable on Windows when
     // called from async commands. Compute position from the primary monitor.
@@ -66,10 +91,20 @@ pub fn dismiss(_app: &tauri::AppHandle, window: &tauri::WebviewWindow) -> Result
 
 #[cfg(test)]
 mod tests {
-    use super::{SETTINGS_HEIGHT, SETTINGS_WIDTH};
+    use super::{SETTINGS_HEIGHT, SETTINGS_WIDTH, settings_window_chrome};
 
     #[test]
     fn settings_window_uses_compact_default_size() {
         assert_eq!((SETTINGS_WIDTH, SETTINGS_HEIGHT), (680.0, 500.0));
+    }
+
+    #[test]
+    fn settings_window_exposes_native_minimize_maximize_and_close_controls() {
+        let chrome = settings_window_chrome();
+        assert!(chrome.decorations);
+        assert!(chrome.resizable);
+        assert!(chrome.minimizable);
+        assert!(chrome.maximizable);
+        assert!(chrome.closable);
     }
 }

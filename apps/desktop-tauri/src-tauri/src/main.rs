@@ -413,6 +413,13 @@ fn main() {
                 }
                 return;
             }
+            if window.label() == crate::shell::settings_window::SETTINGS_LABEL {
+                if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                    api.prevent_close();
+                    let _ = window.hide();
+                }
+                return;
+            }
             if let Some(surface) = status_surfaces::surface_for_window_label(window.label()) {
                 match event {
                     tauri::WindowEvent::CloseRequested { api, .. } => {

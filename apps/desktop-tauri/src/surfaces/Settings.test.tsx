@@ -8,14 +8,6 @@ vi.mock("@tauri-apps/api/event", () => ({
   listen: () => Promise.resolve(() => {}),
 }));
 
-const windowHarness = vi.hoisted(() => ({
-  startDragging: vi.fn().mockResolvedValue(undefined),
-}));
-
-vi.mock("@tauri-apps/api/window", () => ({
-  getCurrentWindow: () => windowHarness,
-}));
-
 const defaultSettings = {
   autostartEnabled: false,
   refreshIntervalSeconds: 300,
@@ -121,11 +113,6 @@ function renderSettings(language: "system" | "zh-CN" | "en-US" = "system") {
 
 describe("Settings surface", () => {
   beforeEach(() => {
-    windowHarness.startDragging.mockReset();
-    windowHarness.startDragging.mockResolvedValue(undefined);
-  });
-
-  beforeEach(() => {
     invokeMock.mockReset();
   });
 
@@ -202,49 +189,17 @@ describe("Settings surface", () => {
     expect(accounts).toHaveAttribute("aria-pressed", "true");
   });
 
-  it("exposes only the settings title area as a native window drag region", async () => {
+  it("delegates window chrome to the operating system", async () => {
     renderSettings("en-US");
     const heading = await screen.findByRole("heading", { name: "codex-barbar Settings" });
     const dragRegion = heading.parentElement;
-    expect(dragRegion).toHaveAttribute("data-tauri-drag-region");
-    expect(screen.getByRole("button", { name: "Close" })).not.toHaveAttribute(
-      "data-tauri-drag-region",
-    );
+    expect(dragRegion).not.toHaveAttribute("data-tauri-drag-region");
+    expect(screen.queryByRole("button", { name: "Close" })).not.toBeInTheDocument();
   });
 
-  it("starts native dragging from the title area without dragging Close", async () => {
-    renderSettings("en-US");
-    const heading = await screen.findByRole("heading", { name: "codex-barbar Settings" });
-    const dragRegion = heading.parentElement;
-    expect(dragRegion).not.toBeNull();
-    if (!dragRegion) return;
-
-    fireEvent.mouseDown(dragRegion, { button: 0 });
-    expect(windowHarness.startDragging).toHaveBeenCalledTimes(1);
-
-    fireEvent.mouseDown(screen.getByRole("button", { name: "Close" }), { button: 0 });
-    expect(windowHarness.startDragging).toHaveBeenCalledTimes(1);
-
-  });
-
-  it("supports pointer input as a drag fallback", async () => {
-    renderSettings("en-US");
-    const heading = await screen.findByRole("heading", { name: "codex-barbar Settings" });
-    const dragRegion = heading.parentElement;
-    expect(dragRegion).not.toBeNull();
-    if (!dragRegion) return;
-
-    fireEvent.pointerDown(dragRegion, { button: 0 });
-    expect(windowHarness.startDragging).toHaveBeenCalledTimes(1);
-  });
-
-  it("closes through both the visible control and Escape outside native fields", async () => {
+  it("closes through Escape outside native fields", async () => {
     renderSettings("en-US");
     await screen.findByRole("heading", { name: "codex-barbar Settings" });
-    fireEvent.click(screen.getByRole("button", { name: "Close" }));
-    expect(invokeMock).toHaveBeenCalledWith("close_settings_window");
-
-    invokeMock.mockClear();
     fireEvent.keyDown(screen.getByRole("main"), { key: "Escape" });
     expect(invokeMock).toHaveBeenCalledWith("close_settings_window");
 

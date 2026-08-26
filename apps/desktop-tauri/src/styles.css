@@ -195,16 +195,8 @@ html:has(.float-ball-shell) {
 .settings-panel__header {
   display: flex;
   align-items: center;
-  justify-content: space-between;
   gap: 12px;
-}
-
-.settings-panel__drag-region {
-  flex: 1;
-  min-width: 0;
   min-height: 30px;
-  display: flex;
-  align-items: center;
 }
 
 .settings-panel__header h1 {
@@ -212,7 +204,6 @@ html:has(.float-ball-shell) {
   margin: 0;
 }
 
-.settings-panel__header button,
 .settings-tabs button,
 .settings-panel input,
 .settings-panel select {

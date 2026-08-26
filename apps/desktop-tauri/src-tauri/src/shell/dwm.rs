@@ -206,10 +206,55 @@ pub fn force_dark_caption(win: &tauri::WebviewWindow) {
     force_dark_caption_inner(win, false);
 }
 
-/// Same as [`force_dark_caption`] but keeps the resize frame.
+/// Apply a dark native caption without removing the non-client area.
+///
+/// Settings uses the standard Windows title bar so that minimize, maximize,
+/// and close remain discoverable and accessible. This helper only changes the
+/// caption colors; it deliberately does not install the borderless subclass
+/// used by the tray and overlay surfaces.
 #[cfg(windows)]
-pub fn force_dark_caption_resizable(win: &tauri::WebviewWindow) {
-    force_dark_caption_inner(win, true);
+pub fn force_native_dark_caption(win: &tauri::WebviewWindow) {
+    let Ok(hwnd) = root_hwnd(win) else {
+        tracing::warn!("dwm: couldn't resolve native caption window handle");
+        return;
+    };
+
+    const DWMWA_USE_IMMERSIVE_DARK_MODE: u32 = 20;
+    const DWMWA_CAPTION_COLOR: u32 = 35;
+    let dark_mode: u32 = 1;
+    let caption_color: u32 = 0x001C1C1E;
+
+    unsafe {
+        let dark_result = DwmSetWindowAttribute(
+            hwnd,
+            DWMWA_USE_IMMERSIVE_DARK_MODE,
+            &raw const dark_mode as *const c_void,
+            4,
+        );
+        let color_result = DwmSetWindowAttribute(
+            hwnd,
+            DWMWA_CAPTION_COLOR,
+            &raw const caption_color as *const c_void,
+            4,
+        );
+        tracing::info!(
+            "dwm: native caption dark_mode={dark_result:#x} caption_color={color_result:#x}"
+        );
+
+        const SWP_FRAMECHANGED: u32 = 0x0020;
+        const SWP_NOMOVE: u32 = 0x0002;
+        const SWP_NOSIZE: u32 = 0x0001;
+        const SWP_NOZORDER: u32 = 0x0004;
+        SetWindowPos(
+            hwnd,
+            0,
+            0,
+            0,
+            0,
+            0,
+            SWP_FRAMECHANGED | SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER,
+        );
+    }
 }
 
 #[cfg(windows)]
@@ -539,7 +584,7 @@ pub fn show_noactivate(win: &tauri::WebviewWindow) -> Result<(), String> {
 pub fn force_dark_caption(_win: &tauri::WebviewWindow) {}
 
 #[cfg(not(windows))]
-pub fn force_dark_caption_resizable(_win: &tauri::WebviewWindow) {}
+pub fn force_native_dark_caption(_win: &tauri::WebviewWindow) {}
 
 #[cfg(not(windows))]
 pub fn apply_no_activate_tool_window(_win: &tauri::WebviewWindow) -> Result<(), String> {
