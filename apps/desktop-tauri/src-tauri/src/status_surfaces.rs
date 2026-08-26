@@ -229,11 +229,8 @@ pub fn reconcile_surfaces(
             if matches!(
                 cause,
                 ReconcileCause::PeriodicFallback | ReconcileCause::ShellChanged
-            ) && foreground != ForegroundClass::ShellTransient
-            {
+            ) {
                 restore_enabled_surfaces(app, &mut state)
-            } else if foreground == ForegroundClass::ShellTransient {
-                Ok(())
             } else {
                 keep_enabled_surfaces_visible(&mut state)
             }

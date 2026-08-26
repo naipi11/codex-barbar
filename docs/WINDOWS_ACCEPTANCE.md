@@ -21,7 +21,7 @@ Record evidence for:
 - Tray icon visible and left-click opens the flyout; blur dismisses it
 - Settings window opens from the tray menu; every tab renders
 - Single instance: second launch focuses the existing app
-- Autostart off by default; toggling writes the canonical
+- Autostart on by default; toggling reconciles the canonical
   `codex-barbar.exe --background` command
 - Cached start under 3 seconds after warm-up
 - Theme `auto` keeps all surfaces dark when WebView2 is shared
