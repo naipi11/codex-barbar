@@ -180,6 +180,40 @@ describe("useStatusSurface", () => {
     expect(invokeMock).toHaveBeenCalledTimes(1);
   });
 
+  it("preserves live usage state when settings events update surface appearance", async () => {
+    const bootstrap = bootstrapWithTwoProfiles();
+    bootstrap.usageByProfile.personal = weeklyOnlyUsage({
+      remainingPercent: 98,
+      usedPercent: 2,
+    });
+    invokeMock.mockResolvedValue(bootstrap);
+    const { result } = renderHook(() => useStatusSurface());
+
+    await waitFor(() => expect(result.current.bootstrap).not.toBeNull());
+    await waitFor(() =>
+      expect(eventHarness.listeners.get(events.profileUsageStateChanged)?.size).toBeGreaterThan(0),
+    );
+
+    act(() =>
+      eventHarness.emit(
+        events.profileUsageStateChanged,
+        weeklyOnlyUsage({ remainingPercent: 10, usedPercent: 90 }),
+      ),
+    );
+    await waitFor(() => expect(result.current.urgentMetric?.displayedPercent).toBe(10));
+
+    act(() =>
+      eventHarness.emit(events.settingsChanged, {
+        ...bootstrap.settings,
+        floatBallTransparencyPercent: 70,
+        floatBallGlowPercent: 80,
+      }),
+    );
+
+    await waitFor(() => expect(result.current.bootstrap?.settings.floatBallGlowPercent).toBe(80));
+    expect(result.current.urgentMetric?.displayedPercent).toBe(10);
+  });
+
   it("keeps settings emitted before deferred bootstrap resolution", async () => {
     const bootstrap = bootstrapWithTwoProfiles();
     let resolveBootstrap: (value: typeof bootstrap) => void;

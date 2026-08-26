@@ -81,8 +81,14 @@ function cacheFromBootstrap(
 function bootstrapKey(bootstrap: BootstrapDto): string {
   // The hook is often called with an inline fixture/object expression.  A
   // content key avoids resetting local state merely because the caller made a
-  // new object with the same bootstrap payload.
-  return JSON.stringify(bootstrap);
+  // new object with the same bootstrap payload.  Settings events update the
+  // surrounding bootstrap object without changing the usage snapshot; they
+  // must not overwrite fresher event-driven usage held in cacheRef.
+  return JSON.stringify({
+    profiles: bootstrap.profiles,
+    selectedProfileId: bootstrap.selectedProfileId,
+    usageByProfile: bootstrap.usageByProfile,
+  });
 }
 
 function isAccountsSnapshot(value: unknown): value is AccountsSnapshotDto {
