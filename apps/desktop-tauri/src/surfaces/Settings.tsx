@@ -1,5 +1,6 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 import {
   cancelManagedLogin,
   closeSettingsWindow,
@@ -46,9 +47,23 @@ function PlaceholderTab({ tab, copy }: { tab: SettingsTabId; copy: SettingsCopy 
 export default function Settings() {
   const [tab, setTab] = useState<SettingsTabId>(initialTab);
   const [bootstrap, setBootstrap] = useState<BootstrapDto | null>(null);
+  const dragGuard = useRef(false);
   const { settings, update, setSurfaceEnabled } = useSettings();
   useTheme(settings.theme);
   const copy = settingsCopy(settings.language);
+
+  const beginWindowDrag = () => {
+    if (dragGuard.current) return;
+    dragGuard.current = true;
+    void getCurrentWindow()
+      .startDragging()
+      .catch(() => undefined)
+      .finally(() => {
+        window.setTimeout(() => {
+          dragGuard.current = false;
+        }, 0);
+      });
+  };
 
   useEffect(() => {
     let active = true;
@@ -116,7 +131,20 @@ export default function Settings() {
   return (
     <main className="settings-panel" aria-label={copy.title}>
       <header className="settings-panel__header">
-        <div className="settings-panel__drag-region" data-tauri-drag-region>
+        <div
+          className="settings-panel__drag-region"
+          data-tauri-drag-region
+          onMouseDown={(event) => {
+            if (event.button !== 0) return;
+            event.preventDefault();
+            beginWindowDrag();
+          }}
+          onPointerDown={(event) => {
+            if (event.button !== 0) return;
+            event.preventDefault();
+            beginWindowDrag();
+          }}
+        >
           <h1>{copy.title}</h1>
         </div>
         <button type="button" onClick={dismiss}>
