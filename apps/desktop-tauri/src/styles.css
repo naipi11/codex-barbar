@@ -646,14 +646,17 @@ html:has(.tray-panel) body {
 }
 
 .usage-spend-heatmap__months {
-  grid-template-rows: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
   color: var(--app-muted);
   font-size: 10px;
   white-space: nowrap;
 }
 
 .usage-spend-heatmap__months span {
-  overflow: hidden;
+  flex: 0 0 auto;
 }
 
 .usage-spend-heatmap__cell {
