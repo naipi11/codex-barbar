@@ -4,6 +4,7 @@ use std::path::{Path, PathBuf};
 
 const RUN_KEY: &str = r"Software\Microsoft\Windows\CurrentVersion\Run";
 const VALUE_NAME: &str = "codex-barbar";
+const LEGACY_VALUE_NAMES: &[&str] = &["CodexBar"];
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum AutostartError {
@@ -59,8 +60,14 @@ pub fn set_enabled(enabled: bool) -> Result<(), AutostartError> {
         run_key
             .set_value(VALUE_NAME, &command)
             .map_err(|error| AutostartError::Registry(error.to_string()))?;
+        for legacy_name in LEGACY_VALUE_NAMES {
+            let _ = run_key.delete_value(legacy_name);
+        }
     } else {
         let _ = run_key.delete_value(VALUE_NAME);
+        for legacy_name in LEGACY_VALUE_NAMES {
+            let _ = run_key.delete_value(legacy_name);
+        }
     }
     Ok(())
 }

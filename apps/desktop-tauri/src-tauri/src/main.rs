@@ -36,6 +36,13 @@ fn avatar_store_from_app_paths(
         .unwrap_or_else(codexbar::accounts::avatar::AvatarStore::disabled)
 }
 
+fn background_launch_requested<I>(args: I) -> bool
+where
+    I: IntoIterator<Item = String>,
+{
+    args.into_iter().skip(1).any(|arg| arg == "--background")
+}
+
 fn main() {
     // Fixed internal purge mode used by the NSIS uninstaller. Must run before
     // logging, database, or the single-instance plugin are initialized so the
@@ -54,8 +61,10 @@ fn main() {
 
     codexbar::logging::init(false, false).expect("failed to initialize logging");
 
+    let background_launch = background_launch_requested(std::env::args());
     let proof_config = proof_harness::ProofConfig::from_env();
     let is_proof_mode = proof_config.is_some();
+    tracing::debug!(background_launch, "desktop startup arguments parsed");
 
     let mut initial_state = AppState::new();
     initial_state.proof_config = proof_config;
@@ -346,9 +355,31 @@ fn main() {
                             .as_ref()
                             .map(|service| service.repositories().settings.clone())
                     });
-            let settings = settings_repository
-                .and_then(|repository| repository.load().ok())
-                .unwrap_or_default();
+            let loaded_settings = settings_repository.as_ref().and_then(|repository| {
+                match repository.load() {
+                    Ok(settings) => Some(settings),
+                    Err(error) => {
+                        tracing::warn!(
+                            code = "STARTUP_SETTINGS_LOAD_FAILED",
+                            error = %error,
+                            "startup settings could not be loaded"
+                        );
+                        None
+                    }
+                }
+            });
+            if let Some(settings) = loaded_settings.as_ref() {
+                if let Err(error) = codexbar::platform::windows::autostart::set_enabled(
+                    settings.start_at_login,
+                ) {
+                    tracing::warn!(
+                        code = "AUTOSTART_STARTUP_RECONCILE_FAILED",
+                        error = %error,
+                        "startup autostart reconciliation did not complete"
+                    );
+                }
+            }
+            let settings = loaded_settings.unwrap_or_default();
             status_surfaces::apply_status_surface_settings_non_fatal(app.handle(), &settings);
             crate::shell::foreground_events::start_foreground_event_monitor(app.handle().clone());
             status_surfaces::start_monitor(app.handle().clone());
@@ -450,6 +481,18 @@ fn main() {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn recognizes_background_startup_argument() {
+        assert!(background_launch_requested([
+            "codex-barbar.exe".to_string(),
+            "--background".to_string(),
+        ]));
+        assert!(!background_launch_requested([
+            "codex-barbar.exe".to_string(),
+            "--proof".to_string(),
+        ]));
+    }
 
     #[test]
     fn v1_surface_modes_are_only_hidden_tray_and_settings() {

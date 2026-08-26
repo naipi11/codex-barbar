@@ -476,6 +476,10 @@ impl Default for Settings {
 }
 
 impl Settings {
+    const LEGACY_START_AT_LOGIN_VALUE_NAME: &'static str = "CodexBar";
+    pub fn start_at_login_value_name() -> &'static str {
+        "codex-barbar"
+    }
     /// Get the settings file path
     pub fn settings_path() -> Option<PathBuf> {
         dirs::config_dir().map(|p| p.join("CodexBar").join("settings.json"))
@@ -625,9 +629,10 @@ impl Settings {
         if file_name.is_some_and(|name| {
             name.eq_ignore_ascii_case("codexbar-cli.exe")
                 || name.eq_ignore_ascii_case("codexbar-desktop.exe")
+                || name.eq_ignore_ascii_case("codexbar-desktop-tauri.exe")
         }) && let Some(desktop_exe) = current_exe
             .parent()
-            .map(|dir| dir.join("codexbar.exe"))
+            .map(|dir| dir.join("codex-barbar.exe"))
             .filter(|path| path.exists())
         {
             return desktop_exe;
@@ -638,7 +643,7 @@ impl Settings {
 
     fn start_at_login_command(current_exe: &std::path::Path) -> String {
         let exe_path = Self::start_at_login_exe_path(current_exe);
-        format!("\"{}\"", exe_path.display())
+        format!("\"{}\" --background", exe_path.display())
     }
 
     fn start_at_login_command_needs_repair(existing: &str, current_exe: &std::path::Path) -> bool {
@@ -659,9 +664,11 @@ impl Settings {
         if enabled {
             let exe_path = std::env::current_exe()?;
             let command = Self::start_at_login_command(&exe_path);
-            run_key.set_value("CodexBar", &command)?;
+            run_key.set_value(Self::start_at_login_value_name(), &command)?;
+            let _ = run_key.delete_value(Self::LEGACY_START_AT_LOGIN_VALUE_NAME);
         } else {
-            let _ = run_key.delete_value("CodexBar");
+            let _ = run_key.delete_value(Self::start_at_login_value_name());
+            let _ = run_key.delete_value(Self::LEGACY_START_AT_LOGIN_VALUE_NAME);
         }
 
         Ok(())
@@ -680,16 +687,18 @@ impl Settings {
             return false;
         };
 
-        let Ok(existing) = run_key.get_value::<String, _>("CodexBar") else {
-            return false;
-        };
+        let existing = run_key
+            .get_value::<String, _>(Self::start_at_login_value_name())
+            .or_else(|_| run_key.get_value(Self::LEGACY_START_AT_LOGIN_VALUE_NAME));
+        let Ok(existing) = existing else { return false };
 
         match std::env::current_exe() {
             Ok(exe_path) if Self::start_at_login_command_needs_repair(&existing, &exe_path) => {
                 let command = Self::start_at_login_command(&exe_path);
-                if let Err(error) = run_key.set_value("CodexBar", &command) {
+                if let Err(error) = run_key.set_value(Self::start_at_login_value_name(), &command) {
                     tracing::warn!("Failed to repair CodexBar start-at-login command: {error}");
                 }
+                let _ = run_key.delete_value(Self::LEGACY_START_AT_LOGIN_VALUE_NAME);
             }
             Err(error) => {
                 tracing::warn!(
@@ -722,7 +731,9 @@ impl Settings {
 
         let hkcu = RegKey::predef(HKEY_CURRENT_USER);
         if let Ok(run_key) = hkcu.open_subkey(r"Software\Microsoft\Windows\CurrentVersion\Run") {
-            run_key.get_value::<String, _>("CodexBar").is_ok()
+            run_key
+                .get_value::<String, _>(Self::start_at_login_value_name())
+                .is_ok()
         } else {
             false
         }
