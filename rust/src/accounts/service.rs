@@ -614,9 +614,6 @@ impl AccountProfileService {
                         }
                     }
                 };
-                runtime
-                    .set_state(RuntimeState::LoggingIn)
-                    .map_err(|_| AccountServiceError::Busy)?;
                 (runtime, generation)
             }
             None => {
@@ -624,13 +621,13 @@ impl AccountProfileService {
                     .runtime_homes
                     .prepare_new(profile_id)
                     .map_err(|_| AccountServiceError::Busy)?;
-                runtime
-                    .set_state(RuntimeState::LoggingIn)
-                    .map_err(|_| AccountServiceError::Busy)?;
                 (runtime, 0)
             }
         };
         let _cleanup_guard = RuntimeCleanupGuard::new(&runtime);
+        runtime
+            .set_state(RuntimeState::LoggingIn)
+            .map_err(|_| AccountServiceError::Busy)?;
 
         let mut session = match self
             .app_server_factory
