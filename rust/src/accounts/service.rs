@@ -449,6 +449,7 @@ impl AccountProfileService {
                     "RUNTIME_RESTORE_FAILED",
                 ))
             })?;
+        let mut cleanup_guard = RuntimeCleanupGuard::new(&runtime);
         runtime
             .set_state(RuntimeState::Active)
             .map_err(|_| AccountServiceError::Busy)?;
@@ -460,7 +461,6 @@ impl AccountProfileService {
         {
             Ok(session) => session,
             Err(error) => {
-                let _ = runtime.cleanup();
                 return Err(AccountServiceError::App(error));
             }
         };
@@ -468,7 +468,6 @@ impl AccountProfileService {
             Ok(account) => account,
             Err(error) => {
                 let _ = session.shutdown().await;
-                let _ = runtime.cleanup();
                 return Err(AccountServiceError::App(error));
             }
         };
@@ -482,7 +481,6 @@ impl AccountProfileService {
             Ok(rates) => rates,
             Err(error) => {
                 let _ = session.shutdown().await;
-                let _ = runtime.cleanup();
                 return Err(AccountServiceError::App(error));
             }
         };
@@ -509,10 +507,16 @@ impl AccountProfileService {
             .seal_bundle(profile_id, Some(info.generation), &mut collected)
             .await
         {
-            let _ = runtime.cleanup();
             return Err(AccountServiceError::App(error));
         }
-        let _ = runtime.cleanup();
+        if cleanup_guard.cleanup_now().is_err() {
+            return Err(AccountServiceError::App(AppError::new(
+                AppErrorKind::StorageFailure,
+                "errors.runtimeCleanupFailed",
+                crate::core::RecoveryAction::ExportDiagnostics,
+                "RUNTIME_CLEANUP_FAILED",
+            )));
+        }
 
         self.repositories
             .usage
@@ -716,6 +720,7 @@ impl AccountProfileService {
         let event = session.next_login_event().await;
         let _ = session.shutdown().await;
 
+        let mut completed_auth_mode = None;
         match event {
             Ok(LoginEvent::Completed { .. }) => {
                 let account = match self
@@ -777,6 +782,7 @@ impl AccountProfileService {
                     )));
                 }
 
+                completed_auth_mode = Some(account.auth_mode);
                 let mut bundle = crate::accounts::credential_bundle::collect_bundle(
                     runtime.codex_home(),
                     profile_id,
@@ -798,24 +804,6 @@ impl AccountProfileService {
                     .seal_bundle(profile_id, expected, &mut bundle)
                     .await
                     .map_err(AccountServiceError::from)?;
-
-                self.repositories
-                    .accounts
-                    .update_profile(
-                        profile_id,
-                        "Managed",
-                        account.auth_mode,
-                        ProfileLifecycle::Ready,
-                        None,
-                    )
-                    .map_err(storage_error)?;
-                if let Some(status) = self
-                    .actor
-                    .update_login(operation_id, ManagedLoginStage::Succeeded, None, None, None)
-                    .await
-                {
-                    self.publish_login(status);
-                }
             }
             Ok(LoginEvent::Failed { error, .. }) => {
                 terminal_error = Some(error);
@@ -871,6 +859,25 @@ impl AccountProfileService {
                 crate::core::RecoveryAction::ExportDiagnostics,
                 "RUNTIME_CLEANUP_FAILED",
             )));
+        }
+        if terminal_error.is_none() {
+            self.repositories
+                .accounts
+                .update_profile(
+                    profile_id,
+                    "Managed",
+                    completed_auth_mode.expect("completed login auth mode"),
+                    ProfileLifecycle::Ready,
+                    None,
+                )
+                .map_err(storage_error)?;
+            if let Some(status) = self
+                .actor
+                .update_login(operation_id, ManagedLoginStage::Succeeded, None, None, None)
+                .await
+            {
+                self.publish_login(status);
+            }
         }
         if let Some(error) = terminal_error {
             return Err(AccountServiceError::App(error));

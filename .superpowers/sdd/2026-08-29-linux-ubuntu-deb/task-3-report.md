@@ -56,6 +56,8 @@
   transactionalizes runtime restoration: partial credential directories are
   removed on any restore failure, with cleanup errors surfaced as typed
   storage failures. Added multi-temp and partial-restore regression coverage.
+- Fix-round 5 delays profile readiness and terminal `Succeeded` until runtime
+  cleanup succeeds, and applies result-aware cleanup to managed refresh.
 - `cargo clippy --manifest-path rust/Cargo.toml --all-targets -- -D warnings`
   — PASS.
 - `cargo check --manifest-path apps/desktop-tauri/src-tauri/Cargo.toml` — PASS.
