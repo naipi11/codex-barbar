@@ -154,23 +154,32 @@ impl RuntimeHomeManager {
         let session_id = Uuid::new_v4();
         let codex_home = self.session_path(profile_id, session_id);
         let _guard = Self::create_guarded_dir(&codex_home)?;
-        for file in &bundle.files {
-            super::credential_bundle::restore_entry(&codex_home, file)?;
+        let result = (|| {
+            for file in &bundle.files {
+                super::credential_bundle::restore_entry(&codex_home, file)?;
+            }
+            std::fs::write(
+                codex_home.join("config.toml"),
+                "cli_auth_credentials_store = \"file\"\n",
+            )
+            .map_err(|_| RuntimeHomeError::Io)?;
+            let home = ManagedRuntimeHome {
+                codex_home: codex_home.clone(),
+                session_id,
+                profile_id,
+                base_vault_generation: Some(base_generation),
+                created_at: Utc::now(),
+            };
+            home.write_manifest(RuntimeState::Active)?;
+            Ok(home)
+        })();
+        match result {
+            Ok(home) => Ok(home),
+            Err(error) => {
+                remove_tree_no_follow(&codex_home)?;
+                Err(error)
+            }
         }
-        std::fs::write(
-            codex_home.join("config.toml"),
-            "cli_auth_credentials_store = \"file\"\n",
-        )
-        .map_err(|_| RuntimeHomeError::Io)?;
-        let home = ManagedRuntimeHome {
-            codex_home,
-            session_id,
-            profile_id,
-            base_vault_generation: Some(base_generation),
-            created_at: Utc::now(),
-        };
-        home.write_manifest(RuntimeState::Active)?;
-        Ok(home)
     }
 
     pub fn scan_recovery_candidates(&self) -> Result<Vec<RecoveryCandidate>, RuntimeHomeError> {
@@ -513,6 +522,8 @@ pub(crate) fn remove_tree_no_follow(path: &Path) -> Result<(), RuntimeHomeError>
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::accounts::secret_bytes::SensitiveBytes;
+    use crate::accounts::vault::{CredentialFile, PrivateProfileMetadata};
 
     fn manager() -> RuntimeHomeManager {
         let dir = tempfile::tempdir().unwrap();
@@ -527,6 +538,35 @@ mod tests {
         assert_eq!(
             std::fs::read_to_string(a.codex_home().join("config.toml")).unwrap(),
             "cli_auth_credentials_store = \"file\"\n"
+        );
+    }
+
+    #[test]
+    fn restore_failure_removes_partial_credential_runtime() {
+        let root = tempfile::tempdir().unwrap();
+        let manager = RuntimeHomeManager::new(root.path().join("runtime"));
+        let bundle = ManagedCredentialBundle {
+            files: vec![
+                CredentialFile {
+                    relative_path: "auth.json".to_string(),
+                    contents: SensitiveBytes::new(b"secret".to_vec()),
+                },
+                CredentialFile {
+                    relative_path: "../escape".to_string(),
+                    contents: SensitiveBytes::new(b"bad".to_vec()),
+                },
+            ],
+            private_metadata: PrivateProfileMetadata {
+                email: None,
+                plan_type: None,
+                auth_mode: crate::core::AuthMode::ChatGpt,
+            },
+        };
+
+        assert!(manager.restore(Uuid::nil(), &bundle, 1).is_err());
+        let profile_root = root.path().join("runtime").join(Uuid::nil().to_string());
+        assert!(
+            std::fs::read_dir(profile_root).map_or(true, |mut entries| entries.next().is_none())
         );
     }
 }

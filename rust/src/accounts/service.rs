@@ -30,17 +30,28 @@ use crate::accounts::model::ProfileLifecycle;
 
 struct RuntimeCleanupGuard<'a> {
     runtime: &'a ManagedRuntimeHome,
+    cleaned: bool,
 }
 
 impl<'a> RuntimeCleanupGuard<'a> {
     fn new(runtime: &'a ManagedRuntimeHome) -> Self {
-        Self { runtime }
+        Self {
+            runtime,
+            cleaned: false,
+        }
+    }
+
+    fn cleanup_now(&mut self) -> Result<(), crate::accounts::runtime_home::RuntimeHomeError> {
+        self.cleaned = true;
+        self.runtime.cleanup()
     }
 }
 
 impl Drop for RuntimeCleanupGuard<'_> {
     fn drop(&mut self) {
-        let _ = self.runtime.cleanup();
+        if !self.cleaned {
+            let _ = self.runtime.cleanup();
+        }
     }
 }
 
@@ -624,7 +635,7 @@ impl AccountProfileService {
                 (runtime, 0)
             }
         };
-        let _cleanup_guard = RuntimeCleanupGuard::new(&runtime);
+        let mut cleanup_guard = RuntimeCleanupGuard::new(&runtime);
         runtime
             .set_state(RuntimeState::LoggingIn)
             .map_err(|_| AccountServiceError::Busy)?;
@@ -846,7 +857,18 @@ impl AccountProfileService {
             }
         }
 
+        let cleanup_error = cleanup_guard.cleanup_now().err();
         self.actor.finish_login(operation_id).await;
+        if terminal_error.is_none()
+            && let Some(_error) = cleanup_error
+        {
+            return Err(AccountServiceError::App(AppError::new(
+                AppErrorKind::StorageFailure,
+                "errors.runtimeCleanupFailed",
+                crate::core::RecoveryAction::ExportDiagnostics,
+                "RUNTIME_CLEANUP_FAILED",
+            )));
+        }
         if let Some(error) = terminal_error {
             return Err(AccountServiceError::App(error));
         }

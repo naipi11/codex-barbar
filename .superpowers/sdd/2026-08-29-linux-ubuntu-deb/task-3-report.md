@@ -52,6 +52,10 @@
   uses a scoped runtime cleanup guard for every managed-login exit path, and
   adds multi-temp deletion coverage. Rollback and local cleanup failures remain
   typed and retryable; original operation errors are preserved.
+- Fix-round 4 makes runtime cleanup result-aware on successful login and
+  transactionalizes runtime restoration: partial credential directories are
+  removed on any restore failure, with cleanup errors surfaced as typed
+  storage failures. Added multi-temp and partial-restore regression coverage.
 - `cargo clippy --manifest-path rust/Cargo.toml --all-targets -- -D warnings`
   — PASS.
 - `cargo check --manifest-path apps/desktop-tauri/src-tauri/Cargo.toml` — PASS.
