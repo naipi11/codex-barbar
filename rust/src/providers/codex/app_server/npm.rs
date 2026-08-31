@@ -118,6 +118,47 @@ pub fn resolve_npm_shim(shim: &Path) -> Result<ResolvedCodexCommand, AppError> {
     ))
 }
 
+/// Resolve a Linux npm global-bin symlink only when it points at the exact
+/// package entry beneath the same prefix. The symlink itself is never
+/// executed, and an adjacent, validated `node` executable launches the fixed
+/// JavaScript entry directly.
+#[cfg(target_os = "linux")]
+pub(crate) fn resolve_linux_npm_layout(shim: &Path) -> Result<ResolvedCodexCommand, AppError> {
+    use std::os::unix::fs::PermissionsExt;
+
+    if !shim.is_absolute() || shim.file_name().is_none_or(|name| name != "codex") {
+        return Err(wrapper_unsupported());
+    }
+    let shim_metadata = std::fs::symlink_metadata(shim).map_err(|_| wrapper_unsupported())?;
+    if !shim_metadata.file_type().is_symlink() {
+        return Err(wrapper_unsupported());
+    }
+
+    let bin = shim.parent().ok_or_else(wrapper_unsupported)?;
+    if bin.file_name().is_none_or(|name| name != "bin") {
+        return Err(wrapper_unsupported());
+    }
+    let prefix = canonical_directory(bin.parent().ok_or_else(wrapper_unsupported)?)?;
+    let expected_entry = canonical_regular_file(
+        &prefix.join("lib/node_modules/@openai/codex/bin/codex.js"),
+        &prefix,
+    )?;
+    if shim.canonicalize().map_err(|_| wrapper_unsupported())? != expected_entry {
+        return Err(wrapper_unsupported());
+    }
+
+    let node = canonical_regular_file(&prefix.join("bin/node"), &prefix)?;
+    if node.permissions().mode() & 0o111 == 0 {
+        return Err(wrapper_unsupported());
+    }
+
+    Ok(ResolvedCodexCommand::from_parts(
+        node,
+        vec![expected_entry.into_os_string()],
+        CodexInstallation::VerifiedNpmLayout,
+    ))
+}
+
 /// Resolve the native Windows x64 executable from a verified official npm
 /// prefix. No wrapper text is read or executed by this path.
 #[allow(dead_code)]
@@ -736,6 +777,39 @@ mod tests {
             .resolve_override(&layout.cmd())
             .unwrap_err();
         assert_eq!(error.diagnostic_code, "CODEX_WRAPPER_UNSUPPORTED");
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn verified_linux_npm_layout_resolves_its_node_entry_without_a_shell() {
+        use std::os::unix::fs::{PermissionsExt, symlink};
+
+        let fixture = tempfile::TempDir::new().unwrap();
+        let prefix = fixture.path().join("prefix");
+        let bin = prefix.join("bin");
+        let entry = prefix.join("lib/node_modules/@openai/codex/bin/codex.js");
+        fs::create_dir_all(entry.parent().unwrap()).unwrap();
+        fs::create_dir_all(&bin).unwrap();
+        fs::write(&entry, "// verified entry\n").unwrap();
+        let node = bin.join("node");
+        fs::write(&node, "#!/bin/sh\nexit 0\n").unwrap();
+        let mut permissions = fs::metadata(&node).unwrap().permissions();
+        permissions.set_mode(0o755);
+        fs::set_permissions(&node, permissions).unwrap();
+        let shim = bin.join("codex");
+        symlink("../lib/node_modules/@openai/codex/bin/codex.js", &shim).unwrap();
+
+        let resolved = resolve_linux_npm_layout(&shim).unwrap();
+
+        assert_eq!(
+            resolved.installation(),
+            CodexInstallation::VerifiedNpmLayout
+        );
+        assert_eq!(resolved.program(), node.canonicalize().unwrap());
+        assert_eq!(
+            resolved.args_prefix(),
+            &[entry.canonicalize().unwrap().into_os_string()]
+        );
     }
 
     #[cfg(windows)]

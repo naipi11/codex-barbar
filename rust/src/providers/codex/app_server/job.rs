@@ -1,5 +1,34 @@
 //! Windows Job Object ownership for supervised Codex children.
 
+#[cfg(unix)]
+const SIGTERM: i32 = 15;
+#[cfg(unix)]
+const SIGKILL: i32 = 9;
+
+/// Deliver a signal to a Unix process group. Process groups use a negative
+/// pid with `kill(2)`; errors mean the group has already exited or cannot be
+/// signalled and are intentionally handled by the caller as bounded cleanup.
+#[cfg(unix)]
+pub(crate) fn signal_process_group(process_group: i32, signal: i32) {
+    unsafe extern "C" {
+        fn kill(pid: i32, signal: i32) -> i32;
+    }
+
+    if process_group > 0 {
+        let _ = unsafe { kill(-process_group, signal) };
+    }
+}
+
+#[cfg(unix)]
+pub(crate) fn terminate_process_group(process_group: i32) {
+    signal_process_group(process_group, SIGTERM);
+}
+
+#[cfg(unix)]
+pub(crate) fn kill_process_group(process_group: i32) {
+    signal_process_group(process_group, SIGKILL);
+}
+
 #[cfg(windows)]
 use windows::Win32::Foundation::{CloseHandle, HANDLE};
 #[cfg(windows)]

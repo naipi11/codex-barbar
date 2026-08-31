@@ -76,6 +76,7 @@ fn config_looks_fast(text: &str) -> bool {
         || lower.contains("model_reasoning_effort=\"fast\"")
 }
 
+#[cfg(any(windows, test))]
 fn snapshot_looks_active(names: &[String]) -> bool {
     names.iter().any(|name| {
         let lower = name.to_ascii_lowercase();
@@ -210,9 +211,12 @@ fn query_process_names() -> Vec<String> {
     names
 }
 
-#[cfg(not(windows))]
-fn query_process_names() -> Vec<String> {
-    Vec::new()
+#[cfg(target_os = "linux")]
+fn linux_codex_is_active() -> bool {
+    !codexbar::platform::linux::process::discover_codex_processes(
+        &codexbar::platform::linux::process::ProcfsReader::system(),
+    )
+    .is_empty()
 }
 
 fn current_motion(monitor: &mut MotionMonitor) -> FloatBallMotion {
@@ -223,7 +227,12 @@ fn current_motion(monitor: &mut MotionMonitor) -> FloatBallMotion {
     } else {
         None
     };
+    #[cfg(windows)]
     let thinking = snapshot_looks_active(&query_process_names());
+    #[cfg(target_os = "linux")]
+    let thinking = linux_codex_is_active();
+    #[cfg(not(any(windows, target_os = "linux")))]
+    let thinking = false;
     monitor
         .tick(metadata, contents.as_deref(), thinking)
         .unwrap_or_else(|| FloatBallMotion::from_flags(thinking, monitor.last_fast))
@@ -249,7 +258,12 @@ pub fn start_float_ball_motion_monitor(app: tauri::AppHandle) {
             } else {
                 None
             };
+            #[cfg(windows)]
             let thinking = snapshot_looks_active(&query_process_names());
+            #[cfg(target_os = "linux")]
+            let thinking = linux_codex_is_active();
+            #[cfg(not(any(windows, target_os = "linux")))]
+            let thinking = false;
             if let Some(motion) = monitor.tick(metadata, contents.as_deref(), thinking)
                 && app.emit(FLOAT_BALL_MOTION_CHANGED, motion).is_err()
             {

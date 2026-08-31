@@ -5,7 +5,7 @@ use std::ffi::{OsStr, OsString};
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
-use tokio::process::Child;
+use tokio::process::{Child, Command};
 
 use crate::core::{AppError, AppErrorKind, RecoveryAction};
 
@@ -369,7 +369,7 @@ fn fixture_command(mode: FakeServerMode) -> Result<ResolvedCodexCommand, AppErro
         .join("powershell.exe");
 
     #[cfg(not(windows))]
-    let powershell = PathBuf::from("powershell.exe");
+    let powershell = PathBuf::from("/bin/false");
 
     Ok(ResolvedCodexCommand::from_parts(
         powershell,
@@ -398,13 +398,15 @@ pub struct SupervisedAppServerProcess {
     child: Child,
     #[cfg(windows)]
     job: super::job::JobHandle,
+    #[cfg(unix)]
+    process_group: Option<i32>,
 }
 
 impl SupervisedAppServerProcess {
     /// Spawn the child with piped stdio, the fixed environment, and
     /// CREATE_NO_WINDOW, then assign it to a kill-on-close Job Object.
     pub fn spawn(spec: &AppServerSpawnSpec) -> Result<Self, AppError> {
-        let mut command = tokio::process::Command::new(&spec.program);
+        let mut command = Command::new(&spec.program);
         command
             .args(&spec.arguments)
             .current_dir(&spec.working_directory)
@@ -423,6 +425,10 @@ impl SupervisedAppServerProcess {
         {
             const CREATE_NO_WINDOW_FLAG: u32 = 0x08000000;
             command.creation_flags(CREATE_NO_WINDOW_FLAG);
+        }
+        #[cfg(unix)]
+        {
+            command.process_group(0);
         }
 
         let mut child = command.spawn().map_err(|_| {
@@ -458,10 +464,15 @@ impl SupervisedAppServerProcess {
             job
         };
 
+        #[cfg(unix)]
+        let process_group = child.id().and_then(|pid| i32::try_from(pid).ok());
+
         Ok(Self {
             child,
             #[cfg(windows)]
             job,
+            #[cfg(unix)]
+            process_group,
         })
     }
 
@@ -484,6 +495,19 @@ impl SupervisedAppServerProcess {
         match tokio::time::timeout(grace, self.child.wait()).await {
             Ok(_) => {}
             Err(_) => {
+                #[cfg(unix)]
+                if let Some(process_group) = self.process_group {
+                    super::job::terminate_process_group(process_group);
+                    if tokio::time::timeout(Duration::from_millis(250), self.child.wait())
+                        .await
+                        .is_err()
+                    {
+                        super::job::kill_process_group(process_group);
+                    }
+                } else {
+                    let _ = self.child.start_kill();
+                }
+                #[cfg(not(unix))]
                 let _ = self.child.start_kill();
                 let _ = self.child.wait().await;
             }
@@ -491,6 +515,15 @@ impl SupervisedAppServerProcess {
         // `job` is dropped here, terminating any surviving tree members.
         #[cfg(windows)]
         drop(self.job);
+    }
+}
+
+#[cfg(unix)]
+impl Drop for SupervisedAppServerProcess {
+    fn drop(&mut self) {
+        if let Some(process_group) = self.process_group {
+            super::job::kill_process_group(process_group);
+        }
     }
 }
 
@@ -632,6 +665,36 @@ mod tests {
             .map(|output| String::from_utf8_lossy(&output.stdout).contains(&pid.to_string()))
             .unwrap_or(false);
         assert!(!still_alive, "pid {pid} survived supervised shutdown");
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn unix_spawn_owns_a_distinct_process_group_and_cancels_it() {
+        unsafe extern "C" {
+            fn getpgid(pid: i32) -> i32;
+            fn getpgrp() -> i32;
+            fn kill(pid: i32, signal: i32) -> i32;
+        }
+
+        let command = ResolvedCodexCommand::from_parts(
+            PathBuf::from("/bin/sh"),
+            vec![OsString::from("-c"), OsString::from("sleep 60 & wait")],
+            super::super::discovery::CodexInstallation::NativeExe,
+        );
+        let mut spec = AppServerSpawnSpec::current_cli(command);
+        spec.arguments.truncate(spec.arguments.len() - 1);
+        let process = SupervisedAppServerProcess::spawn(&spec).unwrap();
+        let pid = process.child.id().expect("child pid") as i32;
+
+        assert_eq!(unsafe { getpgid(pid) }, pid);
+        assert_ne!(unsafe { getpgid(pid) }, unsafe { getpgrp() });
+
+        process.shutdown(Duration::from_millis(50)).await;
+        assert_ne!(
+            unsafe { kill(-pid, 0) },
+            0,
+            "process group {pid} survived shutdown"
+        );
     }
 
     #[cfg(windows)]

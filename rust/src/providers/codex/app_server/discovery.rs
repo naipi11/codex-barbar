@@ -156,6 +156,27 @@ impl CodexCommandResolver {
                 "CODEX_OVERRIDE_NOT_ABSOLUTE",
             ));
         }
+        #[cfg(target_os = "linux")]
+        if override_path
+            .file_name()
+            .is_some_and(|name| name == "codex")
+        {
+            if let Some(command) = verify_linux_codex(override_path)? {
+                return Ok(command);
+            }
+            return crate::providers::codex::app_server::npm::resolve_linux_npm_layout(
+                override_path,
+            )
+            .map_err(|_| {
+                AppError::new(
+                    AppErrorKind::CodexNotFound,
+                    "errors.codexNotFound",
+                    RecoveryAction::InstallTestedCodex,
+                    "CODEX_OVERRIDE_NOT_USABLE",
+                )
+            });
+        }
+
         match extension_lower(override_path).as_deref() {
             Some("exe") => verify_native_exe(override_path)?.ok_or_else(|| {
                 AppError::new(
@@ -184,35 +205,60 @@ impl CodexCommandResolver {
         path: &OsString,
         pathext: Option<&OsString>,
     ) -> Result<Option<ResolvedCodexCommand>, AppError> {
-        let exts = pathext_extensions(pathext);
-        for segment in std::env::split_paths(path) {
-            if segment.as_os_str().is_empty() {
-                continue;
-            }
-            for ext in &exts {
-                let candidate = segment.join(format!("codex.{ext}"));
-                match ext.as_str() {
-                    "exe" => {
-                        if let Some(cmd) = verify_native_exe(&candidate)? {
-                            return Ok(Some(cmd));
-                        }
-                    }
-                    "cmd" => {
-                        if let Ok(cmd) =
-                            crate::providers::codex::app_server::npm::resolve_npm_shim(&candidate)
-                        {
-                            return Ok(Some(cmd));
-                        }
-                        if let Ok(cmd) = crate::providers::codex::app_server::npm::resolve_official_native_from_prefix(&segment)
-                        {
-                            return Ok(Some(cmd));
-                        }
-                    }
-                    _ => {}
+        #[cfg(target_os = "linux")]
+        {
+            for segment in std::env::split_paths(path) {
+                if segment.as_os_str().is_empty() {
+                    continue;
+                }
+                if let Some(command) = verify_linux_codex(&segment.join("codex"))? {
+                    return Ok(Some(command));
+                }
+                if let Ok(command) =
+                    crate::providers::codex::app_server::npm::resolve_linux_npm_layout(
+                        &segment.join("codex"),
+                    )
+                {
+                    return Ok(Some(command));
                 }
             }
+            return Ok(None);
         }
-        Ok(None)
+
+        #[cfg(not(target_os = "linux"))]
+        {
+            let exts = pathext_extensions(pathext);
+            for segment in std::env::split_paths(path) {
+                if segment.as_os_str().is_empty() {
+                    continue;
+                }
+                for ext in &exts {
+                    let candidate = segment.join(format!("codex.{ext}"));
+                    match ext.as_str() {
+                        "exe" => {
+                            if let Some(cmd) = verify_native_exe(&candidate)? {
+                                return Ok(Some(cmd));
+                            }
+                        }
+                        "cmd" => {
+                            if let Ok(cmd) =
+                                crate::providers::codex::app_server::npm::resolve_npm_shim(
+                                    &candidate,
+                                )
+                            {
+                                return Ok(Some(cmd));
+                            }
+                            if let Ok(cmd) = crate::providers::codex::app_server::npm::resolve_official_native_from_prefix(&segment)
+                        {
+                            return Ok(Some(cmd));
+                        }
+                        }
+                        _ => {}
+                    }
+                }
+            }
+            Ok(None)
+        }
     }
 
     #[cfg(test)]
@@ -264,13 +310,21 @@ impl Default for CodexCommandResolver {
 
 /// Ordered known native install roots.
 fn known_native_candidates() -> Vec<PathBuf> {
-    let mut out = Vec::new();
-    if let Some(local) = dirs::data_local_dir() {
-        out.push(local.join(r"Programs\OpenAI Codex\codex.exe"));
-        out.push(local.join(r"Programs\Codex\codex.exe"));
-        out.push(local.join(r"Microsoft\WindowsApps\codex.exe"));
+    #[cfg(target_os = "linux")]
+    {
+        return Vec::new();
     }
-    out
+
+    #[cfg(not(target_os = "linux"))]
+    {
+        let mut out = Vec::new();
+        if let Some(local) = dirs::data_local_dir() {
+            out.push(local.join(r"Programs\OpenAI Codex\codex.exe"));
+            out.push(local.join(r"Programs\Codex\codex.exe"));
+            out.push(local.join(r"Microsoft\WindowsApps\codex.exe"));
+        }
+        out
+    }
 }
 
 fn is_windows_apps_alias(path: &Path) -> bool {
@@ -345,6 +399,45 @@ pub(crate) fn verify_native_exe(path: &Path) -> Result<Option<ResolvedCodexComma
         version: None,
         installation: CodexInstallation::NativeExe,
     }))
+}
+
+/// Verify a Linux `codex` executable without accepting a shell wrapper or
+/// symlink. npm layouts are handled separately by their verified resolver.
+#[cfg(target_os = "linux")]
+fn verify_linux_codex(path: &Path) -> Result<Option<ResolvedCodexCommand>, AppError> {
+    use std::os::unix::fs::PermissionsExt;
+
+    let source = match std::fs::symlink_metadata(path) {
+        Ok(metadata) => metadata,
+        Err(_) => return Ok(None),
+    };
+    if !source.is_file() || is_reparse(&source) || source.permissions().mode() & 0o111 == 0 {
+        return Ok(None);
+    }
+    let canonical = path.canonicalize().map_err(|_| {
+        AppError::new(
+            AppErrorKind::CodexNotFound,
+            "errors.codexNotFound",
+            RecoveryAction::InstallTestedCodex,
+            "CODEX_CANDIDATE_INACCESSIBLE",
+        )
+    })?;
+    let metadata = std::fs::symlink_metadata(&canonical).map_err(|_| {
+        AppError::new(
+            AppErrorKind::CodexNotFound,
+            "errors.codexNotFound",
+            RecoveryAction::InstallTestedCodex,
+            "CODEX_CANDIDATE_INACCESSIBLE",
+        )
+    })?;
+    if !metadata.is_file() || is_reparse(&metadata) || metadata.permissions().mode() & 0o111 == 0 {
+        return Ok(None);
+    }
+    Ok(Some(ResolvedCodexCommand::from_parts(
+        canonical,
+        Vec::new(),
+        CodexInstallation::NativeExe,
+    )))
 }
 
 /// Direct fixed-argument `--version` probe; no shell is involved.
@@ -660,6 +753,22 @@ mod tests {
             .resolve_override(&script)
             .unwrap_err();
         assert_eq!(error.diagnostic_code, "CODEX_OVERRIDE_UNSUPPORTED_SUFFIX");
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn linux_resolver_accepts_codex_without_a_windows_suffix() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let fixture = tempfile::TempDir::new().unwrap();
+        let path = fixture.path().join("codex");
+        fs::write(&path, b"#!/bin/sh\nexit 0\n").unwrap();
+        let mut permissions = fs::metadata(&path).unwrap().permissions();
+        permissions.set_mode(0o755);
+        fs::set_permissions(&path, permissions).unwrap();
+
+        let command = CodexCommandResolver::new().resolve_override(&path).unwrap();
+        assert_eq!(command.launch_program(), path.canonicalize().unwrap());
     }
 
     /// Real-machine compatibility probe. It is intentionally ignored so the
