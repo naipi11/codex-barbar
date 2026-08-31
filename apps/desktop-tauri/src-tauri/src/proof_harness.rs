@@ -682,6 +682,7 @@ pub fn synthetic_bootstrap(scenario: ProofScenario) -> crate::commands::Bootstra
         selected_profile_id: selected.to_string(),
         usage_by_profile,
         codex: crate::commands::CodexCompatibilityDto::default(),
+        platform: crate::platform_capabilities::snapshot(),
     }
 }
 

@@ -110,6 +110,15 @@ export default function Settings() {
           managedLogin: false,
         },
       },
+      platform: {
+        platform: "windows",
+        systemTray: true,
+        taskbarStatus: true,
+        floatingBall: true,
+        autostart: true,
+        notifications: "available",
+        managedCredentials: true,
+      },
     },
   );
 

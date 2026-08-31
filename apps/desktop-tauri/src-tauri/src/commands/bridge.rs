@@ -834,6 +834,12 @@ pub struct BootstrapDto {
     pub selected_profile_id: String,
     pub usage_by_profile: BTreeMap<String, ProfileUsageStateDto>,
     pub codex: CodexCompatibilityDto,
+    pub platform: crate::platform_capabilities::PlatformCapabilitiesDto,
+}
+
+#[tauri::command]
+pub fn get_platform_capabilities() -> crate::platform_capabilities::PlatformCapabilitiesDto {
+    crate::platform_capabilities::snapshot()
 }
 
 #[derive(Debug, Clone, Copy, Default, Serialize)]
@@ -871,6 +877,7 @@ pub(crate) fn bootstrap_from_state(
         selected_profile_id: String::new(),
         usage_by_profile: BTreeMap::new(),
         codex: CodexCompatibilityDto::default(),
+        platform: crate::platform_capabilities::snapshot(),
     };
 
     let Some(service) = state.account_service.as_ref() else {
@@ -1194,6 +1201,7 @@ mod tests {
             selected_profile_id: String::new(),
             usage_by_profile: BTreeMap::new(),
             codex: CodexCompatibilityDto::default(),
+            platform: crate::platform_capabilities::snapshot(),
         })
         .unwrap();
         let object = value.as_object().unwrap();
@@ -1201,6 +1209,7 @@ mod tests {
             object.keys().cloned().collect::<Vec<_>>(),
             vec![
                 "codex",
+                "platform",
                 "productName",
                 "profiles",
                 "selectedProfileId",

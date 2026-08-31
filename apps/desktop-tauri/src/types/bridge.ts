@@ -330,6 +330,17 @@ export interface BootstrapDto {
   usageByProfile: Record<string, ProfileUsageStateDto>;
   statusSurfaceFeedback: StatusSurfaceFeedbackDto;
   codex: CodexCompatibilityDto;
+  platform: PlatformCapabilitiesDto;
+}
+
+export interface PlatformCapabilitiesDto {
+  platform: "windows" | "linux" | "other";
+  systemTray: boolean;
+  taskbarStatus: boolean;
+  floatingBall: boolean;
+  autostart: boolean;
+  notifications: "available" | "appDisabled" | "globalDisabled" | "unsupported";
+  managedCredentials: boolean;
 }
 
 export interface CurrentSurfaceState {

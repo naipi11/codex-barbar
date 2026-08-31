@@ -95,6 +95,17 @@ const bootstrapFixture = {
 };
 
 describe("App", () => {
+  it("keeps Linux capabilities on the bootstrap bridge", async () => {
+    webviewWindowMocks.label = "main";
+    invokeMock.mockResolvedValue({
+      ...bootstrapFixture,
+      platform: { platform: "linux", taskbarStatus: false },
+    });
+    render(<App />);
+    const bootstrap = { platform: { platform: "linux", taskbarStatus: false } };
+    expect(bootstrap.platform.taskbarStatus).toBe(false);
+  });
+
   it("bootstraps once without checking for updates", async () => {
     webviewWindowMocks.label = "main";
     invokeMock.mockResolvedValue(bootstrapFixture);

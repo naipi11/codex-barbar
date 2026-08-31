@@ -8,6 +8,7 @@ mod float_ball;
 mod float_ball_motion;
 mod geometry_store;
 mod notification_controller;
+mod platform_capabilities;
 mod pricing_refresh;
 mod proof_harness;
 mod shell;
@@ -162,6 +163,7 @@ fn main() {
         }))
         .invoke_handler(tauri::generate_handler![
             commands::get_bootstrap_state,
+            commands::get_platform_capabilities,
             float_ball_motion::get_float_ball_motion,
             commands::get_settings_snapshot,
             commands::get_notification_capability,
