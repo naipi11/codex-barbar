@@ -11,6 +11,14 @@ use crate::core::ProfileId;
 use super::crypto::{CredentialProtector, VaultError};
 use super::envelope::{ManagedCredentialBundle, VaultEnvelope};
 
+fn remove_file_if_present(path: &std::path::Path) -> Result<(), VaultError> {
+    match std::fs::remove_file(path) {
+        Ok(()) => Ok(()),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(_) => Err(VaultError::Io),
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct VaultInfo {
     pub profile_id: ProfileId,
@@ -92,23 +100,27 @@ impl CredentialVault {
         let temp_path = self.random_temp_path(profile_id);
         let backup_path = self.backup_path(profile_id);
         if let Err(error) = self.write_temp(&temp_path, json.as_bytes()) {
-            self.rollback_after_failure(
-                profile_id,
-                previous_raw.as_deref(),
-                previous_secret.as_ref(),
-            );
+            let rollback_error = self
+                .rollback_after_failure(
+                    profile_id,
+                    previous_raw.as_deref(),
+                    previous_secret.as_ref(),
+                )
+                .err();
             let _ = std::fs::remove_file(&temp_path);
-            return Err(error);
+            return Err(rollback_error.unwrap_or(error));
         }
         #[cfg(test)]
         if let Err(error) = self.maybe_fail(VaultWriteStep::TempFlushed) {
-            self.rollback_after_failure(
-                profile_id,
-                previous_raw.as_deref(),
-                previous_secret.as_ref(),
-            );
+            let rollback_error = self
+                .rollback_after_failure(
+                    profile_id,
+                    previous_raw.as_deref(),
+                    previous_secret.as_ref(),
+                )
+                .err();
             let _ = std::fs::remove_file(&temp_path);
-            return Err(error);
+            return Err(rollback_error.unwrap_or(error));
         }
 
         let publish_result = self.publish(&temp_path, &final_path, &backup_path);
@@ -116,42 +128,50 @@ impl CredentialVault {
         let publish_result =
             publish_result.and_then(|_| self.maybe_fail(VaultWriteStep::Published));
         if let Err(error) = publish_result {
-            self.rollback_after_failure(
-                profile_id,
-                previous_raw.as_deref(),
-                previous_secret.as_ref(),
-            );
+            let rollback_error = self
+                .rollback_after_failure(
+                    profile_id,
+                    previous_raw.as_deref(),
+                    previous_secret.as_ref(),
+                )
+                .err();
             let _ = std::fs::remove_file(&temp_path);
-            return Err(error);
+            return Err(rollback_error.unwrap_or(error));
         }
 
         let written = match self.read_envelope(&final_path)?.ok_or(VaultError::Io) {
             Ok(value) => value,
             Err(error) => {
-                self.rollback_after_failure(
-                    profile_id,
-                    previous_raw.as_deref(),
-                    previous_secret.as_ref(),
-                );
-                return Err(error);
+                let rollback_error = self
+                    .rollback_after_failure(
+                        profile_id,
+                        previous_raw.as_deref(),
+                        previous_secret.as_ref(),
+                    )
+                    .err();
+                return Err(rollback_error.unwrap_or(error));
             }
         };
         if written.profile_id != profile_id || written.generation != next_generation {
-            self.rollback_after_failure(
-                profile_id,
-                previous_raw.as_deref(),
-                previous_secret.as_ref(),
-            );
-            return Err(VaultError::InvalidEnvelope);
+            let rollback_error = self
+                .rollback_after_failure(
+                    profile_id,
+                    previous_raw.as_deref(),
+                    previous_secret.as_ref(),
+                )
+                .err();
+            return Err(rollback_error.unwrap_or(VaultError::InvalidEnvelope));
         }
         #[cfg(test)]
         if let Err(error) = self.maybe_fail(VaultWriteStep::FinalVerified) {
-            self.rollback_after_failure(
-                profile_id,
-                previous_raw.as_deref(),
-                previous_secret.as_ref(),
-            );
-            return Err(error);
+            let rollback_error = self
+                .rollback_after_failure(
+                    profile_id,
+                    previous_raw.as_deref(),
+                    previous_secret.as_ref(),
+                )
+                .err();
+            return Err(rollback_error.unwrap_or(error));
         }
         let _ = std::fs::remove_file(&backup_path);
         Ok(VaultInfo {
@@ -218,6 +238,11 @@ impl CredentialVault {
             && envelope.version == super::envelope::VAULT_VERSION
             && envelope.protection == "windows-dpapi-current-user"
             && envelope.profile_id == profile_id
+            && base64::Engine::decode(
+                &base64::engine::general_purpose::STANDARD,
+                &envelope.ciphertext_base64,
+            )
+            .is_ok_and(|bytes| !bytes.is_empty())
         {
             Ok(Some(envelope.generation))
         } else {
@@ -282,11 +307,12 @@ impl CredentialVault {
 
     pub fn remove(&self, profile_id: ProfileId) -> Result<(), VaultError> {
         self.protector.remove_current_user(profile_id)?;
-        let _ = std::fs::remove_file(self.final_path(profile_id));
-        if let Some(temp) = self.find_temp(profile_id) {
-            let _ = std::fs::remove_file(temp);
+        remove_file_if_present(&self.final_path(profile_id))?;
+        let temp = self.find_temp_checked(profile_id)?;
+        if let Some(temp) = temp {
+            remove_file_if_present(&temp)?;
         }
-        let _ = std::fs::remove_file(self.backup_path(profile_id));
+        remove_file_if_present(&self.backup_path(profile_id))?;
         Ok(())
     }
 
@@ -311,6 +337,27 @@ impl CredentialVault {
                 .and_then(|name| name.to_str())
                 .is_some_and(|name| name.starts_with(&prefix))
         })
+    }
+
+    fn find_temp_checked(&self, profile_id: ProfileId) -> Result<Option<PathBuf>, VaultError> {
+        let prefix = format!("{profile_id}.tmp.");
+        let entries = match std::fs::read_dir(&self.vault_root) {
+            Ok(entries) => entries,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+            Err(_) => return Err(VaultError::Io),
+        };
+        for entry in entries {
+            let entry = entry.map_err(|_| VaultError::Io)?;
+            let path = entry.path();
+            if path
+                .file_name()
+                .and_then(|name| name.to_str())
+                .is_some_and(|name| name.starts_with(&prefix))
+            {
+                return Ok(Some(path));
+            }
+        }
+        Ok(None)
     }
 
     fn read_envelope(&self, path: &std::path::Path) -> Result<Option<VaultEnvelope>, VaultError> {
@@ -347,6 +394,11 @@ impl CredentialVault {
                         && envelope.protection == "windows-dpapi-current-user"
                         && envelope.profile_id == profile_id
                         && expected_generation == Some(envelope.generation)
+                        && base64::Engine::decode(
+                            &base64::engine::general_purpose::STANDARD,
+                            &envelope.ciphertext_base64,
+                        )
+                        .is_ok_and(|bytes| !bytes.is_empty())
                     {
                         return Ok(Some(envelope));
                     }
@@ -362,25 +414,36 @@ impl CredentialVault {
         profile_id: ProfileId,
         previous_raw: Option<&[u8]>,
         previous_secret: Option<&crate::accounts::secret_bytes::SensitiveBytes>,
-    ) {
+    ) -> Result<(), VaultError> {
+        let mut failure = None;
         match previous_secret {
             Some(secret) => {
-                let _ = self
+                if let Err(error) = self
                     .protector
-                    .protect_current_user(profile_id, secret.as_slice());
+                    .protect_current_user(profile_id, secret.as_slice())
+                {
+                    failure = Some(error);
+                }
             }
             None => {
-                let _ = self.protector.remove_current_user(profile_id);
+                if let Err(error) = self.protector.remove_current_user(profile_id) {
+                    failure = Some(error);
+                }
             }
         }
         match previous_raw {
             Some(raw) => {
-                let _ = std::fs::write(self.final_path(profile_id), raw);
+                if std::fs::write(self.final_path(profile_id), raw).is_err() {
+                    failure = Some(VaultError::Io);
+                }
             }
             None => {
-                let _ = std::fs::remove_file(self.final_path(profile_id));
+                if let Err(error) = remove_file_if_present(&self.final_path(profile_id)) {
+                    failure = Some(error);
+                }
             }
         }
+        failure.map_or(Ok(()), Err)
     }
 
     fn read_envelope_lenient(&self, path: &std::path::Path) -> Option<VaultEnvelope> {
@@ -534,6 +597,46 @@ struct StatefulProtector {
 #[cfg(test)]
 struct FailingRemoveProtector {
     fail_once: std::sync::atomic::AtomicBool,
+}
+
+#[cfg(test)]
+struct RollbackFailProtector {
+    calls: std::sync::atomic::AtomicUsize,
+}
+
+#[cfg(test)]
+impl Default for RollbackFailProtector {
+    fn default() -> Self {
+        Self {
+            calls: std::sync::atomic::AtomicUsize::new(0),
+        }
+    }
+}
+
+#[cfg(test)]
+impl CredentialProtector for RollbackFailProtector {
+    fn protect_current_user(
+        &self,
+        _profile_id: ProfileId,
+        _plaintext: &[u8],
+    ) -> Result<Vec<u8>, VaultError> {
+        let call = self.calls.fetch_add(1, std::sync::atomic::Ordering::AcqRel) + 1;
+        if call == 3 {
+            Err(VaultError::SecretServiceLocked)
+        } else {
+            Ok(b"opaque-marker".to_vec())
+        }
+    }
+
+    fn unprotect_current_user(
+        &self,
+        _profile_id: ProfileId,
+        _ciphertext: &[u8],
+    ) -> Result<crate::accounts::secret_bytes::SensitiveBytes, VaultError> {
+        Ok(crate::accounts::secret_bytes::SensitiveBytes::new(
+            b"previous".to_vec(),
+        ))
+    }
 }
 
 #[cfg(test)]
@@ -798,5 +901,56 @@ mod tests {
         assert!(dir.path().join(format!("{}.dpapi", Uuid::nil())).exists());
         vault.remove(Uuid::nil()).unwrap();
         assert!(!dir.path().join(format!("{}.dpapi", Uuid::nil())).exists());
+    }
+
+    #[test]
+    fn rollback_failure_is_reported_instead_of_claiming_safe_commit() {
+        let dir = tempfile::tempdir().unwrap();
+        let protector = Arc::new(RollbackFailProtector::default());
+        let vault = CredentialVault::new(dir.path().to_path_buf(), protector);
+        let mut first = bundle(b"first");
+        let info = vault.seal_expected(Uuid::nil(), None, &mut first).unwrap();
+        vault
+            .fault
+            .lock()
+            .unwrap()
+            .replace(VaultWriteStep::TempFlushed);
+        let mut second = bundle(b"second");
+        assert_eq!(
+            vault.seal_expected(Uuid::nil(), Some(info.generation), &mut second),
+            Err(VaultError::SecretServiceLocked)
+        );
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn corrupt_legacy_base64_cannot_enter_replacement_path() {
+        let dir = tempfile::tempdir().unwrap();
+        let vault =
+            CredentialVault::new(dir.path().to_path_buf(), Arc::new(TestProtector::default()));
+        let raw = serde_json::json!({
+            "format": super::envelope::VAULT_FORMAT,
+            "version": super::envelope::VAULT_VERSION,
+            "protection": "windows-dpapi-current-user",
+            "profile_id": Uuid::nil(),
+            "generation": 1,
+            "sealed_at": Utc::now(),
+            "ciphertext_base64": "not-base64"
+        });
+        std::fs::create_dir_all(dir.path()).unwrap();
+        std::fs::write(
+            dir.path().join(format!("{}.dpapi", Uuid::nil())),
+            serde_json::to_vec(&raw).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(
+            vault.legacy_replacement_generation(Uuid::nil()).unwrap(),
+            None
+        );
+        let mut bundle = bundle(b"new");
+        assert_eq!(
+            vault.seal_expected(Uuid::nil(), Some(1), &mut bundle),
+            Err(VaultError::InvalidEnvelope)
+        );
     }
 }

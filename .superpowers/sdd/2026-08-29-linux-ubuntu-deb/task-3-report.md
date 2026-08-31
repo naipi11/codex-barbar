@@ -44,6 +44,10 @@
   failure and retryable protector deletion.
 - Linux-only service coverage exercises successful replacement after an
   unreadable legacy envelope (cfg-gated on this Windows host).
+- Fix-round 2 added checked local-artifact deletion, explicit compensation
+  error propagation, terminal cleanup for early login failures, and strict
+  legacy ciphertext validation. Deterministic rollback-failure, retryable
+  deletion, and corrupt-base64 regression tests were added.
 - `cargo clippy --manifest-path rust/Cargo.toml --all-targets -- -D warnings`
   — PASS.
 - `cargo check --manifest-path apps/desktop-tauri/src-tauri/Cargo.toml` — PASS.

@@ -31,9 +31,6 @@ impl std::error::Error for VaultError {}
 const SECRET_SERVICE_SERVICE: &str = "com.naipi11.codexbarbar";
 
 #[cfg(target_os = "linux")]
-const SECRET_SERVICE_MARKER_PREFIX: &[u8] = b"codex-barbar-secret-service:v1:";
-
-#[cfg(target_os = "linux")]
 pub fn secret_service_marker(profile_id: ProfileId) -> Vec<u8> {
     format!("codex-barbar-secret-service:v1:{profile_id}").into_bytes()
 }
@@ -64,15 +61,10 @@ fn secret_service_entry(profile_id: ProfileId) -> Result<keyring::Entry, VaultEr
 
 #[cfg(target_os = "linux")]
 fn parse_secret_service_marker(profile_id: ProfileId, marker: &[u8]) -> Result<(), VaultError> {
-    let value = std::str::from_utf8(marker).map_err(|_| VaultError::InvalidEnvelope)?;
-    let prefix = std::str::from_utf8(SECRET_SERVICE_MARKER_PREFIX).unwrap();
-    let encoded = value
-        .strip_prefix(prefix)
-        .ok_or(VaultError::InvalidEnvelope)?;
-    let marker_profile = encoded
-        .parse::<ProfileId>()
-        .map_err(|_| VaultError::InvalidEnvelope)?;
-    if marker_profile != profile_id {
+    if !marker.starts_with(b"codex-barbar-secret-service:v1:") {
+        return Err(VaultError::InvalidEnvelope);
+    }
+    if marker != secret_service_marker(profile_id).as_slice() {
         return Err(VaultError::WrongProfile);
     }
     Ok(())

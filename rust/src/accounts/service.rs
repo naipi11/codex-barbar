@@ -167,9 +167,25 @@ impl AccountProfileService {
         let this = Arc::clone(self);
         let operation_id = status.operation_id;
         tokio::spawn(async move {
-            let _ = this
+            let result = this
                 .run_managed_login(profile_id, request.method, operation_id, replace_profile_id)
                 .await;
+            if result.is_err() && this.actor.active_login().await.is_some() {
+                if let Some(status) = this
+                    .actor
+                    .update_login(
+                        operation_id,
+                        crate::accounts::model::ManagedLoginStage::Failed,
+                        None,
+                        None,
+                        Some(AppErrorKind::VaultFailure),
+                    )
+                    .await
+                {
+                    this.publish_login(status);
+                }
+                this.actor.finish_login(operation_id).await;
+            }
         });
         Ok(status)
     }
