@@ -42,8 +42,11 @@ impl<'a> RuntimeCleanupGuard<'a> {
     }
 
     fn cleanup_now(&mut self) -> Result<(), crate::accounts::runtime_home::RuntimeHomeError> {
-        self.cleaned = true;
-        self.runtime.cleanup()
+        let result = self.runtime.cleanup();
+        if result.is_ok() {
+            self.cleaned = true;
+        }
+        result
     }
 }
 
