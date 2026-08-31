@@ -330,7 +330,7 @@ impl CredentialVault {
         expected_generation: Option<u64>,
     ) -> Result<Option<VaultEnvelope>, VaultError> {
         #[cfg(not(target_os = "linux"))]
-        let _ = profile_id;
+        let _ = (profile_id, expected_generation);
         match self.read_envelope(path) {
             Ok(envelope) => Ok(envelope),
             Err(VaultError::InvalidEnvelope) => {
