@@ -748,7 +748,7 @@ mod tests {
         );
     }
 
-    #[cfg(unix)]
+    #[cfg(target_os = "linux")]
     #[tokio::test]
     async fn unix_fixture_completes_the_real_initialize_and_account_protocol() {
         let spec = AppServerSpawnSpec::test_fixture(FakeServerMode::Normal).unwrap();

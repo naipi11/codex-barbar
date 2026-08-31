@@ -90,3 +90,13 @@ execution on Ubuntu CI or a functioning Linux container before release.
 Linux float-ball activity still traverses procfs once per 250 ms monitor tick.
 It was intentionally left unchanged in this narrow fix round; reduce or cache
 that poll cadence separately if Linux profiling shows material desktop cost.
+
+## Fix round 2: platform-correct fixture test gate
+
+- Narrowed the Python-fixture protocol test from `cfg(unix)` to
+  `cfg(target_os = "linux")`. The fixture command itself is Linux-specific;
+  macOS/BSD retain their generic Unix process-group coverage without trying to
+  execute the Linux Python fixture.
+- `cargo fmt --all -- --check` completed successfully.
+- `cargo test --manifest-path rust/Cargo.toml --lib providers::codex::app_server::process`: 13 passed, 0 failed.
+- `cargo test --manifest-path rust/Cargo.toml --test codex_app_server_contract`: 17 passed, 0 failed.
