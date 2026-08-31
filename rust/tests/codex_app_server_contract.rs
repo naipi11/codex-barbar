@@ -1,6 +1,6 @@
 //! Process-level contracts for the supervised Codex App Server client.
 
-#![cfg(windows)]
+#![cfg(any(windows, target_os = "linux"))]
 
 use std::time::Duration;
 

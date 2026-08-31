@@ -2,6 +2,8 @@
 
 use std::collections::BTreeMap;
 use std::ffi::{OsStr, OsString};
+#[cfg(any(unix, test))]
+use std::future::Future;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
@@ -345,6 +347,7 @@ fn existing_directory(path: &Path) -> PathBuf {
     std::env::temp_dir()
 }
 
+#[cfg(windows)]
 fn fixture_command(mode: FakeServerMode) -> Result<ResolvedCodexCommand, AppError> {
     let script = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("tests")
@@ -368,9 +371,6 @@ fn fixture_command(mode: FakeServerMode) -> Result<ResolvedCodexCommand, AppErro
         .join("v1.0")
         .join("powershell.exe");
 
-    #[cfg(not(windows))]
-    let powershell = PathBuf::from("/bin/false");
-
     Ok(ResolvedCodexCommand::from_parts(
         powershell,
         vec![
@@ -388,9 +388,56 @@ fn fixture_command(mode: FakeServerMode) -> Result<ResolvedCodexCommand, AppErro
     ))
 }
 
+#[cfg(target_os = "linux")]
+fn fixture_command(mode: FakeServerMode) -> Result<ResolvedCodexCommand, AppError> {
+    let script = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("tests")
+        .join("fixtures")
+        .join("fake_codex_app_server.py");
+    if !script.is_file() {
+        return Err(AppError::new(
+            AppErrorKind::StorageFailure,
+            "errors.appServerFixtureMissing",
+            RecoveryAction::Retry,
+            "APP_SERVER_FIXTURE_MISSING",
+        ));
+    }
+
+    Ok(ResolvedCodexCommand::from_parts(
+        PathBuf::from("/usr/bin/python3"),
+        vec![
+            script.into_os_string(),
+            OsString::from("--mode"),
+            OsString::from(mode.as_str()),
+        ],
+        super::discovery::CodexInstallation::NativeExe,
+    ))
+}
+
+#[cfg(not(any(windows, target_os = "linux")))]
+fn fixture_command(_mode: FakeServerMode) -> Result<ResolvedCodexCommand, AppError> {
+    Err(AppError::new(
+        AppErrorKind::StorageFailure,
+        "errors.appServerFixtureMissing",
+        RecoveryAction::Retry,
+        "APP_SERVER_FIXTURE_UNSUPPORTED_PLATFORM",
+    ))
+}
+
 /// Default graceful shutdown window before the Job handle is closed (which
 /// terminates the whole process tree).
 pub const SHUTDOWN_GRACE: Duration = Duration::from_secs(3);
+
+/// The final reap attempt after SIGKILL is deliberately bounded: process
+/// cleanup must not make the caller wait forever if the OS does not reap a
+/// child promptly.
+#[cfg(any(unix, test))]
+const POST_KILL_WAIT: Duration = Duration::from_millis(250);
+
+#[cfg(any(unix, test))]
+async fn wait_after_kill<T>(wait: impl Future<Output = T>) {
+    let _ = tokio::time::timeout(POST_KILL_WAIT, wait).await;
+}
 
 /// A running, supervised App Server child. Dropping the Job handle kills the
 /// entire process tree via KILL_ON_JOB_CLOSE.
@@ -503,13 +550,17 @@ impl SupervisedAppServerProcess {
                         .is_err()
                     {
                         super::job::kill_process_group(process_group);
+                        wait_after_kill(self.child.wait()).await;
                     }
                 } else {
                     let _ = self.child.start_kill();
+                    wait_after_kill(self.child.wait()).await;
                 }
                 #[cfg(not(unix))]
-                let _ = self.child.start_kill();
-                let _ = self.child.wait().await;
+                {
+                    let _ = self.child.start_kill();
+                    let _ = self.child.wait().await;
+                }
             }
         }
         // `job` is dropped here, terminating any surviving tree members.
@@ -667,7 +718,7 @@ mod tests {
         assert!(!still_alive, "pid {pid} survived supervised shutdown");
     }
 
-    #[cfg(unix)]
+    #[cfg(target_os = "linux")]
     #[tokio::test]
     async fn unix_spawn_owns_a_distinct_process_group_and_cancels_it() {
         unsafe extern "C" {
@@ -695,6 +746,33 @@ mod tests {
             0,
             "process group {pid} survived shutdown"
         );
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn unix_fixture_completes_the_real_initialize_and_account_protocol() {
+        let spec = AppServerSpawnSpec::test_fixture(FakeServerMode::Normal).unwrap();
+        let client = tokio::time::timeout(
+            Duration::from_secs(5),
+            super::super::client::CodexAppServerClient::connect(spec),
+        )
+        .await
+        .expect("fixture initialization must be bounded")
+        .expect("unix fixture must initialize");
+
+        let account = client
+            .request("account/read", serde_json::json!({ "refreshToken": false }))
+            .await
+            .expect("unix fixture must answer account/read");
+        assert_eq!(account["account"]["type"], "chatgpt");
+        client.shutdown().await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn post_kill_wait_is_bounded_when_the_child_never_reaps() {
+        let started = std::time::Instant::now();
+        wait_after_kill(std::future::pending::<()>()).await;
+        assert!(started.elapsed() < Duration::from_secs(1));
     }
 
     #[cfg(windows)]
