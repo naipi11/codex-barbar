@@ -53,6 +53,7 @@ describe("V1 bridge contract", () => {
   it("exports the frozen command names", () => {
     expect(commands).toEqual({
       getBootstrapState: "get_bootstrap_state",
+      getPlatformCapabilities: "get_platform_capabilities",
       getSettingsSnapshot: "get_settings_snapshot",
       getNotificationCapability: "get_notification_capability",
       updateSettings: "update_settings",

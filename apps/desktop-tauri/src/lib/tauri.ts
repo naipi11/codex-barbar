@@ -18,11 +18,13 @@ import type {
   UsageSpendDto,
   UsageSpendRange,
   FloatBallMotionDto,
+  PlatformCapabilitiesDto,
 } from "../types/bridge";
 
 /** Frozen invoke names. Keep this list in sync with the Rust command registry. */
 export const commands = {
   getBootstrapState: "get_bootstrap_state",
+  getPlatformCapabilities: "get_platform_capabilities",
   getSettingsSnapshot: "get_settings_snapshot",
   getNotificationCapability: "get_notification_capability",
   updateSettings: "update_settings",
@@ -83,6 +85,9 @@ export interface StartManagedLoginArgs {
 
 export const getBootstrapState = () =>
   invoke<BootstrapDto>(commands.getBootstrapState);
+
+export const getPlatformCapabilities = () =>
+  invoke<PlatformCapabilitiesDto>(commands.getPlatformCapabilities);
 
 export const getSettingsSnapshot = () =>
   invoke<AppSettingsDto>(commands.getSettingsSnapshot);

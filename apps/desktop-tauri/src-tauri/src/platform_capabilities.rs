@@ -1,5 +1,15 @@
 use serde::Serialize;
 
+#[derive(Debug, Clone, Copy, Serialize)]
+#[serde(rename_all = "camelCase")]
+#[allow(dead_code)]
+pub enum NotificationCapabilityStatus {
+    Available,
+    AppDisabled,
+    GlobalDisabled,
+    Unsupported,
+}
+
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PlatformCapabilitiesDto {
@@ -8,7 +18,7 @@ pub struct PlatformCapabilitiesDto {
     pub taskbar_status: bool,
     pub floating_ball: bool,
     pub autostart: bool,
-    pub notifications: &'static str,
+    pub notifications: NotificationCapabilityStatus,
     pub managed_credentials: bool,
 }
 
@@ -21,7 +31,7 @@ pub const fn snapshot() -> PlatformCapabilitiesDto {
             taskbar_status: true,
             floating_ball: true,
             autostart: true,
-            notifications: "available",
+            notifications: NotificationCapabilityStatus::Available,
             managed_credentials: true,
         };
     }
@@ -33,7 +43,7 @@ pub const fn snapshot() -> PlatformCapabilitiesDto {
             taskbar_status: false,
             floating_ball: true,
             autostart: true,
-            notifications: "unsupported",
+            notifications: NotificationCapabilityStatus::Unsupported,
             managed_credentials: false,
         };
     }
@@ -44,7 +54,7 @@ pub const fn snapshot() -> PlatformCapabilitiesDto {
         taskbar_status: false,
         floating_ball: false,
         autostart: false,
-        notifications: "unsupported",
+        notifications: NotificationCapabilityStatus::Unsupported,
         managed_credentials: false,
     }
 }
