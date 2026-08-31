@@ -64,6 +64,9 @@ open = "5"
 fluent-templates = "0.13"
 unic-langid = "0.9"
 
+# Linux Secret Service credential storage
+keyring = { version = "4.1", default-features = false, features = ["v1", "zbus-secret-service-keyring-store"] }
+
 # Windows-only
 [target.'cfg(windows)'.dependencies]
 windows = { version = "0.58", features = [

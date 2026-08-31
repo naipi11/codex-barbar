@@ -90,7 +90,7 @@ fn main() {
                 .as_ref()
                 .map(|paths| paths.vault.clone())
                 .unwrap_or_else(|| std::path::PathBuf::from("codex-barbar-vault")),
-            Arc::new(codexbar::accounts::vault::WindowsDpapiProtector::new()),
+            codexbar::accounts::vault::platform_credential_protector(),
         ));
         let runtime_root = app_paths
             .as_ref()

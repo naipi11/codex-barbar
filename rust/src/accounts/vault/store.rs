@@ -57,7 +57,23 @@ impl CredentialVault {
         bundle: &mut ManagedCredentialBundle,
     ) -> Result<VaultInfo, VaultError> {
         let final_path = self.final_path(profile_id);
-        let existing = self.read_envelope(&final_path)?;
+        let previous_raw = std::fs::read(&final_path).ok();
+        let existing = self.read_envelope_for_seal(&final_path, profile_id, expected_generation)?;
+        let previous_secret = match self.read_envelope(&final_path) {
+            Ok(Some(envelope)) => {
+                let ciphertext = base64::Engine::decode(
+                    &base64::engine::general_purpose::STANDARD,
+                    &envelope.ciphertext_base64,
+                )
+                .map_err(|_| VaultError::InvalidEnvelope)?;
+                Some(
+                    self.protector
+                        .unprotect_current_user(profile_id, &ciphertext)?,
+                )
+            }
+            Ok(None) | Err(VaultError::InvalidEnvelope) => None,
+            Err(error) => return Err(error),
+        };
         let next_generation = match (expected_generation, existing.as_ref()) {
             (Some(expected), Some(envelope)) if envelope.generation == expected => expected + 1,
             (Some(0), None) => 1,
@@ -75,21 +91,68 @@ impl CredentialVault {
 
         let temp_path = self.random_temp_path(profile_id);
         let backup_path = self.backup_path(profile_id);
-        self.write_temp(&temp_path, json.as_bytes())?;
+        if let Err(error) = self.write_temp(&temp_path, json.as_bytes()) {
+            self.rollback_after_failure(
+                profile_id,
+                previous_raw.as_deref(),
+                previous_secret.as_ref(),
+            );
+            let _ = std::fs::remove_file(&temp_path);
+            return Err(error);
+        }
         #[cfg(test)]
-        self.maybe_fail(VaultWriteStep::TempFlushed)?;
+        if let Err(error) = self.maybe_fail(VaultWriteStep::TempFlushed) {
+            self.rollback_after_failure(
+                profile_id,
+                previous_raw.as_deref(),
+                previous_secret.as_ref(),
+            );
+            let _ = std::fs::remove_file(&temp_path);
+            return Err(error);
+        }
 
         let publish_result = self.publish(&temp_path, &final_path, &backup_path);
         #[cfg(test)]
-        self.maybe_fail(VaultWriteStep::Published)?;
-        publish_result?;
+        let publish_result =
+            publish_result.and_then(|_| self.maybe_fail(VaultWriteStep::Published));
+        if let Err(error) = publish_result {
+            self.rollback_after_failure(
+                profile_id,
+                previous_raw.as_deref(),
+                previous_secret.as_ref(),
+            );
+            let _ = std::fs::remove_file(&temp_path);
+            return Err(error);
+        }
 
-        let written = self.read_envelope(&final_path)?.ok_or(VaultError::Io)?;
+        let written = match self.read_envelope(&final_path)?.ok_or(VaultError::Io) {
+            Ok(value) => value,
+            Err(error) => {
+                self.rollback_after_failure(
+                    profile_id,
+                    previous_raw.as_deref(),
+                    previous_secret.as_ref(),
+                );
+                return Err(error);
+            }
+        };
         if written.profile_id != profile_id || written.generation != next_generation {
+            self.rollback_after_failure(
+                profile_id,
+                previous_raw.as_deref(),
+                previous_secret.as_ref(),
+            );
             return Err(VaultError::InvalidEnvelope);
         }
         #[cfg(test)]
-        self.maybe_fail(VaultWriteStep::FinalVerified)?;
+        if let Err(error) = self.maybe_fail(VaultWriteStep::FinalVerified) {
+            self.rollback_after_failure(
+                profile_id,
+                previous_raw.as_deref(),
+                previous_secret.as_ref(),
+            );
+            return Err(error);
+        }
         let _ = std::fs::remove_file(&backup_path);
         Ok(VaultInfo {
             profile_id,
@@ -135,6 +198,31 @@ impl CredentialVault {
                 generation: envelope.generation,
                 sealed_at: envelope.sealed_at,
             }))
+    }
+
+    /// Return the generation of a legacy envelope that this platform cannot
+    /// unseal, allowing an interactive replacement login to advance it safely.
+    #[cfg(target_os = "linux")]
+    pub fn legacy_replacement_generation(
+        &self,
+        profile_id: ProfileId,
+    ) -> Result<Option<u64>, VaultError> {
+        let path = self.final_path(profile_id);
+        let Ok(contents) = std::fs::read(path) else {
+            return Ok(None);
+        };
+        let Ok(envelope) = serde_json::from_slice::<VaultEnvelope>(&contents) else {
+            return Ok(None);
+        };
+        if envelope.format == super::envelope::VAULT_FORMAT
+            && envelope.version == super::envelope::VAULT_VERSION
+            && envelope.protection == "windows-dpapi-current-user"
+            && envelope.profile_id == profile_id
+        {
+            Ok(Some(envelope.generation))
+        } else {
+            Ok(None)
+        }
     }
 
     pub fn recover_atomic_artifacts(&self) -> Result<Vec<VaultRecovery>, VaultError> {
@@ -193,6 +281,7 @@ impl CredentialVault {
     }
 
     pub fn remove(&self, profile_id: ProfileId) -> Result<(), VaultError> {
+        self.protector.remove_current_user(profile_id)?;
         let _ = std::fs::remove_file(self.final_path(profile_id));
         if let Some(temp) = self.find_temp(profile_id) {
             let _ = std::fs::remove_file(temp);
@@ -232,6 +321,66 @@ impl CredentialVault {
             serde_json::from_slice(&contents).map_err(|_| VaultError::InvalidEnvelope)?;
         envelope.validate()?;
         Ok(Some(envelope))
+    }
+
+    fn read_envelope_for_seal(
+        &self,
+        path: &std::path::Path,
+        profile_id: ProfileId,
+        expected_generation: Option<u64>,
+    ) -> Result<Option<VaultEnvelope>, VaultError> {
+        #[cfg(not(target_os = "linux"))]
+        let _ = profile_id;
+        match self.read_envelope(path) {
+            Ok(envelope) => Ok(envelope),
+            Err(VaultError::InvalidEnvelope) => {
+                #[cfg(target_os = "linux")]
+                {
+                    let Ok(contents) = std::fs::read(path) else {
+                        return Ok(None);
+                    };
+                    let Ok(envelope) = serde_json::from_slice::<VaultEnvelope>(&contents) else {
+                        return Err(VaultError::InvalidEnvelope);
+                    };
+                    if envelope.format == super::envelope::VAULT_FORMAT
+                        && envelope.version == super::envelope::VAULT_VERSION
+                        && envelope.protection == "windows-dpapi-current-user"
+                        && envelope.profile_id == profile_id
+                        && expected_generation == Some(envelope.generation)
+                    {
+                        return Ok(Some(envelope));
+                    }
+                }
+                Err(VaultError::InvalidEnvelope)
+            }
+            Err(error) => Err(error),
+        }
+    }
+
+    fn rollback_after_failure(
+        &self,
+        profile_id: ProfileId,
+        previous_raw: Option<&[u8]>,
+        previous_secret: Option<&crate::accounts::secret_bytes::SensitiveBytes>,
+    ) {
+        match previous_secret {
+            Some(secret) => {
+                let _ = self
+                    .protector
+                    .protect_current_user(profile_id, secret.as_slice());
+            }
+            None => {
+                let _ = self.protector.remove_current_user(profile_id);
+            }
+        }
+        match previous_raw {
+            Some(raw) => {
+                let _ = std::fs::write(self.final_path(profile_id), raw);
+            }
+            None => {
+                let _ = std::fs::remove_file(self.final_path(profile_id));
+            }
+        }
     }
 
     fn read_envelope_lenient(&self, path: &std::path::Path) -> Option<VaultEnvelope> {
@@ -332,10 +481,163 @@ pub(crate) fn test_vault_fixture() -> (CredentialVault, Arc<TestProtector>) {
 }
 
 #[cfg(test)]
+pub(crate) fn test_vault_fixture_with_remove_tracking()
+-> (CredentialVault, Arc<RemoveTrackingProtector>) {
+    let dir = tempfile::tempdir().unwrap();
+    let protector = Arc::new(RemoveTrackingProtector::default());
+    let vault = CredentialVault::new(dir.path().to_path_buf(), protector.clone());
+    (vault, protector)
+}
+
+#[cfg(test)]
 #[derive(Default)]
 pub struct TestProtector {
     #[allow(dead_code)]
     pub calls: std::sync::atomic::AtomicUsize,
+}
+
+#[cfg(all(test, target_os = "linux"))]
+#[derive(Default)]
+struct LinuxMarkerProtector;
+
+#[cfg(all(test, target_os = "linux"))]
+impl CredentialProtector for LinuxMarkerProtector {
+    fn protect_current_user(
+        &self,
+        profile_id: ProfileId,
+        _plaintext: &[u8],
+    ) -> Result<Vec<u8>, VaultError> {
+        Ok(super::crypto::secret_service_marker(profile_id))
+    }
+
+    fn unprotect_current_user(
+        &self,
+        _profile_id: ProfileId,
+        _ciphertext: &[u8],
+    ) -> Result<crate::accounts::secret_bytes::SensitiveBytes, VaultError> {
+        Err(VaultError::UnprotectFailed)
+    }
+}
+
+#[cfg(test)]
+#[derive(Default)]
+pub struct RemoveTrackingProtector {
+    removed: std::sync::Mutex<Vec<ProfileId>>,
+}
+
+#[cfg(test)]
+#[derive(Default)]
+struct StatefulProtector {
+    secret: std::sync::Mutex<Option<Vec<u8>>>,
+}
+
+#[cfg(test)]
+struct FailingRemoveProtector {
+    fail_once: std::sync::atomic::AtomicBool,
+}
+
+#[cfg(test)]
+impl Default for FailingRemoveProtector {
+    fn default() -> Self {
+        Self {
+            fail_once: std::sync::atomic::AtomicBool::new(true),
+        }
+    }
+}
+
+#[cfg(test)]
+impl CredentialProtector for FailingRemoveProtector {
+    fn protect_current_user(
+        &self,
+        _profile_id: ProfileId,
+        plaintext: &[u8],
+    ) -> Result<Vec<u8>, VaultError> {
+        Ok(plaintext.to_vec())
+    }
+
+    fn unprotect_current_user(
+        &self,
+        _profile_id: ProfileId,
+        ciphertext: &[u8],
+    ) -> Result<crate::accounts::secret_bytes::SensitiveBytes, VaultError> {
+        Ok(crate::accounts::secret_bytes::SensitiveBytes::new(
+            ciphertext.to_vec(),
+        ))
+    }
+
+    fn remove_current_user(&self, _profile_id: ProfileId) -> Result<(), VaultError> {
+        if self
+            .fail_once
+            .swap(false, std::sync::atomic::Ordering::AcqRel)
+        {
+            Err(VaultError::SecretServiceUnavailable)
+        } else {
+            Ok(())
+        }
+    }
+}
+
+#[cfg(test)]
+impl CredentialProtector for StatefulProtector {
+    fn protect_current_user(
+        &self,
+        _profile_id: ProfileId,
+        plaintext: &[u8],
+    ) -> Result<Vec<u8>, VaultError> {
+        *self.secret.lock().unwrap() = Some(plaintext.to_vec());
+        Ok(b"opaque-marker".to_vec())
+    }
+
+    fn unprotect_current_user(
+        &self,
+        _profile_id: ProfileId,
+        _ciphertext: &[u8],
+    ) -> Result<crate::accounts::secret_bytes::SensitiveBytes, VaultError> {
+        self.secret
+            .lock()
+            .unwrap()
+            .clone()
+            .map(crate::accounts::secret_bytes::SensitiveBytes::new)
+            .ok_or(VaultError::UnprotectFailed)
+    }
+
+    fn remove_current_user(&self, _profile_id: ProfileId) -> Result<(), VaultError> {
+        *self.secret.lock().unwrap() = None;
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+impl RemoveTrackingProtector {
+    pub fn removed_profiles(&self) -> Vec<ProfileId> {
+        self.removed.lock().unwrap().clone()
+    }
+}
+
+#[cfg(test)]
+impl CredentialProtector for RemoveTrackingProtector {
+    fn protect_current_user(
+        &self,
+        _profile_id: ProfileId,
+        plaintext: &[u8],
+    ) -> Result<Vec<u8>, VaultError> {
+        Ok(plaintext.to_vec())
+    }
+
+    fn unprotect_current_user(
+        &self,
+        _profile_id: ProfileId,
+        ciphertext: &[u8],
+    ) -> Result<crate::accounts::secret_bytes::SensitiveBytes, VaultError> {
+        Ok(crate::accounts::secret_bytes::SensitiveBytes::new(
+            ciphertext.to_vec(),
+        ))
+    }
+
+    fn remove_current_user(&self, profile_id: ProfileId) -> Result<(), VaultError> {
+        self.removed.lock().unwrap().push(profile_id);
+        Ok(())
+    }
 }
 
 #[cfg(test)]
@@ -429,5 +731,72 @@ mod tests {
         assert!(actions.contains(&VaultRecovery::RestoredBackup));
         let info = vault.inspect(Uuid::nil()).unwrap().unwrap();
         assert_eq!(info.generation, gen1.generation);
+    }
+
+    #[test]
+    fn removing_a_vault_deletes_the_protector_entry() {
+        let (vault, protector) = test_vault_fixture_with_remove_tracking();
+        vault.remove(Uuid::nil()).unwrap();
+        assert_eq!(protector.removed_profiles(), vec![Uuid::nil()]);
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn linux_local_envelope_contains_only_opaque_marker() {
+        let dir = tempfile::tempdir().unwrap();
+        let protector = Arc::new(LinuxMarkerProtector);
+        let vault = CredentialVault::new(dir.path().to_path_buf(), protector);
+        let secret = b"sk-test-token-that-must-never-leak";
+        let mut bundle = bundle(secret);
+        vault.seal_expected(Uuid::nil(), None, &mut bundle).unwrap();
+
+        let path = dir.path().join(format!("{}.dpapi", Uuid::nil()));
+        let raw = std::fs::read_to_string(path).unwrap();
+        assert!(!raw.contains("sk-test-token"));
+        let envelope: VaultEnvelope = serde_json::from_str(&raw).unwrap();
+        let payload = base64::Engine::decode(
+            &base64::engine::general_purpose::STANDARD,
+            envelope.ciphertext_base64,
+        )
+        .unwrap();
+        assert_eq!(payload, super::crypto::secret_service_marker(Uuid::nil()));
+    }
+
+    #[test]
+    fn filesystem_failure_after_secret_update_rolls_back_keyring_secret() {
+        let dir = tempfile::tempdir().unwrap();
+        let protector = Arc::new(StatefulProtector::default());
+        let vault = CredentialVault::new(dir.path().to_path_buf(), protector.clone());
+        let mut first = bundle(b"first-secret");
+        let first_info = vault.seal_expected(Uuid::nil(), None, &mut first).unwrap();
+        vault
+            .fault
+            .lock()
+            .unwrap()
+            .replace(VaultWriteStep::TempFlushed);
+        let mut second = bundle(b"second-secret");
+        assert!(
+            vault
+                .seal_expected(Uuid::nil(), Some(first_info.generation), &mut second)
+                .is_err()
+        );
+        let (restored, info) = vault.unseal(Uuid::nil()).unwrap();
+        assert_eq!(info.generation, first_info.generation);
+        assert_eq!(restored.files[0].contents.as_slice(), b"first-secret");
+    }
+
+    #[test]
+    fn protector_removal_failure_keeps_local_envelope_for_retry() {
+        let dir = tempfile::tempdir().unwrap();
+        let vault = CredentialVault::new(
+            dir.path().to_path_buf(),
+            Arc::new(FailingRemoveProtector::default()),
+        );
+        let mut bundle = bundle(b"secret");
+        vault.seal_expected(Uuid::nil(), None, &mut bundle).unwrap();
+        assert!(vault.remove(Uuid::nil()).is_err());
+        assert!(dir.path().join(format!("{}.dpapi", Uuid::nil())).exists());
+        vault.remove(Uuid::nil()).unwrap();
+        assert!(!dir.path().join(format!("{}.dpapi", Uuid::nil())).exists());
     }
 }

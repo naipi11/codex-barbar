@@ -246,10 +246,6 @@ impl AccountProfileService {
         if profile.kind != crate::accounts::model::ProfileKind::Managed {
             return Err(AccountServiceError::CurrentCliImmutable);
         }
-        self.repositories
-            .accounts
-            .delete_profile(profile_id)
-            .map_err(storage_error)?;
         self.vault.remove(profile_id).map_err(|_error| {
             AccountServiceError::App(AppError::new(
                 AppErrorKind::VaultFailure,
@@ -258,6 +254,10 @@ impl AccountProfileService {
                 "VAULT_REMOVE_FAILED",
             ))
         })?;
+        self.repositories
+            .accounts
+            .delete_profile(profile_id)
+            .map_err(storage_error)?;
         if let Err(error) = self.identity_cache.remove(profile_id) {
             tracing::warn!(code = "IDENTITY_CACHE_REMOVE_FAILED", %error, "account identity cache cleanup failed");
         }
@@ -371,12 +371,25 @@ impl AccountProfileService {
 
         // Unseal the managed credentials, restore them into a fresh restricted
         // runtime, read account+rates, then reseal any refreshed credentials.
-        let (bundle, info) = self.vault.unseal(profile_id).map_err(|_| {
+        let (bundle, info) = self.vault.unseal(profile_id).map_err(|error| {
+            let (recovery, code) = match error {
+                crate::accounts::vault::VaultError::InvalidEnvelope
+                | crate::accounts::vault::VaultError::UnprotectFailed
+                | crate::accounts::vault::VaultError::SecretServiceUnavailable
+                | crate::accounts::vault::VaultError::SecretServiceLocked => (
+                    crate::core::RecoveryAction::Reauthenticate,
+                    "VAULT_REAUTH_REQUIRED",
+                ),
+                _ => (
+                    crate::core::RecoveryAction::ExportDiagnostics,
+                    "VAULT_UNSEAL_FAILED",
+                ),
+            };
             AccountServiceError::App(AppError::new(
                 AppErrorKind::VaultFailure,
                 "errors.vaultUnsealFailed",
-                crate::core::RecoveryAction::ExportDiagnostics,
-                "VAULT_UNSEAL_FAILED",
+                recovery,
+                code,
             ))
         })?;
         let runtime = self
@@ -521,30 +534,58 @@ impl AccountProfileService {
         // a brand-new login starts from an empty restricted runtime.
         let (runtime, base_generation) = match replace_profile_id {
             Some(_) => {
-                let (mut bundle, info) = self.vault.unseal(profile_id).map_err(|_| {
-                    AccountServiceError::App(AppError::new(
-                        AppErrorKind::VaultFailure,
-                        "errors.vaultUnsealFailed",
-                        crate::core::RecoveryAction::ExportDiagnostics,
-                        "VAULT_UNSEAL_FAILED",
-                    ))
-                })?;
-                let _ = &mut bundle;
-                let runtime = self
-                    .runtime_homes
-                    .restore(profile_id, &bundle, info.generation)
-                    .map_err(|_error| {
-                        AccountServiceError::App(AppError::new(
-                            AppErrorKind::StorageFailure,
-                            "errors.runtimeRestoreFailed",
-                            crate::core::RecoveryAction::Retry,
-                            "RUNTIME_RESTORE_FAILED",
-                        ))
-                    })?;
+                let (runtime, generation) = match self.vault.unseal(profile_id) {
+                    Ok((mut bundle, info)) => {
+                        let _ = &mut bundle;
+                        let runtime = self
+                            .runtime_homes
+                            .restore(profile_id, &bundle, info.generation)
+                            .map_err(|_error| {
+                                AccountServiceError::App(AppError::new(
+                                    AppErrorKind::StorageFailure,
+                                    "errors.runtimeRestoreFailed",
+                                    crate::core::RecoveryAction::Retry,
+                                    "RUNTIME_RESTORE_FAILED",
+                                ))
+                            })?;
+                        (runtime, info.generation)
+                    }
+                    Err(_error) => {
+                        #[cfg(target_os = "linux")]
+                        if let Some(generation) = self
+                            .vault
+                            .legacy_replacement_generation(profile_id)
+                            .ok()
+                            .flatten()
+                        {
+                            let runtime = self
+                                .runtime_homes
+                                .prepare_new(profile_id)
+                                .map_err(|_| AccountServiceError::Busy)?;
+                            (runtime, generation)
+                        } else {
+                            return Err(AccountServiceError::App(AppError::new(
+                                AppErrorKind::VaultFailure,
+                                "errors.vaultUnsealFailed",
+                                crate::core::RecoveryAction::ExportDiagnostics,
+                                "VAULT_UNSEAL_FAILED",
+                            )));
+                        }
+                        #[cfg(not(target_os = "linux"))]
+                        {
+                            return Err(AccountServiceError::App(AppError::new(
+                                AppErrorKind::VaultFailure,
+                                "errors.vaultUnsealFailed",
+                                crate::core::RecoveryAction::ExportDiagnostics,
+                                "VAULT_UNSEAL_FAILED",
+                            )));
+                        }
+                    }
+                };
                 runtime
                     .set_state(RuntimeState::LoggingIn)
                     .map_err(|_| AccountServiceError::Busy)?;
-                (runtime, info.generation)
+                (runtime, generation)
             }
             None => {
                 let runtime = self
@@ -1326,6 +1367,54 @@ mod tests {
                 .generation,
             before.generation
         );
+    }
+
+    #[cfg(target_os = "linux")]
+    #[tokio::test]
+    async fn legacy_linux_unreadable_relogin_starts_fresh_and_replaces_profile() {
+        let fixture = fixture();
+        let path = fixture
+            ._dir
+            .path()
+            .join("vault")
+            .join(format!("{}.dpapi", managed_id()));
+        let mut envelope = fixture.vault.inspect(managed_id()).unwrap().unwrap();
+        let raw = serde_json::json!({
+            "format": crate::accounts::vault::envelope::VAULT_FORMAT,
+            "version": crate::accounts::vault::envelope::VAULT_VERSION,
+            "protection": "windows-dpapi-current-user",
+            "profile_id": envelope.profile_id,
+            "generation": envelope.generation,
+            "sealed_at": envelope.sealed_at,
+            "ciphertext_base64": "bGVnYWN5"
+        });
+        std::fs::write(path, serde_json::to_vec(&raw).unwrap()).unwrap();
+
+        let mut events = fixture.service.subscribe();
+        fixture
+            .service
+            .start_managed_login(StartManagedLogin {
+                label: "Managed".to_string(),
+                method: crate::accounts::model::ManagedLoginMethod::Browser,
+                replace_profile_id: Some(managed_id()),
+            })
+            .await
+            .unwrap();
+
+        let succeeded = tokio::time::timeout(std::time::Duration::from_secs(5), async {
+            loop {
+                if let AccountServiceEvent::LoginChanged(status) = events.recv().await.unwrap()
+                    && status.stage == crate::accounts::model::ManagedLoginStage::Succeeded
+                {
+                    break true;
+                }
+            }
+        })
+        .await
+        .unwrap_or(false);
+        assert!(succeeded);
+        envelope = fixture.vault.inspect(managed_id()).unwrap().unwrap();
+        assert_eq!(envelope.generation, 2);
     }
 
     #[tokio::test]

@@ -94,6 +94,13 @@ pub fn read_string(path: &Path) -> io::Result<String> {
 
 /// Write a UTF-8 file, protecting it with Windows DPAPI when available.
 pub fn write_string(path: &Path, contents: &str) -> io::Result<()> {
+    #[cfg(target_os = "linux")]
+    if matches!(status(path), SecureFileStatus::Protected(_)) {
+        return Err(io::Error::new(
+            io::ErrorKind::Unsupported,
+            "Windows DPAPI-protected files cannot be rewritten on this platform",
+        ));
+    }
     let bytes = protected_file_bytes(contents)?;
     std::fs::write(path, bytes)?;
     restrict_file_permissions(path)?;
@@ -294,6 +301,25 @@ mod tests {
         .unwrap();
 
         assert!(matches!(status(&path), SecureFileStatus::Unreadable(_)));
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn non_windows_does_not_rewrite_windows_dpapi_as_plaintext() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("protected.json");
+        let original = serde_json::to_vec(&ProtectedFile {
+            format: FORMAT.to_string(),
+            version: VERSION,
+            protection: WINDOWS_DPAPI_USER.to_string(),
+            payload: "AA==".to_string(),
+        })
+        .unwrap();
+        std::fs::write(&path, &original).unwrap();
+
+        let error = write_string(&path, r#"{"secret":"value"}"#).unwrap_err();
+        assert_eq!(error.kind(), io::ErrorKind::Unsupported);
+        assert_eq!(std::fs::read(&path).unwrap(), original);
     }
 
     #[cfg(windows)]
