@@ -19,7 +19,7 @@ use crate::accounts::model::{
 };
 use crate::accounts::presentation::presentation_identity;
 use crate::accounts::recovery::AccountRecovery;
-use crate::accounts::runtime_home::RuntimeHomeManager;
+use crate::accounts::runtime_home::{ManagedRuntimeHome, RuntimeHomeManager};
 use crate::accounts::vault::CredentialVault;
 use crate::core::{AppError, AppErrorKind, ProfileId, RefreshDisposition, RefreshTrigger};
 use crate::providers::codex::app_server::AppServerFactory;
@@ -27,6 +27,22 @@ use crate::providers::codex::app_server::{AccountIdentity, parse_profile_usage};
 use crate::storage::AccountRepositories;
 
 use crate::accounts::model::ProfileLifecycle;
+
+struct RuntimeCleanupGuard<'a> {
+    runtime: &'a ManagedRuntimeHome,
+}
+
+impl<'a> RuntimeCleanupGuard<'a> {
+    fn new(runtime: &'a ManagedRuntimeHome) -> Self {
+        Self { runtime }
+    }
+}
+
+impl Drop for RuntimeCleanupGuard<'_> {
+    fn drop(&mut self) {
+        let _ = self.runtime.cleanup();
+    }
+}
 
 /// The account lifecycle service used by the desktop shell.
 pub struct AccountProfileService {
@@ -614,6 +630,7 @@ impl AccountProfileService {
                 (runtime, 0)
             }
         };
+        let _cleanup_guard = RuntimeCleanupGuard::new(&runtime);
 
         let mut session = match self
             .app_server_factory
@@ -635,7 +652,6 @@ impl AccountProfileService {
                 {
                     self.publish_login(status);
                 }
-                let _ = runtime.cleanup();
                 self.actor.finish_login(operation_id).await;
                 return Err(AccountServiceError::App(error));
             }
@@ -676,7 +692,6 @@ impl AccountProfileService {
                     self.publish_login(status);
                 }
                 let _ = session.shutdown().await;
-                let _ = runtime.cleanup();
                 self.actor.finish_login(operation_id).await;
                 return Err(AccountServiceError::App(AppError::new(
                     AppErrorKind::ProtocolMismatch,
@@ -720,7 +735,6 @@ impl AccountProfileService {
                         {
                             self.publish_login(status);
                         }
-                        let _ = runtime.cleanup();
                         self.actor.finish_login(operation_id).await;
                         return Err(AccountServiceError::App(error));
                     }
@@ -743,7 +757,6 @@ impl AccountProfileService {
                     {
                         self.publish_login(status);
                     }
-                    let _ = runtime.cleanup();
                     self.actor.finish_login(operation_id).await;
                     return Err(AccountServiceError::App(AppError::new(
                         AppErrorKind::ApiKeyNoQuota,
@@ -774,7 +787,6 @@ impl AccountProfileService {
                     .seal_bundle(profile_id, expected, &mut bundle)
                     .await
                     .map_err(AccountServiceError::from)?;
-                let _ = runtime.cleanup();
 
                 self.repositories
                     .accounts
@@ -837,7 +849,6 @@ impl AccountProfileService {
             }
         }
 
-        let _ = runtime.cleanup();
         self.actor.finish_login(operation_id).await;
         if let Some(error) = terminal_error {
             return Err(AccountServiceError::App(error));

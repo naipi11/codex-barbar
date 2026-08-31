@@ -308,8 +308,7 @@ impl CredentialVault {
     pub fn remove(&self, profile_id: ProfileId) -> Result<(), VaultError> {
         self.protector.remove_current_user(profile_id)?;
         remove_file_if_present(&self.final_path(profile_id))?;
-        let temp = self.find_temp_checked(profile_id)?;
-        if let Some(temp) = temp {
+        for temp in self.find_temps_checked(profile_id)? {
             remove_file_if_present(&temp)?;
         }
         remove_file_if_present(&self.backup_path(profile_id))?;
@@ -339,13 +338,14 @@ impl CredentialVault {
         })
     }
 
-    fn find_temp_checked(&self, profile_id: ProfileId) -> Result<Option<PathBuf>, VaultError> {
+    fn find_temps_checked(&self, profile_id: ProfileId) -> Result<Vec<PathBuf>, VaultError> {
         let prefix = format!("{profile_id}.tmp.");
         let entries = match std::fs::read_dir(&self.vault_root) {
             Ok(entries) => entries,
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
             Err(_) => return Err(VaultError::Io),
         };
+        let mut matches = Vec::new();
         for entry in entries {
             let entry = entry.map_err(|_| VaultError::Io)?;
             let path = entry.path();
@@ -354,10 +354,10 @@ impl CredentialVault {
                 .and_then(|name| name.to_str())
                 .is_some_and(|name| name.starts_with(&prefix))
             {
-                return Ok(Some(path));
+                matches.push(path);
             }
         }
-        Ok(None)
+        Ok(matches)
     }
 
     fn read_envelope(&self, path: &std::path::Path) -> Result<Option<VaultEnvelope>, VaultError> {
@@ -901,6 +901,24 @@ mod tests {
         assert!(dir.path().join(format!("{}.dpapi", Uuid::nil())).exists());
         vault.remove(Uuid::nil()).unwrap();
         assert!(!dir.path().join(format!("{}.dpapi", Uuid::nil())).exists());
+    }
+
+    #[test]
+    fn removing_a_vault_deletes_all_temp_artifacts() {
+        let dir = tempfile::tempdir().unwrap();
+        let vault =
+            CredentialVault::new(dir.path().to_path_buf(), Arc::new(TestProtector::default()));
+        std::fs::create_dir_all(dir.path()).unwrap();
+        for suffix in ["one", "two"] {
+            std::fs::write(
+                dir.path().join(format!("{}.tmp.{suffix}", Uuid::nil())),
+                b"stale",
+            )
+            .unwrap();
+        }
+        vault.remove(Uuid::nil()).unwrap();
+        assert!(!dir.path().join(format!("{}.tmp.one", Uuid::nil())).exists());
+        assert!(!dir.path().join(format!("{}.tmp.two", Uuid::nil())).exists());
     }
 
     #[test]

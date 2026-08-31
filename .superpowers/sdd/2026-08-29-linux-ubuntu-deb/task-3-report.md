@@ -48,6 +48,10 @@
   error propagation, terminal cleanup for early login failures, and strict
   legacy ciphertext validation. Deterministic rollback-failure, retryable
   deletion, and corrupt-base64 regression tests were added.
+- Fix-round 3 enumerates and checks every temporary artifact during removal,
+  uses a scoped runtime cleanup guard for every managed-login exit path, and
+  adds multi-temp deletion coverage. Rollback and local cleanup failures remain
+  typed and retryable; original operation errors are preserved.
 - `cargo clippy --manifest-path rust/Cargo.toml --all-targets -- -D warnings`
   — PASS.
 - `cargo check --manifest-path apps/desktop-tauri/src-tauri/Cargo.toml` — PASS.
