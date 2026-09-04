@@ -165,3 +165,27 @@ The Linux-only process, detached-child, stalled-Drop, and zombie regressions
 were therefore not executed on this Windows host. Ubuntu 24.04 CI must run the
 focused process tests (serially) and the ordinary Linux Rust gates before this
 change is treated as Ubuntu runtime proof.
+
+## PR #33 Ubuntu shared-clippy follow-up
+
+Ubuntu run `33872381891` reached the shared Rust crate and reported three
+Linux-cfg lint failures in `process.rs`: a single-arm timeout `match`, a
+needless tail `return` in Drop, and an unused test-only `kill` declaration.
+The platform timeout paths are now separated with `#[cfg]`, Linux Drop ends
+directly after closing the supervisor socket, and the stale declaration was
+removed. These are control-flow/lint-only changes; supervisor ownership,
+stdio, the socket protocol, process-group assertions, and Windows Job Object
+behavior are unchanged.
+
+Post-fix Windows verification:
+
+- Focused process tests: 13 passed, 0 failed (Linux-only tests cfg-gated).
+- Shared Rust tests: 530 passed, 0 failed, 1 ignored; App Server contract 17
+  passed; icon assets 3 passed; doc tests 0 failed.
+- Desktop Tauri Rust tests: 264 passed, 0 failed.
+- Shared and desktop `cargo clippy --all-targets -- -D warnings`: passed.
+- `cargo fmt --all -- --check` and `git diff --check`: passed.
+
+This Windows host still cannot execute the Linux-only cases. The next Ubuntu
+PR run must confirm that shared clippy is clear and execute the Linux process
+regressions.

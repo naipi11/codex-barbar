@@ -578,32 +578,34 @@ impl SupervisedAppServerProcess {
         let _ = self.child.stdin.take();
         let _ = self.child.stdout.take();
         let _ = self.child.stderr.take();
-        match tokio::time::timeout(grace, self.child.wait()).await {
-            Ok(_) => {}
-            Err(_) => {
-                #[cfg(all(unix, not(target_os = "linux")))]
-                if let Some(process_group) = self.process_group {
-                    super::job::terminate_process_group(process_group);
-                    if tokio::time::timeout(Duration::from_millis(250), self.child.wait())
-                        .await
-                        .is_err()
-                    {
-                        super::job::kill_process_group(process_group);
-                        wait_after_kill(self.child.wait()).await;
-                    }
-                } else {
-                    let _ = self.child.start_kill();
+        #[cfg(not(target_os = "linux"))]
+        if tokio::time::timeout(grace, self.child.wait())
+            .await
+            .is_err()
+        {
+            #[cfg(unix)]
+            if let Some(process_group) = self.process_group {
+                super::job::terminate_process_group(process_group);
+                if tokio::time::timeout(Duration::from_millis(250), self.child.wait())
+                    .await
+                    .is_err()
+                {
+                    super::job::kill_process_group(process_group);
                     wait_after_kill(self.child.wait()).await;
                 }
-                #[cfg(not(unix))]
-                {
-                    let _ = self.child.start_kill();
-                    let _ = self.child.wait().await;
-                }
+            } else {
+                let _ = self.child.start_kill();
+                wait_after_kill(self.child.wait()).await;
             }
-        };
+            #[cfg(not(unix))]
+            {
+                let _ = self.child.start_kill();
+                let _ = self.child.wait().await;
+            }
+        }
         #[cfg(target_os = "linux")]
         {
+            let _ = tokio::time::timeout(grace, self.child.wait()).await;
             // If the dedicated supervisor still exists, at least one member
             // of its private process tree is alive. The control capability is
             // exact and cannot be redirected by PID/PGID reuse.
@@ -620,10 +622,7 @@ impl SupervisedAppServerProcess {
 impl Drop for SupervisedAppServerProcess {
     fn drop(&mut self) {
         #[cfg(target_os = "linux")]
-        {
-            self.supervisor.request_shutdown();
-            return;
-        }
+        self.supervisor.request_shutdown();
         #[cfg(all(unix, not(target_os = "linux")))]
         if let Some(process_group) = self.process_group {
             super::job::kill_process_group(process_group);
@@ -777,7 +776,6 @@ mod tests {
         unsafe extern "C" {
             fn getpgid(pid: i32) -> i32;
             fn getpgrp() -> i32;
-            fn kill(pid: i32, signal: i32) -> i32;
         }
 
         let command = ResolvedCodexCommand::from_parts(
