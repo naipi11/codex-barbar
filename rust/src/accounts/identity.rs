@@ -102,7 +102,8 @@ impl AccountIdentityCache {
         if !self.path.exists() {
             return Ok(BTreeMap::new());
         }
-        let raw = crate::secure_file::read_string(&self.path).map_err(IdentityCacheError::Io)?;
+        let raw = crate::secure_file::read_non_secret_string(&self.path)
+            .map_err(IdentityCacheError::Io)?;
         let mut records: BTreeMap<String, AccountIdentityRecord> =
             serde_json::from_str(&raw).map_err(IdentityCacheError::Decode)?;
         for record in records.values_mut() {
@@ -122,7 +123,8 @@ impl AccountIdentityCache {
         let temporary = self
             .path
             .with_extension(format!("tmp-{}", Uuid::new_v4().simple()));
-        crate::secure_file::write_string(&temporary, &json).map_err(IdentityCacheError::Io)?;
+        crate::secure_file::write_non_secret_string(&temporary, &json)
+            .map_err(IdentityCacheError::Io)?;
         let result = replace_file(&temporary, &self.path);
         if result.is_err() {
             let _ = fs::remove_file(&temporary);
@@ -245,7 +247,7 @@ mod tests {
 
         cache.save(profile_id, &expected).unwrap();
 
-        let raw = crate::secure_file::read_string(&path).unwrap();
+        let raw = crate::secure_file::read_non_secret_string(&path).unwrap();
         assert!(raw.contains("opaque-revision"));
         for forbidden in ["avatarUrl", "avatar_url", "C:\\", "file://"] {
             assert!(

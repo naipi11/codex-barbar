@@ -176,6 +176,7 @@ impl AccountProfileService {
         if request.label.trim().is_empty() {
             return Err(AccountServiceError::InvalidLabel);
         }
+        let label = request.label.trim().to_string();
         let replace_profile_id = request.replace_profile_id;
         let profile_id = match replace_profile_id {
             Some(existing) => {
@@ -197,13 +198,29 @@ impl AccountProfileService {
             .try_start_login(profile_id, request.method)
             .await
             .map_err(AccountServiceError::from)?;
+        if replace_profile_id.is_none()
+            && let Err(error) = self.repositories.accounts.insert_pending(
+                profile_id,
+                label.clone(),
+                chrono::Utc::now(),
+            )
+        {
+            self.actor.finish_login(status.operation_id).await;
+            return Err(storage_error(error));
+        }
         self.publish_login(status.clone());
 
         let this = Arc::clone(self);
         let operation_id = status.operation_id;
         tokio::spawn(async move {
             if let Err(error) = this
-                .run_managed_login(profile_id, request.method, operation_id, replace_profile_id)
+                .run_managed_login(
+                    profile_id,
+                    request.method,
+                    operation_id,
+                    replace_profile_id,
+                    label,
+                )
                 .await
             {
                 tracing::warn!(
@@ -218,11 +235,13 @@ impl AccountProfileService {
 
     pub async fn cancel_managed_login(
         &self,
-        _operation_id: uuid::Uuid,
+        operation_id: uuid::Uuid,
     ) -> Result<(), AccountServiceError> {
-        // A complete actor will cancel the exact login and tear down the
-        // session; the placeholder keeps the command surface callable.
-        Ok(())
+        self.actor
+            .request_login_cancel(operation_id)
+            .await
+            .then_some(())
+            .ok_or(AccountServiceError::LoginOperationNotFound)
     }
 
     pub fn select_profile(
@@ -565,6 +584,7 @@ impl AccountProfileService {
         method: ManagedLoginMethod,
         operation_id: uuid::Uuid,
         replace_profile_id: Option<ProfileId>,
+        label: String,
     ) -> Result<(), AccountServiceError> {
         use crate::accounts::model::ManagedLoginStage;
         use crate::accounts::runtime_home::RuntimeState;
@@ -575,6 +595,24 @@ impl AccountProfileService {
             ManagedLoginMethod::Browser => LoginFlow::Browser,
             ManagedLoginMethod::DeviceCode => LoginFlow::DeviceCode,
         };
+        let mut cancellation = self
+            .actor
+            .subscribe_login_cancellation(operation_id)
+            .await
+            .ok_or(AccountServiceError::LoginOperationNotFound)?;
+
+        if *cancellation.borrow() {
+            return self
+                .finish_managed_login(
+                    profile_id,
+                    operation_id,
+                    &label,
+                    replace_profile_id.is_none(),
+                    Ok(ManagedLoginTerminal::Cancelled),
+                    Ok(()),
+                )
+                .await;
+        }
 
         // Managed re-login restores credentials from the existing Vault;
         // a brand-new login starts from an empty restricted runtime.
@@ -644,12 +682,22 @@ impl AccountProfileService {
             Ok(prepared) => prepared,
             Err(error) => {
                 return self
-                    .finish_managed_login(profile_id, operation_id, Err(error), Ok(()))
+                    .finish_managed_login(
+                        profile_id,
+                        operation_id,
+                        &label,
+                        replace_profile_id.is_none(),
+                        Err(error),
+                        Ok(()),
+                    )
                     .await;
             }
         };
         let mut cleanup_guard = RuntimeCleanupGuard::new(&runtime);
         let operation_result = async {
+            if *cancellation.borrow() {
+                return Ok(ManagedLoginTerminal::Cancelled);
+            }
             runtime
                 .set_state(RuntimeState::LoggingIn)
                 .map_err(|_| AccountServiceError::Busy)?;
@@ -666,6 +714,11 @@ impl AccountProfileService {
                     return Err(AccountServiceError::App(error));
                 }
             };
+            if *cancellation.borrow() {
+                let _ = session.cancel_login(&challenge.login_id).await;
+                let _ = session.shutdown().await;
+                return Ok(ManagedLoginTerminal::Cancelled);
+            }
             if let Some(status) = self
                 .actor
                 .update_login(
@@ -680,10 +733,32 @@ impl AccountProfileService {
                 self.publish_login(status);
             }
 
-            let event = session.next_login_event().await;
+            enum LoginWait {
+                Event(Result<LoginEvent, AppError>),
+                Cancelled,
+            }
+            let wait = tokio::select! {
+                biased;
+                changed = cancellation.changed() => {
+                    let _ = changed;
+                    LoginWait::Cancelled
+                }
+                event = session.next_login_event() => LoginWait::Event(event),
+            };
+            let event = match wait {
+                LoginWait::Cancelled => {
+                    let _ = session.cancel_login(&challenge.login_id).await;
+                    let _ = session.shutdown().await;
+                    return Ok(ManagedLoginTerminal::Cancelled);
+                }
+                LoginWait::Event(event) => event,
+            };
             let _ = session.shutdown().await;
             match event {
                 Ok(LoginEvent::Completed { .. }) => {
+                    if *cancellation.borrow() {
+                        return Ok(ManagedLoginTerminal::Cancelled);
+                    }
                     let session = self
                         .app_server_factory
                         .open_managed(runtime.codex_home())
@@ -692,6 +767,9 @@ impl AccountProfileService {
                     let account = session.account_read(false).await;
                     let _ = session.shutdown().await;
                     let account = account.map_err(AccountServiceError::App)?;
+                    if *cancellation.borrow() {
+                        return Ok(ManagedLoginTerminal::Cancelled);
+                    }
                     let account = enrich_identity_from_auth_file(account, runtime.codex_home());
                     if let Err(error) = self.cache_identity(profile_id, &account).await {
                         tracing::warn!(code = "IDENTITY_CACHE_WRITE_FAILED", %error, "account identity cache update failed");
@@ -723,6 +801,9 @@ impl AccountProfileService {
                     } else {
                         None
                     };
+                    if !self.actor.begin_login_commit(operation_id).await {
+                        return Ok(ManagedLoginTerminal::Cancelled);
+                    }
                     self.actor
                         .seal_bundle(profile_id, expected, &mut bundle)
                         .await
@@ -737,21 +818,30 @@ impl AccountProfileService {
         .await;
 
         let cleanup_result = cleanup_guard.cleanup_now();
-        self.finish_managed_login(profile_id, operation_id, operation_result, cleanup_result)
-            .await
+        self.finish_managed_login(
+            profile_id,
+            operation_id,
+            &label,
+            replace_profile_id.is_none(),
+            operation_result,
+            cleanup_result,
+        )
+        .await
     }
 
     async fn finish_managed_login(
         &self,
         profile_id: ProfileId,
         operation_id: uuid::Uuid,
+        label: &str,
+        new_profile: bool,
         operation_result: Result<ManagedLoginTerminal, AccountServiceError>,
         cleanup_result: Result<(), crate::accounts::runtime_home::RuntimeHomeError>,
     ) -> Result<(), AccountServiceError> {
         use crate::accounts::model::ManagedLoginStage;
 
         let cleanup_failed = cleanup_result.is_err();
-        let (stage, error_kind, result) = match operation_result {
+        let (mut stage, mut error_kind, mut result) = match operation_result {
             Err(primary) => {
                 if cleanup_failed {
                     tracing::warn!(
@@ -782,7 +872,7 @@ impl AccountProfileService {
             Ok(ManagedLoginTerminal::Succeeded(auth_mode)) => {
                 match self.repositories.accounts.update_profile(
                     profile_id,
-                    "Managed",
+                    label,
                     auth_mode,
                     ProfileLifecycle::Ready,
                     None,
@@ -799,6 +889,16 @@ impl AccountProfileService {
                 }
             }
         };
+
+        let profiles_changed = stage == ManagedLoginStage::Succeeded;
+        if new_profile
+            && !profiles_changed
+            && let Err(cleanup_error) = self.cleanup_new_managed_profile(profile_id)
+        {
+            stage = ManagedLoginStage::Failed;
+            error_kind = Some(managed_login_error_kind(&cleanup_error));
+            result = Err(cleanup_error);
+        }
 
         if let Some(status) = self
             .actor
@@ -821,7 +921,39 @@ impl AccountProfileService {
             );
         }
         self.actor.finish_login(operation_id).await;
+        if profiles_changed {
+            self.publish_profiles_changed();
+        }
         result
+    }
+
+    fn cleanup_new_managed_profile(
+        &self,
+        profile_id: ProfileId,
+    ) -> Result<(), AccountServiceError> {
+        self.vault.remove(profile_id).map_err(|_| {
+            AccountServiceError::App(AppError::new(
+                AppErrorKind::VaultFailure,
+                "errors.vaultRemoveFailed",
+                crate::core::RecoveryAction::ExportDiagnostics,
+                "VAULT_REMOVE_FAILED",
+            ))
+        })?;
+        self.identity_cache.remove(profile_id).map_err(|_| {
+            AccountServiceError::App(AppError::new(
+                AppErrorKind::StorageFailure,
+                "errors.storageFailure",
+                crate::core::RecoveryAction::ExportDiagnostics,
+                "IDENTITY_CACHE_REMOVE_FAILED",
+            ))
+        })?;
+        if let Err(error) = self.avatar_store.remove_profile(profile_id) {
+            tracing::warn!(code = "AVATAR_REMOVE_FAILED", %error, "pending account avatar cleanup failed");
+        }
+        self.repositories
+            .accounts
+            .delete_profile(profile_id)
+            .map_err(storage_error)
     }
 
     pub fn subscribe(&self) -> broadcast::Receiver<AccountServiceEvent> {
@@ -1397,6 +1529,181 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn fresh_managed_login_inserts_the_labeled_profile_and_publishes_it() {
+        let fixture = fixture();
+        let mut events = fixture.service.subscribe();
+
+        let started = fixture
+            .service
+            .start_managed_login(StartManagedLogin {
+                label: "Work account".to_string(),
+                method: crate::accounts::model::ManagedLoginMethod::Browser,
+                replace_profile_id: None,
+            })
+            .await
+            .unwrap();
+        let terminal = terminal_login_status(&mut events).await;
+
+        assert_eq!(terminal.operation_id, started.operation_id);
+        assert_eq!(
+            terminal.stage,
+            crate::accounts::model::ManagedLoginStage::Succeeded
+        );
+        let profile = fixture
+            .service
+            .repositories()
+            .accounts
+            .get(started.profile_id)
+            .unwrap()
+            .expect("successful fresh login must retain its profile row");
+        assert_eq!(profile.label, "Work account");
+        assert_eq!(
+            profile.lifecycle,
+            crate::accounts::model::ProfileLifecycle::Ready
+        );
+
+        let published = tokio::time::timeout(std::time::Duration::from_secs(5), async {
+            loop {
+                if let AccountServiceEvent::ProfilesChanged(snapshot) = events.recv().await.unwrap()
+                    && snapshot
+                        .profiles
+                        .iter()
+                        .any(|candidate| candidate.id == started.profile_id)
+                {
+                    break snapshot;
+                }
+            }
+        })
+        .await
+        .expect("successful fresh login did not publish ProfilesChanged");
+        assert_eq!(
+            published
+                .profiles
+                .iter()
+                .find(|candidate| candidate.id == started.profile_id)
+                .map(|candidate| candidate.label.as_str()),
+            Some("Work account")
+        );
+    }
+
+    #[tokio::test]
+    async fn failed_fresh_managed_login_removes_pending_profile_vault_and_runtime() {
+        let fixture = fixture();
+        let mut events = fixture.service.subscribe();
+        fixture.factory.fail_next_login();
+
+        let started = fixture
+            .service
+            .start_managed_login(StartManagedLogin {
+                label: "Failed account".to_string(),
+                method: crate::accounts::model::ManagedLoginMethod::Browser,
+                replace_profile_id: None,
+            })
+            .await
+            .unwrap();
+        let terminal = terminal_login_status(&mut events).await;
+
+        assert_eq!(terminal.operation_id, started.operation_id);
+        assert_eq!(
+            terminal.stage,
+            crate::accounts::model::ManagedLoginStage::Failed
+        );
+        assert!(
+            fixture
+                .service
+                .repositories()
+                .accounts
+                .get(started.profile_id)
+                .unwrap()
+                .is_none()
+        );
+        assert!(fixture.vault.inspect(started.profile_id).unwrap().is_none());
+        let profile_runtime = fixture
+            ._dir
+            .path()
+            .join("runtime")
+            .join(started.profile_id.to_string());
+        assert!(
+            std::fs::read_dir(profile_runtime)
+                .map(|mut entries| entries.next().is_none())
+                .unwrap_or(true),
+            "failed login must leave no credential-bearing runtime session"
+        );
+        assert!(fixture.service.actor.active_login().await.is_none());
+    }
+
+    #[tokio::test]
+    async fn exact_operation_cancellation_removes_fresh_pending_state_and_credentials() {
+        let fixture = fixture();
+        let mut events = fixture.service.subscribe();
+
+        let started = fixture
+            .service
+            .start_managed_login(StartManagedLogin {
+                label: "Cancelled account".to_string(),
+                method: crate::accounts::model::ManagedLoginMethod::DeviceCode,
+                replace_profile_id: None,
+            })
+            .await
+            .unwrap();
+
+        tokio::time::timeout(std::time::Duration::from_secs(5), async {
+            loop {
+                if let AccountServiceEvent::LoginChanged(status) = events.recv().await.unwrap()
+                    && status.operation_id == started.operation_id
+                    && status.stage == crate::accounts::model::ManagedLoginStage::AwaitingUser
+                {
+                    break;
+                }
+            }
+        })
+        .await
+        .expect("managed login did not reach AwaitingUser");
+
+        assert!(matches!(
+            fixture
+                .service
+                .cancel_managed_login(uuid::Uuid::new_v4())
+                .await,
+            Err(crate::accounts::model::AccountServiceError::LoginOperationNotFound)
+        ));
+        fixture
+            .service
+            .cancel_managed_login(started.operation_id)
+            .await
+            .unwrap();
+
+        let terminal = terminal_login_status(&mut events).await;
+        assert_eq!(terminal.operation_id, started.operation_id);
+        assert_eq!(
+            terminal.stage,
+            crate::accounts::model::ManagedLoginStage::Cancelled
+        );
+        assert!(
+            fixture
+                .service
+                .repositories()
+                .accounts
+                .get(started.profile_id)
+                .unwrap()
+                .is_none()
+        );
+        assert!(fixture.vault.inspect(started.profile_id).unwrap().is_none());
+        let profile_runtime = fixture
+            ._dir
+            .path()
+            .join("runtime")
+            .join(started.profile_id.to_string());
+        assert!(
+            std::fs::read_dir(profile_runtime)
+                .map(|mut entries| entries.next().is_none())
+                .unwrap_or(true),
+            "cancelled login must leave no credential-bearing runtime session"
+        );
+        assert!(fixture.service.actor.active_login().await.is_none());
+    }
+
+    #[tokio::test]
     async fn cancelled_managed_login_returns_without_panicking_and_stays_cancelled() {
         let fixture = fixture();
         let profile_id = uuid::Uuid::new_v4();
@@ -1419,6 +1726,7 @@ mod tests {
                 crate::accounts::model::ManagedLoginMethod::Browser,
                 status.operation_id,
                 None,
+                "Managed".to_string(),
             )
             .await
             .unwrap();
@@ -1455,6 +1763,7 @@ mod tests {
                 crate::accounts::model::ManagedLoginMethod::Browser,
                 status.operation_id,
                 None,
+                "Managed".to_string(),
             )
             .await;
 
@@ -1492,6 +1801,8 @@ mod tests {
             .finish_managed_login(
                 managed_id(),
                 status.operation_id,
+                "Managed",
+                false,
                 Ok(ManagedLoginTerminal::Succeeded(
                     crate::core::AuthMode::ChatGpt,
                 )),
@@ -1541,6 +1852,8 @@ mod tests {
             .finish_managed_login(
                 managed_id(),
                 status.operation_id,
+                "Managed",
+                false,
                 Err(crate::accounts::model::AccountServiceError::App(
                     primary.clone(),
                 )),

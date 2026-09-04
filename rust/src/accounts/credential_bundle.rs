@@ -32,6 +32,7 @@ pub(crate) fn restore_entry(
     validate_credential_entry(&entry.relative_path)?;
     let target = dest_root.join(&entry.relative_path);
     let parent = target.parent().ok_or(RuntimeHomeError::UnsafeBundlePath)?;
+    super::runtime_home::reject_symlinked_ancestors(parent)?;
     if let Ok(metadata) = std::fs::symlink_metadata(parent)
         && super::windows_acl::is_reparse_point(&metadata)
     {
@@ -42,8 +43,8 @@ pub(crate) fn restore_entry(
     {
         return Err(RuntimeHomeError::ReparsePointRejected);
     }
-    std::fs::create_dir_all(parent).map_err(|_| RuntimeHomeError::Io)?;
-    std::fs::write(&target, entry.contents.as_slice()).map_err(|_| RuntimeHomeError::Io)?;
+    super::runtime_home::ensure_restricted_directory(parent)?;
+    super::runtime_home::write_restricted_file(&target, entry.contents.as_slice())?;
     Ok(())
 }
 
@@ -76,6 +77,7 @@ fn collect_dir(
     if super::windows_acl::is_reparse_point(&metadata) {
         return Err(RuntimeHomeError::ReparsePointRejected);
     }
+    super::runtime_home::verify_restricted_directory(dir)?;
     let entries = std::fs::read_dir(dir).map_err(|_| RuntimeHomeError::Io)?;
     for entry in entries {
         let entry = entry.map_err(|_| RuntimeHomeError::Io)?;
@@ -91,6 +93,7 @@ fn collect_dir(
         if !meta.is_file() {
             continue;
         }
+        super::runtime_home::verify_restricted_file(&path)?;
         let name = entry.file_name();
         if name == "config.toml" || name == "manifest.json" {
             continue;

@@ -208,7 +208,7 @@ impl AccountRepository {
         };
         let fingerprint = email_fingerprint.map(|bytes| bytes.to_vec());
         self.db.with_connection(|connection| {
-            connection
+            let affected = connection
                 .execute(
                     "UPDATE account_profiles
                      SET label = ?2, auth_mode = ?3, lifecycle = ?4, email_fingerprint = ?5
@@ -222,6 +222,13 @@ impl AccountRepository {
                     ],
                 )
                 .map_err(storage_error)?;
+            if affected != 1 {
+                return Err(StorageError::new(
+                    crate::core::AppErrorKind::StorageFailure,
+                    "DB_PROFILE_UPDATE_MISSING",
+                    format!("profile update affected {affected} rows"),
+                ));
+            }
             Ok(())
         })
     }
@@ -337,5 +344,22 @@ mod tests {
             1
         );
         assert_eq!(first.auth_mode, AuthMode::Unknown);
+    }
+
+    #[test]
+    fn updating_a_missing_profile_is_a_storage_error() {
+        let repos = test_repositories();
+        let error = repos
+            .accounts
+            .update_profile(
+                uuid::Uuid::new_v4(),
+                "Missing",
+                AuthMode::ChatGpt,
+                crate::accounts::model::ProfileLifecycle::Ready,
+                None,
+            )
+            .unwrap_err();
+
+        assert_eq!(error.code(), "DB_PROFILE_UPDATE_MISSING");
     }
 }

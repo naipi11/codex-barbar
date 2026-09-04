@@ -70,11 +70,10 @@ impl ManagedRuntimeHome {
             "createdAt": self.created_at.to_rfc3339(),
             "state": state.as_str(),
         });
-        std::fs::write(
+        write_restricted_file(
             self.codex_home.join("manifest.json"),
-            serde_json::to_string(&manifest).map_err(|_| RuntimeHomeError::Io)?,
+            serde_json::to_vec(&manifest).map_err(|_| RuntimeHomeError::Io)?,
         )
-        .map_err(|_| RuntimeHomeError::Io)
     }
 
     #[allow(dead_code)] // lifecycle hook consumed by the login/refresh actor
@@ -129,11 +128,10 @@ impl RuntimeHomeManager {
         let session_id = Uuid::new_v4();
         let codex_home = self.session_path(profile_id, session_id);
         let _guard = Self::create_guarded_dir(&codex_home)?;
-        std::fs::write(
+        write_restricted_file(
             codex_home.join("config.toml"),
-            "cli_auth_credentials_store = \"file\"\n",
-        )
-        .map_err(|_| RuntimeHomeError::Io)?;
+            b"cli_auth_credentials_store = \"file\"\n",
+        )?;
         let home = ManagedRuntimeHome {
             codex_home,
             session_id,
@@ -158,11 +156,10 @@ impl RuntimeHomeManager {
             for file in &bundle.files {
                 super::credential_bundle::restore_entry(&codex_home, file)?;
             }
-            std::fs::write(
+            write_restricted_file(
                 codex_home.join("config.toml"),
-                "cli_auth_credentials_store = \"file\"\n",
-            )
-            .map_err(|_| RuntimeHomeError::Io)?;
+                b"cli_auth_credentials_store = \"file\"\n",
+            )?;
             let home = ManagedRuntimeHome {
                 codex_home: codex_home.clone(),
                 session_id,
@@ -187,15 +184,31 @@ impl RuntimeHomeManager {
         if !self.runtime_root.exists() {
             return Ok(candidates);
         }
+        verify_restricted_directory(&self.runtime_root)?;
         let entries = std::fs::read_dir(&self.runtime_root).map_err(|_| RuntimeHomeError::Io)?;
         for entry in entries.flatten() {
             let profile_dir = entry.path();
-            if !profile_dir.is_dir() {
+            let profile_metadata =
+                std::fs::symlink_metadata(&profile_dir).map_err(|_| RuntimeHomeError::Io)?;
+            if super::windows_acl::is_reparse_point(&profile_metadata) {
+                return Err(RuntimeHomeError::ReparsePointRejected);
+            }
+            if !profile_metadata.is_dir() {
                 continue;
             }
+            verify_restricted_directory(&profile_dir)?;
             let sessions = std::fs::read_dir(&profile_dir).map_err(|_| RuntimeHomeError::Io)?;
             for session in sessions.flatten() {
                 let codex_home = session.path();
+                let session_metadata =
+                    std::fs::symlink_metadata(&codex_home).map_err(|_| RuntimeHomeError::Io)?;
+                if super::windows_acl::is_reparse_point(&session_metadata) {
+                    return Err(RuntimeHomeError::ReparsePointRejected);
+                }
+                if !session_metadata.is_dir() {
+                    continue;
+                }
+                verify_restricted_directory(&codex_home)?;
                 let manifest_path = codex_home.join("manifest.json");
                 let Ok(contents) = std::fs::read_to_string(&manifest_path) else {
                     continue;
@@ -414,7 +427,32 @@ impl RuntimeHomeManager {
         })
     }
 
-    #[cfg(not(windows))]
+    #[cfg(target_os = "linux")]
+    pub(crate) fn create_guarded_dir(
+        path: &Path,
+    ) -> Result<super::windows_acl::GuardedRuntimeDir, RuntimeHomeError> {
+        if let Ok(metadata) = std::fs::symlink_metadata(path) {
+            return Err(if metadata.file_type().is_symlink() {
+                RuntimeHomeError::ReparsePointRejected
+            } else {
+                RuntimeHomeError::AlreadyExists
+            });
+        }
+        let profile_root = path.parent().ok_or(RuntimeHomeError::Io)?;
+        let runtime_root = profile_root.parent().ok_or(RuntimeHomeError::Io)?;
+        reject_symlinked_ancestors(path)?;
+        ensure_restricted_directory(runtime_root)?;
+        ensure_restricted_directory(profile_root)?;
+        ensure_restricted_directory(path)?;
+        Self::verify_protected_directory(runtime_root)?;
+        Self::verify_protected_directory(profile_root)?;
+        Self::verify_protected_directory(path)?;
+        Ok(super::windows_acl::GuardedRuntimeDir {
+            path: path.to_path_buf(),
+        })
+    }
+
+    #[cfg(not(any(windows, target_os = "linux")))]
     pub(crate) fn create_guarded_dir(
         path: &Path,
     ) -> Result<super::windows_acl::GuardedRuntimeDir, RuntimeHomeError> {
@@ -497,13 +535,168 @@ impl RuntimeHomeManager {
         Ok(())
     }
 
-    #[cfg(not(windows))]
+    #[cfg(target_os = "linux")]
+    pub(crate) fn verify_protected_directory(path: &Path) -> Result<(), RuntimeHomeError> {
+        verify_restricted_directory(path)
+    }
+
+    #[cfg(not(any(windows, target_os = "linux")))]
     pub(crate) fn verify_protected_directory(_path: &Path) -> Result<(), RuntimeHomeError> {
         Ok(())
     }
 }
 
+#[cfg(target_os = "linux")]
+pub(crate) fn reject_symlinked_ancestors(path: &Path) -> Result<(), RuntimeHomeError> {
+    for ancestor in path.ancestors().filter(|path| !path.as_os_str().is_empty()) {
+        match std::fs::symlink_metadata(ancestor) {
+            Ok(metadata) if metadata.file_type().is_symlink() => {
+                return Err(RuntimeHomeError::ReparsePointRejected);
+            }
+            Ok(_) => {}
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(_) => return Err(RuntimeHomeError::Io),
+        }
+    }
+    Ok(())
+}
+
+#[cfg(not(target_os = "linux"))]
+pub(crate) fn reject_symlinked_ancestors(_path: &Path) -> Result<(), RuntimeHomeError> {
+    Ok(())
+}
+
+#[cfg(target_os = "linux")]
+pub(crate) fn ensure_restricted_directory(path: &Path) -> Result<(), RuntimeHomeError> {
+    use std::os::unix::fs::{DirBuilderExt, PermissionsExt};
+
+    reject_symlinked_ancestors(path)?;
+    let mut missing = Vec::new();
+    let mut cursor = path;
+    loop {
+        match std::fs::symlink_metadata(cursor) {
+            Ok(metadata) => {
+                if metadata.file_type().is_symlink() {
+                    return Err(RuntimeHomeError::ReparsePointRejected);
+                }
+                if !metadata.is_dir() {
+                    return Err(RuntimeHomeError::VerificationFailed);
+                }
+                break;
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                missing.push(cursor.to_path_buf());
+                cursor = cursor.parent().ok_or(RuntimeHomeError::Io)?;
+            }
+            Err(_) => return Err(RuntimeHomeError::Io),
+        }
+    }
+    for directory in missing.into_iter().rev() {
+        let mut builder = std::fs::DirBuilder::new();
+        builder.mode(0o700);
+        builder
+            .create(&directory)
+            .map_err(|_| RuntimeHomeError::Io)?;
+        std::fs::set_permissions(&directory, std::fs::Permissions::from_mode(0o700))
+            .map_err(|_| RuntimeHomeError::AclFailed)?;
+    }
+    std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o700))
+        .map_err(|_| RuntimeHomeError::AclFailed)?;
+    verify_restricted_directory(path)
+}
+
+#[cfg(not(target_os = "linux"))]
+pub(crate) fn ensure_restricted_directory(path: &Path) -> Result<(), RuntimeHomeError> {
+    std::fs::create_dir_all(path).map_err(|_| RuntimeHomeError::Io)
+}
+
+#[cfg(target_os = "linux")]
+pub(crate) fn verify_restricted_directory(path: &Path) -> Result<(), RuntimeHomeError> {
+    use std::os::unix::fs::PermissionsExt;
+
+    reject_symlinked_ancestors(path)?;
+    let metadata = std::fs::symlink_metadata(path).map_err(|_| RuntimeHomeError::Io)?;
+    if metadata.file_type().is_symlink() {
+        return Err(RuntimeHomeError::ReparsePointRejected);
+    }
+    if !metadata.is_dir() || metadata.permissions().mode() & 0o777 != 0o700 {
+        return Err(RuntimeHomeError::VerificationFailed);
+    }
+    Ok(())
+}
+
+#[cfg(not(target_os = "linux"))]
+pub(crate) fn verify_restricted_directory(_path: &Path) -> Result<(), RuntimeHomeError> {
+    Ok(())
+}
+
+#[cfg(target_os = "linux")]
+pub(crate) fn verify_restricted_file(path: &Path) -> Result<(), RuntimeHomeError> {
+    use std::os::unix::fs::PermissionsExt;
+
+    reject_symlinked_ancestors(path)?;
+    let metadata = std::fs::symlink_metadata(path).map_err(|_| RuntimeHomeError::Io)?;
+    if metadata.file_type().is_symlink() {
+        return Err(RuntimeHomeError::ReparsePointRejected);
+    }
+    if !metadata.is_file() || metadata.permissions().mode() & 0o777 != 0o600 {
+        return Err(RuntimeHomeError::VerificationFailed);
+    }
+    Ok(())
+}
+
+#[cfg(not(target_os = "linux"))]
+pub(crate) fn verify_restricted_file(_path: &Path) -> Result<(), RuntimeHomeError> {
+    Ok(())
+}
+
+#[cfg(target_os = "linux")]
+pub(crate) fn write_restricted_file(
+    path: impl AsRef<Path>,
+    contents: impl AsRef<[u8]>,
+) -> Result<(), RuntimeHomeError> {
+    use std::io::Write;
+    use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
+
+    let path = path.as_ref();
+    let parent = path.parent().ok_or(RuntimeHomeError::Io)?;
+    verify_restricted_directory(parent)?;
+    reject_symlinked_ancestors(path)?;
+    let temporary = parent.join(format!(".codexbar-private-{}.tmp", Uuid::new_v4()));
+    let result = (|| {
+        let mut file = std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .mode(0o600)
+            .open(&temporary)
+            .map_err(|_| RuntimeHomeError::Io)?;
+        file.write_all(contents.as_ref())
+            .map_err(|_| RuntimeHomeError::Io)?;
+        file.flush().map_err(|_| RuntimeHomeError::Io)?;
+        file.sync_all().map_err(|_| RuntimeHomeError::Io)?;
+        std::fs::set_permissions(&temporary, std::fs::Permissions::from_mode(0o600))
+            .map_err(|_| RuntimeHomeError::AclFailed)?;
+        verify_restricted_file(&temporary)?;
+        reject_symlinked_ancestors(parent)?;
+        std::fs::rename(&temporary, path).map_err(|_| RuntimeHomeError::Io)?;
+        verify_restricted_file(path)
+    })();
+    if result.is_err() {
+        let _ = std::fs::remove_file(&temporary);
+    }
+    result
+}
+
+#[cfg(not(target_os = "linux"))]
+pub(crate) fn write_restricted_file(
+    path: impl AsRef<Path>,
+    contents: impl AsRef<[u8]>,
+) -> Result<(), RuntimeHomeError> {
+    std::fs::write(path, contents).map_err(|_| RuntimeHomeError::Io)
+}
+
 pub(crate) fn remove_tree_no_follow(path: &Path) -> Result<(), RuntimeHomeError> {
+    reject_symlinked_ancestors(path)?;
     let metadata = std::fs::symlink_metadata(path).map_err(|_| RuntimeHomeError::Io)?;
     if super::windows_acl::is_reparse_point(&metadata) {
         return Err(RuntimeHomeError::ReparsePointRejected);
@@ -568,5 +761,107 @@ mod tests {
         assert!(
             std::fs::read_dir(profile_root).map_or(true, |mut entries| entries.next().is_none())
         );
+    }
+
+    #[cfg(target_os = "linux")]
+    fn mode(path: &std::path::Path) -> u32 {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::symlink_metadata(path)
+            .unwrap()
+            .permissions()
+            .mode()
+            & 0o777
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn linux_runtime_directories_and_files_are_owner_only() {
+        let root = tempfile::tempdir().unwrap();
+        let runtime_root = root.path().join("runtime");
+        let profile_id = Uuid::new_v4();
+        let manager = RuntimeHomeManager::new(runtime_root.clone());
+
+        let home = manager.prepare_new(profile_id).unwrap();
+
+        assert_eq!(mode(&runtime_root), 0o700);
+        assert_eq!(mode(&runtime_root.join(profile_id.to_string())), 0o700);
+        assert_eq!(mode(home.codex_home()), 0o700);
+        assert_eq!(mode(&home.codex_home().join("config.toml")), 0o600);
+        assert_eq!(mode(&home.codex_home().join("manifest.json")), 0o600);
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn linux_restore_makes_nested_credentials_private_and_rejects_loose_modes() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let root = tempfile::tempdir().unwrap();
+        let manager = RuntimeHomeManager::new(root.path().join("runtime"));
+        let profile_id = Uuid::new_v4();
+        let bundle = ManagedCredentialBundle {
+            files: vec![CredentialFile {
+                relative_path: "nested/auth.json".to_string(),
+                contents: SensitiveBytes::new(b"secret".to_vec()),
+            }],
+            private_metadata: PrivateProfileMetadata {
+                email: None,
+                plan_type: None,
+                auth_mode: crate::core::AuthMode::ChatGpt,
+            },
+        };
+        let home = manager.restore(profile_id, &bundle, 1).unwrap();
+        let nested = home.codex_home().join("nested");
+        let auth = nested.join("auth.json");
+        assert_eq!(mode(&nested), 0o700);
+        assert_eq!(mode(&auth), 0o600);
+
+        std::fs::set_permissions(&auth, std::fs::Permissions::from_mode(0o644)).unwrap();
+        let error =
+            match crate::accounts::credential_bundle::collect_bundle(home.codex_home(), profile_id)
+            {
+                Ok(_) => panic!("loose credential mode was accepted"),
+                Err(error) => error,
+            };
+        assert_eq!(error, RuntimeHomeError::VerificationFailed);
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn linux_runtime_creation_rejects_a_symlinked_ancestor() {
+        use std::os::unix::fs::symlink;
+
+        let root = tempfile::tempdir().unwrap();
+        let real = root.path().join("real");
+        std::fs::create_dir(&real).unwrap();
+        let linked = root.path().join("linked");
+        symlink(&real, &linked).unwrap();
+        let manager = RuntimeHomeManager::new(linked.join("runtime"));
+
+        let error = match manager.prepare_new(Uuid::new_v4()) {
+            Ok(_) => panic!("symlinked runtime ancestor was accepted"),
+            Err(error) => error,
+        };
+        assert_eq!(error, RuntimeHomeError::ReparsePointRejected);
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn linux_cleanup_does_not_follow_a_symlinked_profile_ancestor() {
+        use std::os::unix::fs::symlink;
+
+        let root = tempfile::tempdir().unwrap();
+        let outside_profile = root.path().join("outside-profile");
+        let outside_session = outside_profile.join("session");
+        std::fs::create_dir_all(&outside_session).unwrap();
+        let outside_secret = outside_session.join("auth.json");
+        std::fs::write(&outside_secret, b"secret").unwrap();
+        let linked_profile = root.path().join("linked-profile");
+        symlink(&outside_profile, &linked_profile).unwrap();
+
+        assert_eq!(
+            remove_tree_no_follow(&linked_profile.join("session")),
+            Err(RuntimeHomeError::ReparsePointRejected)
+        );
+        assert!(outside_secret.exists());
     }
 }

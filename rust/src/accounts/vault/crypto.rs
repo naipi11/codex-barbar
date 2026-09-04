@@ -30,6 +30,23 @@ impl std::error::Error for VaultError {}
 #[cfg(target_os = "linux")]
 const SECRET_SERVICE_SERVICE: &str = "com.naipi11.codexbarbar";
 
+/// Probe only whether the current desktop session has an initialized Secret
+/// Service store. This does not create, read, or delete a credential.
+#[cfg(target_os = "linux")]
+pub fn platform_managed_credentials_available() -> bool {
+    keyring::Entry::store_status().is_ok()
+}
+
+#[cfg(target_os = "windows")]
+pub const fn platform_managed_credentials_available() -> bool {
+    true
+}
+
+#[cfg(not(any(target_os = "windows", target_os = "linux")))]
+pub const fn platform_managed_credentials_available() -> bool {
+    false
+}
+
 #[cfg(target_os = "linux")]
 pub fn secret_service_marker(profile_id: ProfileId) -> Vec<u8> {
     format!("codex-barbar-secret-service:v1:{profile_id}").into_bytes()
