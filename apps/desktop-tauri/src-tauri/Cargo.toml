@@ -3,7 +3,8 @@ name = "codex-barbar-desktop"
 version = "1.0.30"
 edition = "2024"
 publish = false
-description = "Windows tray app for Codex usage and account management"
+description = "Desktop tray app for AI-provider usage and account management"
+license = "MIT"
 repository = "https://github.com/naipi11/codex-barbar"
 
 [[bin]]

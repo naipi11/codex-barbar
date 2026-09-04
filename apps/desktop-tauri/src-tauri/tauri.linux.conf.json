@@ -1,0 +1,27 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "identifier": "com.naipi11.codexbarbar",
+  "bundle": {
+    "active": true,
+    "targets": ["deb"],
+    "category": "Utility",
+    "shortDescription": "Desktop tray app for AI-provider usage and limits.",
+    "longDescription": "codex-barbar is a desktop tray app for viewing AI-provider usage and limits.",
+    "copyright": "Copyright (c) 2025 CodexBar Contributors",
+    "publisher": "CodexBar Contributors",
+    "homepage": "https://github.com/naipi11/codex-barbar",
+    "license": "MIT",
+    "licenseFile": "../../../LICENSE",
+    "icon": ["../../../rust/icons/codex-barbar.png"],
+    "linux": {
+      "deb": {
+        "depends": [
+          "libwebkit2gtk-4.1-0",
+          "libgtk-3-0",
+          "libayatana-appindicator3-1",
+          "libsecret-1-0"
+        ]
+      }
+    }
+  }
+}

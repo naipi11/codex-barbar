@@ -14,7 +14,9 @@
     "test:watch": "vitest",
     "tauri:dev": "tauri dev",
     "tauri:build": "tauri build --bundles nsis",
-    "tauri:build:debug": "tauri build --debug --bundles nsis"
+    "tauri:build:windows": "tauri build --bundles nsis",
+    "tauri:build:debug": "tauri build --debug --bundles nsis",
+    "tauri:build:linux": "tauri build --config src-tauri/tauri.linux.conf.json --bundles deb"
   },
   "dependencies": {
     "@tauri-apps/api": "2.11.1",

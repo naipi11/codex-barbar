@@ -1,0 +1,76 @@
+#!/usr/bin/env bash
+# Regression checks for the Ubuntu Debian release scripts. Run on Ubuntu; the
+# dpkg-deb integration checks are deliberately skipped when dpkg-deb is absent.
+set -euo pipefail
+
+repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+cd "$repo_root"
+
+require_file() {
+  if [[ ! -f "$1" ]]; then
+    printf 'missing required file: %s\n' "$1" >&2
+    exit 1
+  fi
+}
+
+# RED checks for Task 8. Keep these first so a missing Linux release surface is
+# reported before any host-specific tooling is required.
+require_file apps/desktop-tauri/src-tauri/tauri.linux.conf.json
+require_file scripts/linux-release-build.sh
+require_file scripts/verify-linux-release-artifacts.sh
+grep -q 'const DESKTOP_FILE_NAME: &str = "com.naipi11.codexbarbar.desktop"' rust/src/platform/linux/autostart.rs
+
+node <<'NODE'
+const fs = require('fs');
+const config = JSON.parse(fs.readFileSync('apps/desktop-tauri/src-tauri/tauri.linux.conf.json', 'utf8'));
+const bundle = config.bundle || {};
+if (!Array.isArray(bundle.targets) || bundle.targets[0] !== 'deb') throw new Error('Linux bundle target must be deb');
+if (config.identifier !== 'com.naipi11.codexbarbar') throw new Error('Linux package identifier mismatch');
+if (bundle.category !== 'Utility' || bundle.license !== 'MIT') throw new Error('Linux package metadata mismatch');
+const depends = (((bundle.linux || {}).deb || {}).depends || []).join('\n');
+for (const dependency of ['libwebkit2gtk-4.1-0', 'libgtk-3-0', 'libayatana-appindicator3-1', 'libsecret-1-0']) {
+  if (!depends.includes(dependency)) throw new Error(`missing runtime dependency: ${dependency}`);
+}
+NODE
+
+grep -Eq 'codex-barbar_.*_amd64\.deb' scripts/verify-linux-release-artifacts.sh
+bash -n scripts/linux-release-build.sh scripts/verify-linux-release-artifacts.sh scripts/linux-release-build.test.sh
+
+tmp="$(mktemp -d)"
+trap 'rm -rf "$tmp"' EXIT
+
+if bash scripts/linux-release-build.sh --version 1.1.0 --output "$tmp/missing" >"$tmp/missing.log" 2>&1; then
+  printf 'staging unexpectedly succeeded without a Debian package\n' >&2
+  exit 1
+fi
+grep -q 'Missing Debian bundle' "$tmp/missing.log"
+
+if ! command -v dpkg-deb >/dev/null 2>&1; then
+  printf '[skip] dpkg-deb integration checks require Ubuntu/Debian\n'
+  printf 'linux release script static tests passed\n'
+  exit 0
+fi
+
+fixture="$tmp/fixture"
+mkdir -p "$fixture/DEBIAN" "$fixture/usr/bin" \
+  "$fixture/usr/share/applications" \
+  "$fixture/usr/share/icons/hicolor/1024x1024/apps"
+cat >"$fixture/DEBIAN/control" <<'CONTROL'
+Package: com.naipi11.codexbarbar
+Version: 1.1.0
+Architecture: amd64
+Maintainer: codex-barbar
+Description: fixture
+Depends: libwebkit2gtk-4.1-0, libgtk-3-0, libayatana-appindicator3-1, libsecret-1-0
+CONTROL
+printf '#!/bin/sh\nexit 0\n' >"$fixture/usr/bin/codex-barbar"
+chmod 0755 "$fixture/usr/bin/codex-barbar"
+printf '[Desktop Entry]\nType=Application\nName=codex-barbar\n' >"$fixture/usr/share/applications/com.naipi11.codexbarbar.desktop"
+printf 'fixture icon\n' >"$fixture/usr/share/icons/hicolor/1024x1024/apps/codex-barbar.png"
+
+mkdir -p "$tmp/target/release/bundle/deb"
+dpkg-deb --build "$fixture" "$tmp/target/release/bundle/deb/codex-barbar_1.1.0_amd64.deb" >/dev/null
+CARGO_TARGET_DIR="$tmp/target" bash scripts/linux-release-build.sh --version 1.1.0 --output "$tmp/assets"
+bash scripts/verify-linux-release-artifacts.sh --version 1.1.0 --assets "$tmp/assets"
+
+printf 'linux release script tests passed\n'
