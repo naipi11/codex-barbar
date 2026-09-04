@@ -1,7 +1,7 @@
 # Linux Debian final-review fix report
 
-Branch: `codex/linux-deb`  
-Review baseline: `91922f18`  
+Branch: `codex/linux-deb`
+Review baseline: `91922f18`
 Implementation head: `21cfc88d`
 
 No push, tag, GitHub Release, package publication, dependency addition, or
