@@ -106,11 +106,14 @@ a stale identifier.
 `Drop` no longer traverses procfs, locks a ledger, creates a thread, signals a
 numeric PID/PGID, or waits. It only removes and closes the supervisor control
 socket. EOF wakes the already-running supervisor. Explicit shutdown waits at
-most the requested grace period plus the existing 250 ms post-request bound;
-the supervisor itself uses 8 bounded TERM passes followed by 17 bounded KILL
-passes. A stopped supervisor therefore cannot add synchronous Drop latency.
-Windows Job Object creation, assignment, and kill-on-close behavior are
-unchanged.
+most the requested grace period plus the existing 250 ms post-request bound.
+The supervisor uses 8 bounded TERM passes, then keeps signalling current
+direct children with KILL and reaping until `waitpid` reports `ECHILD`. Its
+lifetime is deliberately not capped by the caller's deadline: a deep chain can
+reveal one adopted child per pass, and a temporarily uninterruptible child must
+remain owned until it can exit. A stopped supervisor therefore cannot add
+synchronous Drop latency. Windows Job Object creation, assignment, and
+kill-on-close behavior are unchanged.
 
 ### Final Linux regression coverage
 
@@ -130,6 +133,10 @@ unchanged.
   `SIGSTOP`, and requires Drop to return in under 100 ms before resuming the
   supervisor. This proves the caller does not synchronously perform procfs,
   signalling, or reaping even when the cleanup process cannot run.
+- A 48-process parent chain exceeds the removed 8 TERM + 17 KILL limit. The
+  caller must still return in under one second, while the supervisor continues
+  adopting, killing, and reaping until the exact leaf identity and private
+  process group both disappear.
 - Exact `/proc/<pid>/stat` identity disappearance is required after cleanup;
   a surviving zombie does not satisfy the assertion.
 

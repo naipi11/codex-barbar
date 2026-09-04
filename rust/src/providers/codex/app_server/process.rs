@@ -905,6 +905,54 @@ mod tests {
 
     #[cfg(target_os = "linux")]
     #[tokio::test]
+    async fn unix_supervisor_reaps_a_chain_deeper_than_the_escalation_budget() {
+        unsafe extern "C" {
+            fn getpgid(pid: i32) -> i32;
+        }
+
+        let script = r#"
+import os
+import time
+
+for _ in range(48):
+    if os.fork() != 0:
+        time.sleep(60)
+        os._exit(0)
+
+print(os.getpid(), flush=True)
+time.sleep(60)
+"#;
+        let command = ResolvedCodexCommand::from_parts(
+            PathBuf::from("/usr/bin/python3"),
+            vec![OsString::from("-c"), OsString::from(script)],
+            super::super::discovery::CodexInstallation::NativeExe,
+        );
+        let mut spec = AppServerSpawnSpec::current_cli(command);
+        spec.arguments.truncate(spec.arguments.len() - 1);
+        let mut process = SupervisedAppServerProcess::spawn(&spec).unwrap();
+        let process_group = process.child.id().expect("supervisor pid") as i32;
+        let mut stdout = tokio::io::BufReader::new(process.stdout().expect("stdout piped"));
+        let leaf = read_reported_pid(&mut stdout).await;
+        drop(stdout);
+        let leaf_identity = read_linux_process_identity(leaf).expect("deep-chain leaf identity");
+        assert_eq!(unsafe { getpgid(leaf) }, process_group);
+
+        let started = std::time::Instant::now();
+        process.shutdown(Duration::from_millis(50)).await;
+        assert!(
+            started.elapsed() < Duration::from_secs(1),
+            "caller waited for unbounded supervisor cleanup"
+        );
+
+        // The old 8 TERM + 17 KILL loop exited after at most 25 adoption
+        // layers. This chain is intentionally deeper and the exact leaf must
+        // disappear rather than survive or remain as a zombie.
+        assert_process_identity_exits_within(leaf_identity, Duration::from_secs(3)).await;
+        assert_process_group_exits_within(process_group, Duration::from_secs(3)).await;
+    }
+
+    #[cfg(target_os = "linux")]
+    #[tokio::test]
     async fn unix_shutdown_contains_immediate_detach_and_leaves_unrelated_process_alive() {
         let command = ResolvedCodexCommand::from_parts(
             PathBuf::from("/bin/sh"),

@@ -324,7 +324,6 @@ fn poll_control(control_read: i32, timeout_ms: i32) -> i32 {
 #[cfg(target_os = "linux")]
 fn shutdown_supervised_children() {
     const TERM_ROUNDS: usize = 8;
-    const KILL_ROUNDS: usize = 17;
     for _ in 0..TERM_ROUNDS {
         signal_direct_children(SIGTERM);
         if reap_exited_children() {
@@ -332,7 +331,13 @@ fn shutdown_supervised_children() {
         }
         sleep_cleanup_poll();
     }
-    for _ in 0..KILL_ROUNDS {
+
+    // The caller's wait is bounded independently. This dedicated subreaper
+    // must not exit on that deadline: a deep parent chain may reveal only one
+    // newly adopted child per pass, and an uninterruptible child may take
+    // longer to honor SIGKILL. Stay as the ownership boundary until every
+    // descendant has exited and waitpid confirms there are no children.
+    loop {
         signal_direct_children(SIGKILL);
         if reap_exited_children() {
             return;
