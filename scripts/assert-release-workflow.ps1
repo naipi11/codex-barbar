@@ -14,6 +14,55 @@ if (-not (Test-Path -LiteralPath $workflowPath)) {
 }
 
 $workflow = Get-Content -Raw -Encoding utf8 -LiteralPath $workflowPath
+$prWorkflowPath = Join-Path $repoRoot '.github\workflows\pr-check.yml'
+if (-not (Test-Path -LiteralPath $prWorkflowPath)) {
+    throw "PR workflow is missing: $prWorkflowPath"
+}
+$prWorkflow = Get-Content -Raw -Encoding utf8 -LiteralPath $prWorkflowPath
+
+foreach ($fragment in @('windows-build:', 'linux-build:', 'publish:')) {
+    if (-not $workflow.Contains($fragment)) {
+        throw "Release workflow must define job: $fragment"
+    }
+}
+if (-not $workflow.Contains('runs-on: windows-2025')) {
+    throw 'Release workflow must retain the Windows build runner.'
+}
+if (-not $workflow.Contains('runs-on: ubuntu-24.04')) {
+    throw 'Release workflow must build Ubuntu artifacts on ubuntu-24.04.'
+}
+if (-not $prWorkflow.Contains('linux-check:') -or -not $prWorkflow.Contains('runs-on: ubuntu-24.04')) {
+    throw 'PR workflow must include the ubuntu-24.04 linux-check job.'
+}
+
+$publishMatch = [regex]::Match($workflow, '(?ms)^  publish:\r?\n.*?(?=^  \S|\z)')
+if (-not $publishMatch.Success) {
+    throw 'Release workflow has no publish job.'
+}
+$publish = $publishMatch.Value
+if ($publish -notmatch '(?m)^    needs:\s*\[windows-build, linux-build\]$') {
+    throw 'Publish must require both windows-build and linux-build.'
+}
+foreach ($fragment in @(
+    'name: windows-release',
+    'path: artifacts/windows-release',
+    'name: linux-release',
+    'path: artifacts/linux-release',
+    'aggregate-release-assets.mjs --version',
+    '--windows artifacts/windows-release',
+    '--linux artifacts/linux-release',
+    '--output artifacts/aggregate-release'
+)) {
+    if (-not $publish.Contains($fragment)) {
+        throw "Publish job must contain: $fragment"
+    }
+}
+
+$releaseCreates = [regex]::Matches($workflow, 'gh release create')
+if ($releaseCreates.Count -ne 1 -or -not $publish.Contains('gh release create')) {
+    throw 'Only the publish job may create exactly one GitHub release.'
+}
+
 $gateMatch = [regex]::Match(
     $workflow,
     '(?ms)^      - name: Dependabot alert gate\r?\n.*?(?=^      - name:|\z)'
@@ -23,6 +72,9 @@ if (-not $gateMatch.Success) {
 }
 
 $gate = $gateMatch.Value
+if ([regex]::Matches($workflow, '(?m)^      - name: Dependabot alert gate$').Count -ne 1 -or -not $publish.Contains($gate)) {
+    throw 'Dependabot alert gate must run exactly once in publish.'
+}
 $required = @(
     'GH_TOKEN: ${{ secrets.DEPENDABOT_ALERTS_TOKEN }}',
     'DEPENDABOT_ALERTS_TOKEN is not configured',
@@ -44,4 +96,4 @@ if ($gate.Contains('manual override')) {
     throw 'Dependabot gate must not contain a manual override path.'
 }
 
-Write-Host '[assert-release-workflow] OK - Dependabot release credential policy is enforced'
+Write-Host '[assert-release-workflow] OK - dual-platform release and Dependabot credential policies are enforced'

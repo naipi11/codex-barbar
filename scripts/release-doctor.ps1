@@ -4,22 +4,22 @@
     Check whether a codex-barbar V1 release is ready or complete.
 
 .DESCRIPTION
-    Verifies version-file consistency, artifact presence/hashes/names, the
-    artifact manifest, and (optionally) the local Git tag. It never queries
-    GitHub or writes external state.
+    Verifies version-file consistency, the aggregated Windows/Linux artifact
+    set and hashes, both target manifests, and (optionally) the local Git tag.
+    It never queries GitHub or writes external state.
 
 .PARAMETER Version
     Version under test. Defaults to the rust/Cargo.toml version.
 
 .PARAMETER AssetsDirectory
-    Directory containing the release artifacts.
+    Directory containing the aggregated release artifacts.
 
 .PARAMETER SkipGitTag
     Skip the local Git tag check.
 #>
 param(
     [string]$Version = "",
-    [string]$AssetsDirectory = ".\artifacts\release",
+    [string]$AssetsDirectory = ".\artifacts\aggregate-release",
     [switch]$SkipGitTag
 )
 
@@ -112,9 +112,12 @@ if (Test-Path -LiteralPath $AssetsDirectory) {
     $expected = @(
         "codex-barbar_${Version}_x64-setup.exe",
         "codex-barbar_${Version}_x64-portable.zip",
+        "codex-barbar_${Version}_amd64.deb",
         "SHA256SUMS.txt",
-        "codex-barbar_${Version}_sbom.spdx.json",
-        "artifact-manifest.json"
+        "codex-barbar_${Version}_windows_sbom.spdx.json",
+        "codex-barbar_${Version}_linux_sbom.spdx.json",
+        "artifact-manifest-windows.json",
+        "artifact-manifest-linux.json"
     )
     foreach ($name in $expected) {
         if (Test-Path -LiteralPath (Join-Path $AssetsDirectory $name)) {
@@ -126,14 +129,15 @@ if (Test-Path -LiteralPath $AssetsDirectory) {
 
     $setupPath = Join-Path $AssetsDirectory "codex-barbar_${Version}_x64-setup.exe"
     $zipPath = Join-Path $AssetsDirectory "codex-barbar_${Version}_x64-portable.zip"
+    $debPath = Join-Path $AssetsDirectory "codex-barbar_${Version}_amd64.deb"
     $sumsPath = Join-Path $AssetsDirectory "SHA256SUMS.txt"
 
-    if ((Test-Path -LiteralPath $setupPath) -and (Test-Path -LiteralPath $zipPath)) {
+    if ((Test-Path -LiteralPath $setupPath) -and (Test-Path -LiteralPath $zipPath) -and (Test-Path -LiteralPath $debPath) -and (Test-Path -LiteralPath $sumsPath)) {
         $sums = @{}
         Get-Content -LiteralPath $sumsPath | Where-Object { $_ -match '^\s*([0-9a-fA-F]{64})\s+(.+)$' } | ForEach-Object {
             $sums[$Matches[2]] = $Matches[1].ToLowerInvariant()
         }
-        foreach ($name in @("codex-barbar_${Version}_x64-setup.exe", "codex-barbar_${Version}_x64-portable.zip")) {
+        foreach ($name in @("codex-barbar_${Version}_x64-setup.exe", "codex-barbar_${Version}_x64-portable.zip", "codex-barbar_${Version}_amd64.deb")) {
             $actualHash = (Get-FileHash -Algorithm SHA256 -LiteralPath (Join-Path $AssetsDirectory $name)).Hash.ToLowerInvariant()
             if ($sums.ContainsKey($name) -and $sums[$name] -eq $actualHash) {
                 Write-Ok "SHA256 matches for $name"
@@ -143,22 +147,28 @@ if (Test-Path -LiteralPath $AssetsDirectory) {
         }
     }
 
-    $manifestPath = Join-Path $AssetsDirectory "artifact-manifest.json"
-    if (Test-Path -LiteralPath $manifestPath) {
+    foreach ($targetManifest in @(
+        @{ Name = "artifact-manifest-windows.json"; Target = "x86_64-pc-windows-msvc" },
+        @{ Name = "artifact-manifest-linux.json"; Target = "x86_64-unknown-linux-gnu" }
+    )) {
+        $manifestPath = Join-Path $AssetsDirectory $targetManifest.Name
+        if (-not (Test-Path -LiteralPath $manifestPath)) {
+            continue
+        }
         try {
             $manifest = Get-Content -Raw -LiteralPath $manifestPath | ConvertFrom-Json
             if ($manifest.version -eq $Version) {
-                Write-Ok "artifact manifest version matches $Version"
+                Write-Ok "$($targetManifest.Name) version matches $Version"
             } else {
-                Write-Fail "artifact manifest version is $($manifest.version), expected $Version"
+                Write-Fail "$($targetManifest.Name) version is $($manifest.version), expected $Version"
             }
-            if ($manifest.target -eq "x86_64-pc-windows-msvc") {
-                Write-Ok "artifact manifest target is x86_64-pc-windows-msvc"
+            if ($manifest.target -eq $targetManifest.Target) {
+                Write-Ok "$($targetManifest.Name) target is $($targetManifest.Target)"
             } else {
-                Write-Fail "artifact manifest target is $($manifest.target)"
+                Write-Fail "$($targetManifest.Name) target is $($manifest.target), expected $($targetManifest.Target)"
             }
         } catch {
-            Write-Fail "artifact manifest is not valid JSON: $($_.Exception.Message)"
+            Write-Fail "$($targetManifest.Name) is not valid JSON: $($_.Exception.Message)"
         }
     }
 } else {

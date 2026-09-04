@@ -21,9 +21,11 @@ permissions:
   security-events: read
 
 jobs:
-  release:
+  windows-build:
     name: Windows V1 release
     runs-on: windows-2025
+    outputs:
+      version: ${{ steps.version.outputs.version }}
 
     steps:
       - uses: actions/checkout@v4
@@ -103,6 +105,157 @@ jobs:
         shell: pwsh
         run: .\scripts\assert-release-workflow.ps1
 
+      - name: Build release artifacts
+        shell: pwsh
+        run: |
+          .\scripts\windows-release-build.ps1 `
+            -Ref $env:GITHUB_SHA `
+            -Version "${{ steps.version.outputs.version }}" `
+            -OutputDirectory .\artifacts\windows-release
+
+      - name: Verify release artifacts
+        shell: pwsh
+        run: |
+          .\scripts\verify-release-artifacts.ps1 `
+            -Version "${{ steps.version.outputs.version }}" `
+            -AssetsDirectory .\artifacts\windows-release
+
+      - name: Upload Windows release artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-release
+          path: artifacts/windows-release
+
+  linux-build:
+    name: Ubuntu 24.04 Debian release
+    runs-on: ubuntu-24.04
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Resolve version
+        id: version
+        shell: bash
+        run: |
+          if [[ "$GITHUB_EVENT_NAME" == 'push' ]]; then
+            [[ "$GITHUB_REF_NAME" == v* ]] || { echo "release tag must start with v: $GITHUB_REF_NAME" >&2; exit 1; }
+            resolved="${GITHUB_REF_NAME#v}"
+          else
+            resolved='${{ inputs.version }}'
+          fi
+          printf 'version=%s\n' "$resolved" >> "$GITHUB_OUTPUT"
+
+      - name: Install Ubuntu build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            curl \
+            libwebkit2gtk-4.1-dev \
+            libgtk-3-dev \
+            libayatana-appindicator3-dev \
+            librsvg2-dev \
+            libssl-dev \
+            patchelf \
+            libfuse2 \
+            file \
+            build-essential \
+            jq \
+            dpkg-dev
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-unknown-linux-gnu
+          components: rustfmt, clippy
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10.18.1
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+          cache-dependency-path: apps/desktop-tauri/pnpm-lock.yaml
+
+      - name: Install frontend deps
+        run: pnpm --dir apps/desktop-tauri install --frozen-lockfile
+
+      - name: Rust format check
+        run: cargo fmt --all --check
+
+      - name: Shared Rust clippy
+        run: cargo clippy --manifest-path rust/Cargo.toml --all-targets -- -D warnings
+
+      - name: Tauri Rust clippy
+        run: cargo clippy --manifest-path apps/desktop-tauri/src-tauri/Cargo.toml --all-targets -- -D warnings
+
+      - name: Shared Rust tests
+        run: cargo test --manifest-path rust/Cargo.toml -- --test-threads=1
+
+      - name: Tauri Rust tests
+        run: cargo test --manifest-path apps/desktop-tauri/src-tauri/Cargo.toml
+
+      - name: Frontend tests
+        run: pnpm --dir apps/desktop-tauri test
+
+      - name: Frontend type check / build
+        run: pnpm --dir apps/desktop-tauri run build
+
+      - name: Build Debian bundle
+        run: pnpm --dir apps/desktop-tauri run tauri:build:linux
+
+      - name: Stage and verify Debian artifacts
+        run: |
+          bash scripts/linux-release-build.sh --version "${{ steps.version.outputs.version }}" --output artifacts/linux-release
+          bash scripts/verify-linux-release-artifacts.sh --version "${{ steps.version.outputs.version }}" --assets artifacts/linux-release
+
+      - name: Upload Linux release artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: linux-release
+          path: artifacts/linux-release
+
+  publish:
+    name: Aggregate and draft release
+    runs-on: ubuntu-24.04
+    needs: [windows-build, linux-build]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Verify build versions agree
+        shell: bash
+        run: |
+          [[ '${{ needs.windows-build.outputs.version }}' == '${{ needs.linux-build.outputs.version }}' ]] || {
+            echo 'Windows and Linux builds resolved different versions.' >&2
+            exit 1
+          }
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Download Windows release artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: windows-release
+          path: artifacts/windows-release
+
+      - name: Download Linux release artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: linux-release
+          path: artifacts/linux-release
+
       - name: Dependabot alert gate
         shell: pwsh
         env:
@@ -127,41 +280,19 @@ jobs:
             throw "Open high/critical Dependabot alerts block release: $($names -join ', ')"
           }
 
-      - name: Build release artifacts
-        shell: pwsh
-        run: |
-          .\scripts\windows-release-build.ps1 `
-            -Ref $env:GITHUB_SHA `
-            -Version "${{ steps.version.outputs.version }}" `
-            -OutputDirectory .\artifacts\release
-
-      - name: Verify release artifacts
-        shell: pwsh
-        run: |
-          .\scripts\verify-release-artifacts.ps1 `
-            -Version "${{ steps.version.outputs.version }}" `
-            -AssetsDirectory .\artifacts\release
-
-      - name: Upload release artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: codex-barbar-${{ steps.version.outputs.version }}
-          path: artifacts/release
+      - name: Aggregate release assets
+        run: >
+          node scripts/aggregate-release-assets.mjs --version ${{ needs.windows-build.outputs.version }}
+          --windows artifacts/windows-release --linux artifacts/linux-release
+          --output artifacts/aggregate-release
 
       - name: Create draft release
         if: (github.event_name == 'workflow_dispatch' && inputs.publish_draft) || github.event_name == 'push'
-        shell: pwsh
+        shell: bash
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ needs.windows-build.outputs.version }}
         run: |
-          $version = "${{ steps.version.outputs.version }}"
-          $notes = Join-Path $env:RUNNER_TEMP "release-notes.md"
-          "codex-barbar $version (unsigned build)" | Set-Content -Encoding utf8 $notes
-          $assets = @(
-            "artifacts/release/codex-barbar_${version}_x64-setup.exe",
-            "artifacts/release/codex-barbar_${version}_x64-portable.zip",
-            "artifacts/release/SHA256SUMS.txt",
-            "artifacts/release/codex-barbar_${version}_sbom.spdx.json",
-            "artifacts/release/artifact-manifest.json"
-          )
-          gh release create "v$version" --draft --title "codex-barbar $version" --notes-file $notes @assets
+          notes="$RUNNER_TEMP/release-notes.md"
+          printf 'codex-barbar %s (unsigned build)\n' "$VERSION" > "$notes"
+          gh release create "v$VERSION" --draft --title "codex-barbar $VERSION" --notes-file "$notes" artifacts/aggregate-release/*
