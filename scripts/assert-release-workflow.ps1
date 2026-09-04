@@ -52,6 +52,16 @@ foreach ($linuxJob in @($linuxReleaseJob, $linuxPrJob)) {
         throw 'Every Ubuntu build job must set TAURI_LINUX_AYATANA_APPINDICATOR=1.'
     }
 }
+foreach ($linuxJob in @(
+    @{ Name = 'linux-build'; Content = $linuxReleaseJob },
+    @{ Name = 'linux-check'; Content = $linuxPrJob }
+)) {
+    $frontendBuildIndex = $linuxJob.Content.IndexOf('name: Frontend type check / build')
+    $tauriClippyIndex = $linuxJob.Content.IndexOf('name: Tauri Rust clippy')
+    if ($frontendBuildIndex -lt 0 -or $tauriClippyIndex -lt 0 -or $frontendBuildIndex -gt $tauriClippyIndex) {
+        throw "$($linuxJob.Name) frontend build must run before Tauri Rust clippy."
+    }
+}
 
 $publishMatch = [regex]::Match($workflow, '(?ms)^  publish:\r?\n.*?(?=^  \S|\z)')
 if (-not $publishMatch.Success) {
