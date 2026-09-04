@@ -8,6 +8,10 @@ export interface SettingsCopy {
   navigation: string;
   tabs: Record<SettingsTabId, string>;
   placeholder: string;
+  taskbarUnavailable: string;
+  trayUnavailable: string;
+  keyringUnavailable: string;
+  waylandFloatFallback: string;
   general: {
     title: string;
     autostart: string;
@@ -229,6 +233,10 @@ const english: SettingsCopy = {
   title: "codex-barbar Settings", close: "Close", navigation: "Settings sections",
   tabs: { general: "General", providers: "Accounts", notifications: "Notifications", menuBar: "Taskbar & Float Ball", menu: "Panel", usageSpend: "Usage & spend", advanced: "Advanced", about: "About" },
   placeholder: "This settings section is reserved for a later release.",
+  taskbarUnavailable: "Taskbar status is unavailable on this platform.",
+  trayUnavailable: "The system tray is unavailable on this platform.",
+  keyringUnavailable: "Managed credentials require an available system keyring.",
+  waylandFloatFallback: "Your Wayland compositor may show the floating ball as a regular window when always-on-top is unavailable.",
   general: {
     title: "General", autostart: "Start at login", refreshInterval: "Refresh interval", displayMode: "Display mode", theme: "Theme", language: "Language", refreshOptions: ["Off", "1 minute", "5 minutes", "15 minutes", "30 minutes"], displayOptions: ["Remaining", "Used"], themeOptions: ["System", "Ink Green", "VS Code", "macOS", "Pink", "Blue", "Custom"], customTheme: "Custom skin", customMode: "Mode", customBg: "Background", customSurface: "Surface", customFg: "Text", customMuted: "Muted text", customAccent: "Accent", customRadius: "Corner radius", applyCustom: "Apply custom skin", resetCustom: "Reset custom skin", system: "System", simplifiedChinese: "Simplified Chinese",
   },
@@ -386,6 +394,10 @@ const chinese: SettingsCopy = {
   title: "codex-barbar 设置", close: "关闭", navigation: "设置分类",
   tabs: { general: "通用", providers: "账户", notifications: "通知", menuBar: "任务栏与悬浮球", menu: "面板", usageSpend: "用量与费用", advanced: "高级", about: "关于" },
   placeholder: "此设置分类将在后续版本中提供。",
+  taskbarUnavailable: "此平台不支持任务栏状态。",
+  trayUnavailable: "此平台不支持系统托盘。",
+  keyringUnavailable: "托管凭据需要可用的系统密钥环。",
+  waylandFloatFallback: "若 Wayland 合成器不支持始终置顶，悬浮球可能显示为普通窗口。",
   general: {
     title: "通用", autostart: "登录时启动", refreshInterval: "刷新间隔", displayMode: "显示模式", theme: "主题", language: "语言", refreshOptions: ["关闭", "1 分钟", "5 分钟", "15 分钟", "30 分钟"], displayOptions: ["剩余", "已使用"], themeOptions: ["系统", "黑绿", "VS Code", "macOS", "粉色", "蓝色", "自定义"], customTheme: "自定义皮肤", customMode: "明暗", customBg: "背景", customSurface: "面板", customFg: "文字", customMuted: "次要文字", customAccent: "强调色", customRadius: "圆角", applyCustom: "应用自定义皮肤", resetCustom: "重置自定义皮肤", system: "系统", simplifiedChinese: "简体中文",
   },

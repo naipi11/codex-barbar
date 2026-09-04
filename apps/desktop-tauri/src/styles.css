@@ -229,6 +229,13 @@ html:has(.float-ball-shell) {
   color: var(--app-muted);
 }
 
+.settings-platform-notice {
+  padding: 8px 10px;
+  border: 1px solid var(--app-border);
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--app-warn) 10%, var(--app-surface));
+}
+
 .settings-tabs {
   display: flex;
   flex-direction: column;

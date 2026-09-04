@@ -12,7 +12,7 @@ import {
 import { useProfileUsage } from "../hooks/useProfileUsage";
 import { useSettings } from "../hooks/useSettings";
 import { useTheme } from "../hooks/useTheme";
-import type { BootstrapDto } from "../types/bridge";
+import type { BootstrapDto, PlatformCapabilitiesDto } from "../types/bridge";
 import GeneralTab from "./settings/tabs/GeneralTab";
 import NotificationsTab from "./settings/tabs/NotificationsTab";
 import TaskbarTrayTab from "./settings/tabs/TaskbarTrayTab";
@@ -34,6 +34,16 @@ function initialTab(): SettingsTabId {
   return isSettingsTabId(raw) ? raw : "general";
 }
 
+const FALLBACK_PLATFORM: PlatformCapabilitiesDto = {
+  platform: "windows",
+  systemTray: true,
+  taskbarStatus: true,
+  floatingBall: true,
+  autostart: true,
+  notifications: "available",
+  managedCredentials: true,
+};
+
 function PlaceholderTab({ tab, copy }: { tab: SettingsTabId; copy: SettingsCopy }) {
   return (
     <section aria-label={`${copy.tabs[tab]} settings`}>
@@ -49,6 +59,7 @@ export default function Settings() {
   const { settings, update, setSurfaceEnabled } = useSettings();
   useTheme(settings.theme);
   const copy = settingsCopy(settings.language);
+  const platform = bootstrap?.platform ?? FALLBACK_PLATFORM;
 
   useEffect(() => {
     let active = true;
@@ -156,6 +167,7 @@ export default function Settings() {
           settings={settings}
           update={update}
           setSurfaceEnabled={setSurfaceEnabled}
+          platform={platform}
           copy={copy}
         />
       ) : null}
@@ -186,6 +198,7 @@ export default function Settings() {
           settings={settings}
           update={update}
           setSurfaceEnabled={setSurfaceEnabled}
+          platform={platform}
           copy={copy}
         />
       ) : null}

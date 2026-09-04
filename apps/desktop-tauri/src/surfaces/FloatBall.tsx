@@ -3,7 +3,10 @@ import type { CSSProperties, PointerEvent as ReactPointerEvent } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { surfaceAlphaFromTransparency } from "../lib/surfaceTransparency";
 import { useFloatBallMotion } from "../hooks/useFloatBallMotion";
-import { useStatusSurface } from "../hooks/useStatusSurface";
+import {
+  useStatusSurface,
+  type UseStatusSurfaceResult,
+} from "../hooks/useStatusSurface";
 import { useTheme } from "../hooks/useTheme";
 import ChatGptMark from "../theme/ChatGptMark";
 import "./FloatBall.css";
@@ -17,6 +20,14 @@ function clampPercent(value: number | undefined): number {
 export default function FloatBall() {
   const surface = useStatusSurface();
   useTheme(surface.bootstrap?.settings.theme ?? "system");
+  if (surface.bootstrap && !surface.bootstrap.platform.floatingBall) {
+    return null;
+  }
+
+  return <FloatBallContents surface={surface} />;
+}
+
+function FloatBallContents({ surface }: { surface: UseStatusSurfaceResult }) {
   const closeError = surface.closeFailedBySurface.floatBall ? "关闭失败，请重试" : null;
   const pointerRef = useRef<{ id: number; x: number; y: number; dragged: boolean } | null>(null);
   const skipNextClickRef = useRef(false);

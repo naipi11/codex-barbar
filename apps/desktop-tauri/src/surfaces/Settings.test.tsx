@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import Settings from "./Settings";
 import AccountsTab from "./settings/tabs/AccountsTab";
 import { invokeMock } from "../test/setup";
+import type { PlatformCapabilitiesDto } from "../types/bridge";
 
 vi.mock("@tauri-apps/api/event", () => ({
   listen: () => Promise.resolve(() => {}),
@@ -76,7 +77,18 @@ const defaultSettings = {
   },
 };
 
-function renderSettings(language: "system" | "zh-CN" | "en-US" = "system") {
+function renderSettings(
+  language: "system" | "zh-CN" | "en-US" = "system",
+  platform: PlatformCapabilitiesDto = {
+    platform: "windows" as const,
+    systemTray: true,
+    taskbarStatus: true,
+    floatingBall: true,
+    autostart: true,
+    notifications: "available" as const,
+    managedCredentials: true,
+  },
+) {
   invokeMock.mockImplementation(async (command: string) => {
     if (command === "get_bootstrap_state") {
       return {
@@ -101,6 +113,7 @@ function renderSettings(language: "system" | "zh-CN" | "en-US" = "system") {
             managedLogin: false,
           },
         },
+        platform,
       };
     }
     if (command === "get_settings_snapshot") {
@@ -155,6 +168,25 @@ describe("Settings surface", () => {
     expect(screen.getByRole("heading", { name: "Taskbar & Float Ball" })).toBeInTheDocument();
     expect(screen.getByRole("group", { name: "Taskbar status" })).toBeInTheDocument();
     expect(screen.queryByText("reserved for a later release", { exact: false })).not.toBeInTheDocument();
+  });
+
+  it("hides Windows taskbar controls on a Linux bootstrap", async () => {
+    renderSettings("en-US", {
+      platform: "linux",
+      systemTray: true,
+      taskbarStatus: false,
+      floatingBall: true,
+      autostart: true,
+      notifications: "unsupported",
+      managedCredentials: false,
+    });
+    fireEvent.click(await screen.findByRole("button", { name: "Taskbar & Float Ball" }));
+
+    expect(screen.getByRole("group", { name: "Floating status ball" })).toBeInTheDocument();
+    expect(screen.queryByRole("group", { name: "Taskbar status" })).not.toBeInTheDocument();
+    expect(screen.getByText(
+      "Taskbar status is unavailable on this platform.",
+    )).toBeInTheDocument();
   });
 
   it("retains English sidebar labels for en-US", async () => {

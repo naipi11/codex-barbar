@@ -346,6 +346,10 @@ export interface PlatformCapabilitiesDto {
   taskbarStatus: boolean;
   floatingBall: boolean;
   autostart: boolean;
+  /**
+   * Static platform support. The Notifications tab queries the notification
+   * bridge separately for current desktop-session availability.
+   */
   notifications: NotificationCapabilityStatus;
   managedCredentials: boolean;
 }

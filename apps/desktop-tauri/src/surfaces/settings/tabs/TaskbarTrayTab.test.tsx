@@ -16,6 +16,35 @@ function deferred<T>() {
 }
 
 describe("TaskbarTrayTab", () => {
+  it("omits unsupported taskbar controls without persisting the saved taskbar choice", () => {
+    const update = vi.fn().mockResolvedValue(defaultAppSettings);
+    const setSurfaceEnabled = vi.fn().mockResolvedValue(defaultAppSettings);
+    render(
+      <TaskbarTrayTab
+        settings={{ ...defaultAppSettings, taskbarStatusEnabled: true }}
+        update={update}
+        setSurfaceEnabled={setSurfaceEnabled}
+        platform={{
+          platform: "linux",
+          systemTray: true,
+          taskbarStatus: false,
+          floatingBall: true,
+          autostart: true,
+          notifications: "unsupported",
+          managedCredentials: false,
+        }}
+      />,
+    );
+
+    expect(screen.queryByRole("group", { name: "Taskbar status" })).not.toBeInTheDocument();
+    expect(screen.getByRole("group", { name: "Floating status ball" })).toBeInTheDocument();
+    expect(screen.getByText(
+      "Taskbar status is unavailable on this platform.",
+    )).toBeInTheDocument();
+    expect(update).not.toHaveBeenCalled();
+    expect(setSurfaceEnabled).not.toHaveBeenCalledWith("taskbarStatus", expect.anything());
+  });
+
   it("owns taskbar and floating-ball controls without tray preferences", () => {
     const { rerender } = render(
       <TaskbarTrayTab

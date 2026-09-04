@@ -1,9 +1,18 @@
 import { useEffect, useRef, useState } from "react";
 import { CommittedRangeField } from "../CommittedRangeField";
-import type { AppSettingsDto, SettingsPatchDto, StatusSurfaceKind, TaskbarPresentationPreferencesDto } from "../../../types/bridge";
+import type { AppSettingsDto, PlatformCapabilitiesDto, SettingsPatchDto, StatusSurfaceKind, TaskbarPresentationPreferencesDto } from "../../../types/bridge";
 import { settingsCopy, type SettingsCopy } from "../settingsCopy";
 
 const TASKBAR_ITEM_FIELDS = ["showTaskbarIcon", "showTaskbarAccount", "showWeeklyLabel", "showWeeklyPercent", "showResetDate"] as const satisfies readonly (keyof TaskbarPresentationPreferencesDto)[];
+const WINDOWS_CAPABILITIES: PlatformCapabilitiesDto = {
+  platform: "windows",
+  systemTray: true,
+  taskbarStatus: true,
+  floatingBall: true,
+  autostart: true,
+  notifications: "available",
+  managedCredentials: true,
+};
 
 interface TaskbarDraft {
   enabled: boolean;
@@ -14,10 +23,11 @@ function draftFromSettings(settings: AppSettingsDto): TaskbarDraft {
   return { enabled: settings.taskbarStatusEnabled, presentation: settings.taskbarPresentation };
 }
 
-export default function TaskbarTrayTab({ settings, update, setSurfaceEnabled, copy = settingsCopy("en-US") }: {
+export default function TaskbarTrayTab({ settings, update, setSurfaceEnabled, platform = WINDOWS_CAPABILITIES, copy = settingsCopy("en-US") }: {
   settings: AppSettingsDto;
   update(patch: SettingsPatchDto): Promise<AppSettingsDto>;
   setSurfaceEnabled(surface: StatusSurfaceKind, enabled: boolean): Promise<AppSettingsDto>;
+  platform?: PlatformCapabilitiesDto;
   copy?: SettingsCopy;
 }) {
   const [hasPreferencesSaveError, setHasPreferencesSaveError] = useState(false);
@@ -76,7 +86,8 @@ export default function TaskbarTrayTab({ settings, update, setSurfaceEnabled, co
       <h2>{copy.taskbarPresentation.title}</h2>
       {hasPreferencesSaveError ? <p className="settings-preference-group__error" role="alert">{copy.taskbarPresentation.preferencesSaveFailed}</p> : null}
       <div className="settings-preference-groups">
-        <fieldset className="settings-preference-group">
+        {!platform.taskbarStatus ? <p className="settings-platform-notice" role="status">{copy.taskbarUnavailable}</p> : null}
+        {platform.taskbarStatus ? <fieldset className="settings-preference-group">
           <legend>{copy.taskbarPresentation.taskbarLegend}</legend>
           <p className="settings-preference-group__description">{copy.taskbarPresentation.taskbarDescription}</p>
           <label className="settings-switch settings-switch--primary"><input type="checkbox" checked={draft.enabled} disabled={isSavingPreferences || (!draft.enabled && visibleTaskbarItems === 0)} aria-describedby="taskbar-visible-item-help" onChange={(event) => setTaskbarEnabled(event.target.checked)} />{copy.taskbarPresentation.taskbarEnabled}</label>
@@ -91,14 +102,15 @@ export default function TaskbarTrayTab({ settings, update, setSurfaceEnabled, co
             <label className="settings-compact-field" htmlFor="taskbar-density"><span>{copy.taskbarPresentation.density}</span><select id="taskbar-density" value={draft.presentation.density} disabled={isSavingPreferences} onChange={(event) => patchTaskbarPresentation("density", event.target.value as TaskbarPresentationPreferencesDto["density"])}><option value="compact">{copy.taskbarPresentation.densityOptions[0]}</option><option value="standard">{copy.taskbarPresentation.densityOptions[1]}</option></select></label>
             <CommittedRangeField id="taskbar-transparency" label={copy.taskbarPresentation.transparency} value={settings.taskbarTransparencyPercent} min={0} max={100} tickValues={[0, 25, 50, 75, 100]} valueText={copy.taskbarPresentation.transparencyValue} disabled={isSavingPreferences} errorMessage={copy.taskbarPresentation.transparencySaveFailed} help={copy.taskbarPresentation.transparencyHelp} onCommit={async (nextValue) => (await update({ taskbarTransparencyPercent: nextValue })).taskbarTransparencyPercent} />
           </div>
-        </fieldset>
-        <fieldset className="settings-preference-group">
+        </fieldset> : null}
+        {platform.floatingBall ? <fieldset className="settings-preference-group">
           <legend>{copy.taskbarPresentation.floatBallLegend}</legend>
           <p className="settings-preference-group__description">{copy.taskbarPresentation.floatBallDescription}</p>
           <label className="settings-switch settings-switch--primary"><input type="checkbox" checked={settings.floatBallEnabled} onChange={(event) => void setSurfaceEnabled("floatBall", event.target.checked)} />{copy.taskbarPresentation.floatBallEnabled}</label>
           <CommittedRangeField id="float-ball-transparency" label={copy.taskbarPresentation.floatBallTransparency} value={settings.floatBallTransparencyPercent} min={0} max={100} tickValues={[0, 25, 50, 75, 100]} valueText={copy.taskbarPresentation.transparencyValue} errorMessage={copy.taskbarPresentation.transparencySaveFailed} onCommit={async (nextValue) => (await update({ floatBallTransparencyPercent: nextValue })).floatBallTransparencyPercent} />
           <CommittedRangeField id="float-ball-glow" label={copy.taskbarPresentation.floatBallGlow} value={settings.floatBallGlowPercent} min={0} max={100} tickValues={[0, 25, 50, 75, 100]} valueText={copy.taskbarPresentation.glowValue} errorMessage={copy.taskbarPresentation.glowSaveFailed} onCommit={async (nextValue) => (await update({ floatBallGlowPercent: nextValue })).floatBallGlowPercent} />
-        </fieldset>
+          {platform.platform === "linux" ? <p className="settings-platform-notice" role="status">{copy.waylandFloatFallback}</p> : null}
+        </fieldset> : null}
         <fieldset className="settings-preference-group">
           <legend>{copy.taskbarPresentation.fullscreenLegend}</legend>
           <p className="settings-preference-group__description">{copy.taskbarPresentation.fullscreenDescription}</p>
