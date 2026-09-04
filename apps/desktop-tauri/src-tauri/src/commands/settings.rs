@@ -129,7 +129,7 @@ pub async fn update_settings(
     let patch = patch.into_patch()?;
     let (patch, requested_surfaces) = prepare_settings_update(patch)?;
     if let Some(enabled) = patch.start_at_login {
-        codexbar::platform::windows::autostart::set_enabled(enabled)
+        codexbar::platform::autostart::set_enabled(enabled)
             .map_err(|_| "AUTOSTART_UPDATE_FAILED".to_string())?;
     }
     let repository = settings_repository(&state)?;

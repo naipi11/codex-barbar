@@ -1,9 +1,13 @@
 //! Operating-system integrations used by the V1 desktop shell.
 
+#[cfg(any(target_os = "linux", test))]
+pub mod linux;
 pub mod windows;
 
 #[cfg(target_os = "linux")]
-pub mod linux;
+pub use linux::{autostart, system_locale};
+#[cfg(not(target_os = "linux"))]
+pub use windows::{autostart, system_locale};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PlatformKind {

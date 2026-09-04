@@ -372,7 +372,7 @@ fn main() {
             });
             if let Some(settings) = loaded_settings.as_ref()
                 && let Err(error) =
-                    codexbar::platform::windows::autostart::set_enabled(settings.start_at_login)
+                    codexbar::platform::autostart::set_enabled(settings.start_at_login)
             {
                 tracing::warn!(
                     code = "AUTOSTART_STARTUP_RECONCILE_FAILED",
