@@ -9,7 +9,6 @@ use positioning::{Rect, compute_slot};
 #[cfg(windows)]
 use tauri::LogicalSize;
 
-#[cfg(any(not(windows), test))]
 pub const TASKBAR_STATUS_UNSUPPORTED_PLATFORM: &str = "TASKBAR_STATUS_UNSUPPORTED_PLATFORM";
 
 #[cfg(any(not(windows), test))]

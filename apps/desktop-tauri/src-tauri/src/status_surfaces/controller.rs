@@ -200,6 +200,11 @@ where
     let previous = store.load()?;
     let previous_enabled = surface.enabled_in(&previous);
     if let Err(error) = runtime.apply(surface, enabled) {
+        if surface == StatusSurfaceKind::TaskbarStatus
+            && error == crate::taskbar_overlay::TASKBAR_STATUS_UNSUPPORTED_PLATFORM
+        {
+            return Err(error);
+        }
         if !enabled {
             runtime.set_close_failed(surface, true);
         }
@@ -360,6 +365,7 @@ mod tests {
         actions: Vec<RuntimeAction>,
         feedback: StatusSurfaceFeedbackState,
         fail_on: Vec<bool>,
+        failure_error: Option<&'static str>,
     }
 
     impl FakeRuntime {
@@ -376,6 +382,12 @@ mod tests {
             self.failing_on(true).failing_on(false)
         }
 
+        fn failing_with(mut self, enabled: bool, error: &'static str) -> Self {
+            self.fail_on.push(enabled);
+            self.failure_error = Some(error);
+            self
+        }
+
         fn actions(&self) -> &[RuntimeAction] {
             &self.actions
         }
@@ -385,7 +397,10 @@ mod tests {
         fn apply(&mut self, surface: StatusSurfaceKind, enabled: bool) -> Result<(), String> {
             self.actions.push(RuntimeAction::Apply(surface, enabled));
             if self.fail_on.contains(&enabled) {
-                Err("STATUS_SURFACE_WINDOW_CLOSE_FAILED".to_string())
+                Err(self
+                    .failure_error
+                    .unwrap_or("STATUS_SURFACE_WINDOW_CLOSE_FAILED")
+                    .to_string())
             } else {
                 Ok(())
             }
@@ -760,6 +775,32 @@ mod tests {
             ]
         );
         assert!(!store.saved().taskbar_status_enabled);
+    }
+
+    #[test]
+    fn unsupported_taskbar_transition_propagates_without_rollback_or_persistence() {
+        let mut runtime = FakeRuntime::enabled()
+            .failing_with(
+                true,
+                crate::taskbar_overlay::TASKBAR_STATUS_UNSUPPORTED_PLATFORM,
+            )
+            .failing_on(false);
+        let store = FakeStore::with_settings(settings(false, true));
+
+        let error =
+            transition(&mut runtime, &store, StatusSurfaceKind::TaskbarStatus, true).unwrap_err();
+
+        assert_eq!(error, "TASKBAR_STATUS_UNSUPPORTED_PLATFORM");
+        assert_eq!(store.save_count(), 0);
+        assert!(!store.saved().taskbar_status_enabled);
+        assert!(store.saved().float_ball_enabled);
+        assert_eq!(
+            runtime.actions(),
+            &[
+                RuntimeAction::Feedback(StatusSurfaceKind::TaskbarStatus, false),
+                RuntimeAction::Apply(StatusSurfaceKind::TaskbarStatus, true),
+            ]
+        );
     }
 
     #[test]
