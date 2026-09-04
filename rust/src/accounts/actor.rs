@@ -19,6 +19,7 @@ pub struct ActiveLogin {
     pub verification_url: Option<String>,
     pub user_code: Option<String>,
     pub error_kind: Option<crate::core::AppErrorKind>,
+    pub runtime_cleanup_failed: bool,
 }
 
 impl ActiveLogin {
@@ -30,6 +31,7 @@ impl ActiveLogin {
             verification_url: self.verification_url.clone(),
             user_code: self.user_code.clone(),
             error_kind: self.error_kind,
+            runtime_cleanup_failed: self.runtime_cleanup_failed,
         }
     }
 }
@@ -72,6 +74,7 @@ impl AccountOperationActor {
             verification_url: None,
             user_code: None,
             error_kind: None,
+            runtime_cleanup_failed: false,
         };
         *slot = Some(ActiveLogin {
             operation_id: status.operation_id,
@@ -81,6 +84,7 @@ impl AccountOperationActor {
             verification_url: None,
             user_code: None,
             error_kind: None,
+            runtime_cleanup_failed: false,
         });
         Ok(status)
     }
@@ -93,6 +97,26 @@ impl AccountOperationActor {
         user_code: Option<String>,
         error_kind: Option<crate::core::AppErrorKind>,
     ) -> Option<ManagedLoginStatus> {
+        self.update_login_with_cleanup_risk(
+            operation_id,
+            stage,
+            verification_url,
+            user_code,
+            error_kind,
+            false,
+        )
+        .await
+    }
+
+    pub async fn update_login_with_cleanup_risk(
+        &self,
+        operation_id: uuid::Uuid,
+        stage: ManagedLoginStage,
+        verification_url: Option<String>,
+        user_code: Option<String>,
+        error_kind: Option<crate::core::AppErrorKind>,
+        runtime_cleanup_failed: bool,
+    ) -> Option<ManagedLoginStatus> {
         let mut slot = self.active_login.lock().await;
         let active = slot.as_mut()?;
         if active.operation_id != operation_id {
@@ -102,6 +126,7 @@ impl AccountOperationActor {
         active.verification_url = verification_url;
         active.user_code = user_code;
         active.error_kind = error_kind;
+        active.runtime_cleanup_failed = runtime_cleanup_failed;
         Some(active.status())
     }
 

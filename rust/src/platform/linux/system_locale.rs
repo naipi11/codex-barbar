@@ -21,8 +21,16 @@ fn language_from_values(
         .unwrap_or_default()
         .trim()
         .to_ascii_lowercase();
-    let normalized = locale.replace('-', "_");
-    if normalized.starts_with("zh_cn") || normalized.starts_with("zh_hans") {
+    let locale_id = locale.split(['.', '@']).next().unwrap_or_default();
+    let tokens = locale_id
+        .split(['_', '-'])
+        .filter(|token| !token.is_empty())
+        .collect::<Vec<_>>();
+    let simplified_chinese = matches!(
+        tokens.as_slice(),
+        ["zh", "cn" | "sg"] | ["zh", "hans"] | ["zh", "hans", "cn" | "sg"]
+    );
+    if simplified_chinese {
         LanguagePreference::ZhCn
     } else {
         LanguagePreference::EnUs
@@ -47,10 +55,26 @@ mod tests {
 
     #[test]
     fn simplified_chinese_locale_variants_map_to_zh_cn() {
-        for locale in ["zh_CN.UTF-8", "zh-CN", "zh_Hans_CN.UTF-8"] {
+        for locale in [
+            "zh_CN.UTF-8",
+            "zh-CN",
+            "zh_SG.UTF-8@calendar=gregorian",
+            "zh-Hans",
+            "zh_Hans_CN.UTF-8",
+        ] {
             assert_eq!(
                 language_from_values(None, None, Some(locale)),
                 LanguagePreference::ZhCn
+            );
+        }
+    }
+
+    #[test]
+    fn locale_matching_rejects_partial_language_script_and_region_tokens() {
+        for locale in ["zh_CNfoo.UTF-8", "zh_SGextra", "zh_Hansard.UTF-8"] {
+            assert_eq!(
+                language_from_values(None, None, Some(locale)),
+                LanguagePreference::EnUs
             );
         }
     }

@@ -11,7 +11,7 @@ MODES = {
     "normal", "interleaved", "out-of-order", "unknown-notification",
     "duplicate-id", "invalid-json", "truncated", "oversized",
     "initialize-timeout", "rpc-timeout", "crash", "refuse-exit",
-    "login-failed", "login-cancelled",
+    "login-failed", "login-cancelled", "login-start-crash",
 }
 
 
@@ -126,6 +126,8 @@ def main():
             continue
 
         if method == "account/login/start":
+            if mode == "login-start-crash":
+                raise SystemExit(17)
             login_type = request.get("params", {}).get("type")
             if login_type == "chatgpt":
                 response(request_id, {"loginId": "login-browser", "authorizationUrl": "https://auth.openai.com/authorize?client=codex-barbar"})

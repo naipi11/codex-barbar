@@ -229,6 +229,7 @@ describe("useProfileUsage", () => {
       verificationUrl: "https://example.test/device",
       userCode: "ABCD",
       errorKind: null,
+      runtimeCleanupFailed: false,
     };
 
     const { result } = renderHook(() => useProfileUsage(bootstrap));

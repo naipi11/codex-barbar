@@ -808,6 +808,7 @@ pub struct ManagedLoginStateDto {
     pub verification_url: Option<String>,
     pub user_code: Option<String>,
     pub error_kind: Option<&'static str>,
+    pub runtime_cleanup_failed: bool,
 }
 
 impl From<&ManagedLoginStatus> for ManagedLoginStateDto {
@@ -819,6 +820,7 @@ impl From<&ManagedLoginStatus> for ManagedLoginStateDto {
             verification_url: status.verification_url.clone(),
             user_code: status.user_code.clone(),
             error_kind: status.error_kind.map(error_kind_name),
+            runtime_cleanup_failed: status.runtime_cleanup_failed,
         }
     }
 }

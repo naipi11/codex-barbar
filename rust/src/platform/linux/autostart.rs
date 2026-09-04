@@ -120,15 +120,20 @@ fn atomic_write(target: &Path, contents: &[u8]) -> Result<(), AutostartError> {
 }
 
 fn desktop_exec_token(path: &str) -> Result<String, AutostartError> {
-    if path.chars().any(|character| character.is_control()) {
+    if path
+        .chars()
+        .any(|character| character.is_control() || character == '=')
+    {
         return Err(AutostartError::UnsafeExecutablePath);
     }
-    let escaped = path
+    let exec_escaped = path
         .replace('\\', "\\\\")
         .replace('"', "\\\"")
         .replace('`', "\\`")
-        .replace('$', "\\$")
-        .replace('%', "%%");
+        .replace('$', "\\$");
+    // Desktop Entry string-value escaping runs before Exec argument
+    // unquoting, so every Exec-layer backslash must itself be doubled.
+    let escaped = exec_escaped.replace('\\', "\\\\").replace('%', "%%");
     let needs_quotes = path.chars().any(|character| {
         matches!(
             character,
@@ -199,6 +204,41 @@ mod tests {
         assert_eq!(
             desktop_entry(Path::new("/opt/codexbar")),
             Err(AutostartError::UnexpectedExecutableName)
+        );
+    }
+
+    #[test]
+    fn desktop_exec_serialization_preserves_reserved_literal_path_characters() {
+        let cases = [
+            (
+                "/opt/with space/codex-barbar",
+                r#"Exec="/opt/with space/codex-barbar" --background"#,
+            ),
+            (
+                "/opt/with\\slash/codex-barbar",
+                r#"Exec="/opt/with\\\\slash/codex-barbar" --background"#,
+            ),
+            (
+                "/opt/with\"quote/codex-barbar",
+                r#"Exec="/opt/with\\"quote/codex-barbar" --background"#,
+            ),
+            (
+                "/opt/with$cash/codex-barbar",
+                r#"Exec="/opt/with\\$cash/codex-barbar" --background"#,
+            ),
+        ];
+
+        for (executable, expected_exec) in cases {
+            let entry = desktop_entry(Path::new(executable)).unwrap();
+            assert!(
+                entry.lines().any(|line| line == expected_exec),
+                "expected {expected_exec:?} for {executable:?}, got {entry:?}"
+            );
+            assert!(!entry.contains("sh -c"));
+        }
+        assert_eq!(
+            desktop_entry(Path::new("/opt/with=equals/codex-barbar")),
+            Err(AutostartError::UnsafeExecutablePath)
         );
     }
 

@@ -77,6 +77,7 @@ pub enum FakeServerMode {
     RefuseExit,
     LoginFailed,
     LoginCancelled,
+    LoginStartCrash,
 }
 
 impl FakeServerMode {
@@ -96,6 +97,7 @@ impl FakeServerMode {
             Self::RefuseExit => "refuse-exit",
             Self::LoginFailed => "login-failed",
             Self::LoginCancelled => "login-cancelled",
+            Self::LoginStartCrash => "login-start-crash",
         }
     }
 }

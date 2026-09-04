@@ -661,14 +661,9 @@ impl AccountProfileService {
                 .map_err(AccountServiceError::App)?;
             let challenge = match session.start_login(flow).await {
                 Ok(challenge) => challenge,
-                Err(_error) => {
+                Err(error) => {
                     let _ = session.shutdown().await;
-                    return Err(AccountServiceError::App(AppError::new(
-                        AppErrorKind::ProtocolMismatch,
-                        "errors.loginStartFailed",
-                        crate::core::RecoveryAction::Retry,
-                        "LOGIN_START_FAILED",
-                    )));
+                    return Err(AccountServiceError::App(error));
                 }
             };
             if let Some(status) = self
@@ -807,7 +802,14 @@ impl AccountProfileService {
 
         if let Some(status) = self
             .actor
-            .update_login(operation_id, stage, None, None, error_kind)
+            .update_login_with_cleanup_risk(
+                operation_id,
+                stage,
+                None,
+                None,
+                error_kind,
+                cleanup_failed,
+            )
             .await
         {
             self.publish_login(status);
@@ -1431,6 +1433,47 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn managed_login_preserves_non_protocol_start_error() {
+        let fixture = fixture();
+        let profile_id = uuid::Uuid::new_v4();
+        let status = fixture
+            .service
+            .actor
+            .try_start_login(
+                profile_id,
+                crate::accounts::model::ManagedLoginMethod::Browser,
+            )
+            .await
+            .unwrap();
+        let mut events = fixture.service.subscribe();
+        fixture.factory.crash_next_login_start();
+
+        let result = fixture
+            .service
+            .run_managed_login(
+                profile_id,
+                crate::accounts::model::ManagedLoginMethod::Browser,
+                status.operation_id,
+                None,
+            )
+            .await;
+
+        let error = match result {
+            Err(crate::accounts::model::AccountServiceError::App(error)) => error,
+            other => panic!("expected AppError, got {other:?}"),
+        };
+        assert_eq!(error.kind, crate::core::AppErrorKind::OfflineOrTimeout);
+        assert_eq!(error.recovery, crate::core::RecoveryAction::Retry);
+        assert_eq!(error.diagnostic_code, "APP_SERVER_EOF");
+        let terminal = terminal_login_status(&mut events).await;
+        assert_eq!(
+            terminal.error_kind,
+            Some(crate::core::AppErrorKind::OfflineOrTimeout)
+        );
+        assert!(fixture.service.actor.active_login().await.is_none());
+    }
+
+    #[tokio::test]
     async fn cleanup_failure_publishes_failed_before_finishing_login() {
         let fixture = fixture();
         let status = fixture
@@ -1470,6 +1513,52 @@ mod tests {
             terminal.error_kind,
             Some(crate::core::AppErrorKind::StorageFailure)
         );
+        assert!(fixture.service.actor.active_login().await.is_none());
+    }
+
+    #[tokio::test]
+    async fn primary_and_cleanup_failure_preserve_primary_and_flag_runtime_risk() {
+        let fixture = fixture();
+        let status = fixture
+            .service
+            .actor
+            .try_start_login(
+                managed_id(),
+                crate::accounts::model::ManagedLoginMethod::Browser,
+            )
+            .await
+            .unwrap();
+        let mut events = fixture.service.subscribe();
+        let primary = crate::core::AppError::new(
+            crate::core::AppErrorKind::OfflineOrTimeout,
+            "errors.offlineOrTimeout",
+            crate::core::RecoveryAction::Retry,
+            "APP_SERVER_EOF",
+        );
+
+        let result = fixture
+            .service
+            .finish_managed_login(
+                managed_id(),
+                status.operation_id,
+                Err(crate::accounts::model::AccountServiceError::App(
+                    primary.clone(),
+                )),
+                Err(crate::accounts::runtime_home::RuntimeHomeError::Io),
+            )
+            .await;
+
+        assert!(matches!(
+            result,
+            Err(crate::accounts::model::AccountServiceError::App(ref error))
+                if error == &primary
+        ));
+        let terminal = terminal_login_status(&mut events).await;
+        assert_eq!(
+            terminal.error_kind,
+            Some(crate::core::AppErrorKind::OfflineOrTimeout)
+        );
+        assert!(terminal.runtime_cleanup_failed);
         assert!(fixture.service.actor.active_login().await.is_none());
     }
 

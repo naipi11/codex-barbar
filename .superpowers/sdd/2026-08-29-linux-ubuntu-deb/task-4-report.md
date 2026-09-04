@@ -83,3 +83,49 @@
   integration remain unverified here. Ubuntu CI and the real GNOME acceptance
   pass are still required; the Windows fixture results are not claimed as Linux
   runtime proof.
+
+## Fix round 1
+
+- Kept the approved fixed filename `com.naipi11.codexbarbar.desktop`; the review
+  proposal to rename it was rejected by the ledger/spec.
+- Managed login now returns the original `session.start_login()` `AppError`
+  after attempting shutdown. A deterministic login-start process-exit fixture
+  proves `OfflineOrTimeout`, `Retry`, and `APP_SERVER_EOF` are not rewritten as
+  a protocol mismatch.
+- Added `runtimeCleanupFailed` to the managed-login status contract from the
+  actor through the Tauri DTO and TypeScript event validator. When a primary
+  login error and cleanup failure occur together, the returned primary
+  `AppError` and terminal `errorKind` remain unchanged while the typed flag is
+  true. Logs use only the fixed `RUNTIME_CLEANUP_FAILED_AFTER_LOGIN_ERROR` code.
+- Corrected Linux `Exec` serialization to apply both Desktop Entry string-value
+  escaping and Exec argument quoting. Spaces, literal backslashes, double
+  quotes, and dollar signs round-trip through deterministic expected strings;
+  executable paths containing `=` are rejected as invalid by the Freedesktop
+  grammar. No shell is introduced.
+- Linux locale selection now strips encoding/modifier suffixes and matches
+  complete language/script/region tokens. `zh_CN`, `zh_SG`, and `zh_Hans`
+  variants select Simplified Chinese; partial tokens such as `zh_CNfoo` and
+  `zh_Hansard` do not.
+
+### Fix-round RED evidence
+
+- `managed_login_preserves_non_protocol_start_error` failed with actual
+  `ProtocolMismatch` versus expected `OfflineOrTimeout` before the change.
+- `primary_and_cleanup_failure_preserve_primary_and_flag_runtime_risk` failed
+  to compile because the typed cleanup-risk field did not exist.
+- `desktop_exec_serialization_preserves_reserved_literal_path_characters`
+  failed because only one escaping layer was emitted for reserved characters.
+- Linux locale tests failed both recognition of `zh_SG` and rejection of
+  partial `zh_CNfoo`/`zh_Hansard` tokens.
+
+### Fix-round GREEN evidence
+
+- Account service tests: 18 passed; full account tests: 69 passed.
+- Platform tests: 23 passed.
+- Rust and desktop clippy with `-D warnings`: passed.
+- Desktop Rust check and 254 tests: passed.
+- Frontend Vitest: 297 passed; TypeScript/Vite production build: passed. The
+  existing `App.test.tsx` React `act(...)` warning remains non-fatal and is
+  unrelated to this fix round.
+- `cargo fmt --all -- --check` and `git diff --check`: passed.
+- Linux-native execution limits remain unchanged from the section above.

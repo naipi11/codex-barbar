@@ -319,6 +319,7 @@ export interface ManagedLoginStateDto {
   verificationUrl: string | null;
   userCode: string | null;
   errorKind: AppErrorKind | null;
+  runtimeCleanupFailed: boolean;
 }
 
 export interface BootstrapDto {

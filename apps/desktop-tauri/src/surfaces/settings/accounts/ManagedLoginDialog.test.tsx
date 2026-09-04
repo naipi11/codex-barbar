@@ -14,6 +14,7 @@ function loginState(
     verificationUrl: null,
     userCode: null,
     errorKind: null,
+    runtimeCleanupFailed: false,
     ...overrides,
   };
 }
