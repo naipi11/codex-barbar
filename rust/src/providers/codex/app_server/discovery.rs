@@ -224,7 +224,7 @@ impl CodexCommandResolver {
                     return Ok(Some(command));
                 }
             }
-            return Ok(None);
+            Ok(None)
         }
 
         #[cfg(not(target_os = "linux"))]
@@ -263,7 +263,7 @@ impl CodexCommandResolver {
         }
     }
 
-    #[cfg(test)]
+    #[cfg(all(test, windows))]
     fn resolve_in_path_with_native_verifier(
         &self,
         path: &OsString,
@@ -314,7 +314,7 @@ impl Default for CodexCommandResolver {
 fn known_native_candidates() -> Vec<PathBuf> {
     #[cfg(target_os = "linux")]
     {
-        return Vec::new();
+        Vec::new()
     }
 
     #[cfg(not(target_os = "linux"))]
@@ -355,6 +355,7 @@ fn extension_lower(path: &Path) -> Option<String> {
 }
 
 /// Parse a PATHEXT snapshot into lowercase extensions without dots.
+#[cfg(not(target_os = "linux"))]
 fn pathext_extensions(pathext: Option<&OsString>) -> Vec<String> {
     let raw = match pathext.and_then(|p| p.to_str()) {
         Some(raw) if !raw.trim().is_empty() => raw.to_string(),
@@ -639,6 +640,7 @@ mod tests {
         }
     }
 
+    #[cfg(windows)]
     #[test]
     fn pathext_is_honored_for_cmd_hints() {
         let exts = pathext_extensions(Some(&OsString::from(".COM;.EXE;.CMD")));

@@ -19,6 +19,7 @@ use crate::core::ProfileId;
 const PNG_DATA_URL_PREFIX: &str = "data:image/png;base64,";
 const MAX_AVATAR_BYTES: usize = 1024 * 1024;
 const MAX_AVATAR_DIMENSION: u32 = 2048;
+#[cfg(windows)]
 const MAX_DECODED_AVATAR_BYTES: usize =
     MAX_AVATAR_DIMENSION as usize * MAX_AVATAR_DIMENSION as usize * 4;
 const MAX_INFLATED_AVATAR_BYTES: usize =

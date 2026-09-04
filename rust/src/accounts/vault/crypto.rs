@@ -173,6 +173,7 @@ impl WindowsDpapiProtector {
         Self { _private: () }
     }
 
+    #[cfg(windows)]
     fn entropy(profile_id: ProfileId) -> Vec<u8> {
         format!("codex-barbar/vault/v1/{profile_id}").into_bytes()
     }

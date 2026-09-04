@@ -339,6 +339,7 @@ pub(super) fn verify_openai_signature(path: &Path) -> bool {
     publisher.as_deref().is_some_and(is_openai_publisher)
 }
 
+#[cfg(windows)]
 fn is_openai_publisher(publisher: &str) -> bool {
     publisher == "OpenAI OpCo, LLC"
 }
@@ -505,6 +506,7 @@ mod tests {
             Self { dir: f.dir }
         }
 
+        #[cfg(windows)]
         fn root(&self) -> &Path {
             self.dir.path()
         }
@@ -513,6 +515,7 @@ mod tests {
             self.dir.path().join("npm")
         }
 
+        #[cfg(windows)]
         fn native_exe(&self) -> PathBuf {
             self.npm_prefix().join(
                 r"node_modules\@openai\codex\node_modules\@openai\codex-win32-x64\vendor\x86_64-pc-windows-msvc\bin\codex.exe",
@@ -697,6 +700,7 @@ mod tests {
         assert!(!verify_openai_signature(&notepad));
     }
 
+    #[cfg(windows)]
     #[test]
     fn publisher_allowlist_requires_the_exact_openai_subject() {
         assert!(is_openai_publisher("OpenAI OpCo, LLC"));

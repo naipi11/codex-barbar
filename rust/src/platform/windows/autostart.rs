@@ -2,8 +2,11 @@
 
 use std::path::{Path, PathBuf};
 
+#[cfg(windows)]
 const RUN_KEY: &str = r"Software\Microsoft\Windows\CurrentVersion\Run";
+#[cfg(windows)]
 const VALUE_NAME: &str = "codex-barbar";
+#[cfg(windows)]
 const LEGACY_VALUE_NAMES: &[&str] = &["CodexBar"];
 
 #[derive(Debug, Clone, PartialEq, Eq)]
