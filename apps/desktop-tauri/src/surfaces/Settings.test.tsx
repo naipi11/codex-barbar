@@ -187,6 +187,12 @@ describe("Settings surface", () => {
     expect(screen.getByText(
       "Taskbar status is unavailable on this platform.",
     )).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Accounts" }));
+    expect(screen.getByRole("button", { name: "Add account" })).toBeDisabled();
+    expect(
+      screen.getByText("Managed credentials require an available system keyring."),
+    ).toBeInTheDocument();
   });
 
   it("retains English sidebar labels for en-US", async () => {
@@ -318,6 +324,7 @@ describe("Settings surface", () => {
         ]}
         selectedProfileId="personal"
         loginState={null}
+        managedCredentialsAvailable
         onSelect={() => {}}
         onRename={async () => {}}
         onRemove={async () => {}}

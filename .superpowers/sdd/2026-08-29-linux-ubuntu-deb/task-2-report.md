@@ -95,8 +95,8 @@ that poll cadence separately if Linux profiling shows material desktop cost.
 
 - Narrowed the Python-fixture protocol test from `cfg(unix)` to
   `cfg(target_os = "linux")`. The fixture command itself is Linux-specific;
-  macOS/BSD retain their generic Unix process-group coverage without trying to
-  execute the Linux Python fixture.
+  the generic Unix process-group code remains compiled for macOS/BSD, but this
+  Windows run did not execute or prove those targets.
 - `cargo fmt --all -- --check` completed successfully.
 - `cargo test --manifest-path rust/Cargo.toml --lib providers::codex::app_server::process`: 13 passed, 0 failed.
 - `cargo test --manifest-path rust/Cargo.toml --test codex_app_server_contract`: 17 passed, 0 failed.

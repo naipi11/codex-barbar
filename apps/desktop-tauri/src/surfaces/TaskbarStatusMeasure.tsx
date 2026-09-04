@@ -6,9 +6,11 @@ import { TaskbarStatusContents } from "./TaskbarStatusContents";
 import { buildTaskbarStatusPresentation } from "./taskbarStatusPresentation";
 import "./TaskbarStatus.css";
 
-export default function TaskbarStatusMeasure() {
-  const surface = useStatusSurface();
-  useTheme(surface.bootstrap?.settings.theme ?? "system");
+function SupportedTaskbarStatusMeasure({
+  surface,
+}: {
+  surface: ReturnType<typeof useStatusSurface>;
+}) {
   const presentation = buildTaskbarStatusPresentation(surface);
   const measurementRef = useRef<HTMLDivElement>(null);
   useTaskbarStatusWidth(measurementRef);
@@ -20,4 +22,13 @@ export default function TaskbarStatusMeasure() {
       measurementRef={measurementRef}
     />
   );
+}
+
+export default function TaskbarStatusMeasure() {
+  const surface = useStatusSurface();
+  useTheme(surface.bootstrap?.settings.theme ?? "system");
+  if (!surface.bootstrap?.platform.taskbarStatus) {
+    return null;
+  }
+  return <SupportedTaskbarStatusMeasure surface={surface} />;
 }

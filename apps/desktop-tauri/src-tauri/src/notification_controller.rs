@@ -9,6 +9,7 @@ use codexbar::{
 use serde::Serialize;
 use tauri::Manager;
 
+pub use crate::platform_capabilities::NotificationCapabilityStatus;
 use crate::state::AppState;
 
 const UPDATE_CHECK_INTERVAL: Duration = Duration::from_secs(24 * 60 * 60);
@@ -26,15 +27,6 @@ const NOTIFICATION_SETTING_SCRIPT: &str = r#"try {
     if ($null -eq $notifier) { exit 1 }
     [Console]::Out.Write([int]$notifier.Setting)
 } catch { exit 1 }"#;
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub enum NotificationCapabilityStatus {
-    Available,
-    AppDisabled,
-    GlobalDisabled,
-    Unsupported,
-}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -392,21 +384,37 @@ fn use_chinese(settings: &AppSettings) -> bool {
         LanguagePreference::ZhCn => true,
         LanguagePreference::EnUs => false,
         LanguagePreference::System => {
-            codexbar::platform::windows::system_locale::default_language() == "zh-CN"
+            codexbar::platform::system_locale::language() == LanguagePreference::ZhCn
         }
     }
 }
 
 fn test_copy(settings: &AppSettings) -> (&'static str, &'static str) {
+    test_copy_for(settings, cfg!(target_os = "windows"))
+}
+
+fn test_copy_for(settings: &AppSettings, is_windows: bool) -> (&'static str, &'static str) {
     if use_chinese(settings) {
+        if is_windows {
+            (
+                "codex-barbar 测试通知",
+                "Windows 通知已连接；此操作不会更改 Codex 用量或账户。",
+            )
+        } else {
+            (
+                "codex-barbar 测试通知",
+                "桌面通知已连接；此操作不会更改 Codex 用量或账户。",
+            )
+        }
+    } else if is_windows {
         (
-            "codex-barbar 测试通知",
-            "Windows 通知已连接；此操作不会更改 Codex 用量或账户。",
+            "codex-barbar Test Notification",
+            "Windows notifications are connected. This does not change Codex usage or your account.",
         )
     } else {
         (
             "codex-barbar Test Notification",
-            "Windows notifications are connected. This does not change Codex usage or your account.",
+            "Desktop notifications are connected. This does not change Codex usage or your account.",
         )
     }
 }
@@ -484,26 +492,26 @@ fn event_copy(settings: &AppSettings, event: &V1NotificationEvent) -> (String, S
         ),
         V1NotificationEvent::PricingCatalogChanged { source_count } => (
             if zh {
-                "å®ä»·ç®å½å·²æ´æ°"
+                "定价目录已更新"
             } else {
                 "Pricing catalog updated"
             }
             .to_string(),
             if zh {
-                format!("å·²æ´æ° {source_count} ä¸ªå¬å¼å®ä»·æºã")
+                format!("已更新 {source_count} 个公开定价源。")
             } else {
                 format!("Updated {source_count} public pricing sources.")
             },
         ),
         V1NotificationEvent::PricingRefreshFailed => (
             if zh {
-                "å®ä»·å·æ°è¿ç»å¤±è´¥"
+                "定价刷新连续失败"
             } else {
                 "Pricing refresh repeatedly failed"
             }
             .to_string(),
             if zh {
-                "codex-barbar è¿ç»ä¸æ¬¡æ æ³å·æ°å¬å¼å®ä»·ç®å½ã".to_string()
+                "codex-barbar 连续三次无法刷新公开定价目录。".to_string()
             } else {
                 "codex-barbar could not refresh the public pricing catalog three times in a row."
                     .to_string()
@@ -511,13 +519,13 @@ fn event_copy(settings: &AppSettings, event: &V1NotificationEvent) -> (String, S
         ),
         V1NotificationEvent::PricingRefreshRecovered => (
             if zh {
-                "å®ä»·å·æ°å·²æ¢å¤"
+                "定价刷新已恢复"
             } else {
                 "Pricing refresh recovered"
             }
             .to_string(),
             if zh {
-                "codex-barbar å·²æ¢å¤å¬å¼å®ä»·ç®å½å·æ°ã".to_string()
+                "codex-barbar 已恢复公开定价目录刷新。".to_string()
             } else {
                 "codex-barbar is refreshing the public pricing catalog again.".to_string()
             },
@@ -719,10 +727,39 @@ mod tests {
     use super::{
         DesktopNotificationSink, NOTIFICATION_REGISTRATION_SCRIPT, NotificationCapabilityStatus,
         NotificationController, NotificationSettingProbe, ToastSink, account_marker_from_email,
-        detect_linux_notification_capability, detect_notification_capability,
+        detect_linux_notification_capability, detect_notification_capability, event_copy,
         parse_notification_setting, send_windows_toast_with, should_check_for_updates,
-        toast_transport_result, windows_toast_script, xml_escape,
+        test_copy_for, toast_transport_result, windows_toast_script, xml_escape,
     };
+
+    #[test]
+    fn chinese_pricing_notification_copy_is_valid_and_platform_neutral() {
+        let settings = codexbar::storage::AppSettings {
+            language: codexbar::storage::LanguagePreference::ZhCn,
+            ..Default::default()
+        };
+        let (title, body) = event_copy(
+            &settings,
+            &codexbar::notifications::v1::V1NotificationEvent::PricingCatalogChanged {
+                source_count: 2,
+            },
+        );
+
+        assert_eq!(title, "定价目录已更新");
+        assert_eq!(body, "已更新 2 个公开定价源。");
+    }
+
+    #[test]
+    fn linux_test_notification_copy_does_not_claim_windows_transport() {
+        let settings = codexbar::storage::AppSettings {
+            language: codexbar::storage::LanguagePreference::EnUs,
+            ..Default::default()
+        };
+        let (_, body) = test_copy_for(&settings, false);
+
+        assert!(body.starts_with("Desktop notifications"));
+        assert!(!body.contains("Windows"));
+    }
 
     struct FakeNotificationSettingProbe {
         registration: Result<(), ()>,

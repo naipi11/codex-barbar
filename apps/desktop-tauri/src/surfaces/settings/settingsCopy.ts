@@ -132,10 +132,12 @@ export interface SettingsCopy {
   notifications: {
     title: string;
     masterTitle: string;
+    desktopMasterTitle: string;
     masterDescription: string;
     enable: string;
     eventsTitle: string;
     eventsDescription: string;
+    desktopEventsDescription: string;
     warning: string;
     danger: string;
     weeklyReset: string;
@@ -152,6 +154,7 @@ export interface SettingsCopy {
     playSound: string;
     sendTest: string;
     testDescription: string;
+    desktopTestDescription: string;
     testSent: string;
     capabilityAppDisabled: string;
     capabilityGlobalDisabled: string;
@@ -354,10 +357,12 @@ const english: SettingsCopy = {
   notifications: {
     title: "Notifications",
     masterTitle: "Windows notifications",
+    desktopMasterTitle: "Desktop notifications",
     masterDescription: "Opt in to quota, refresh, and release alerts. Existing activity becomes the baseline when enabled.",
     enable: "Enable notifications",
     eventsTitle: "Notify me when",
     eventsDescription: "Choose the changes that deserve a Windows toast.",
+    desktopEventsDescription: "Choose the changes that deserve a desktop notification.",
     warning: "Remaining quota enters the warning band",
     danger: "Remaining quota enters the danger band",
     weeklyReset: "Universal weekly allowance resets",
@@ -374,6 +379,7 @@ const english: SettingsCopy = {
     playSound: "Play a sound with notifications",
     sendTest: "Send test notification",
     testDescription: "Tests desktop notification delivery without changing usage, reset credits, or account state.",
+    desktopTestDescription: "Tests desktop notification delivery without changing usage, reset credits, or account state.",
     testSent: "Test notification sent.",
     capabilityAppDisabled: "Notifications for codex-barbar are turned off in Windows. Open Windows notification settings and allow notifications for codex-barbar.",
     capabilityGlobalDisabled: "Windows notifications are turned off. Open Windows notification settings to turn them on.",
@@ -510,10 +516,12 @@ const chinese: SettingsCopy = {
   notifications: {
     title: "通知",
     masterTitle: "Windows 通知",
+    desktopMasterTitle: "桌面通知",
     masterDescription: "选择接收额度、刷新和版本更新提醒。启用时，当前状态只用于建立基线。",
     enable: "启用通知",
     eventsTitle: "以下情况通知我",
     eventsDescription: "选择需要显示 Windows 通知的变化。",
+    desktopEventsDescription: "选择需要显示桌面通知的变化。",
     warning: "剩余额度进入预警区间",
     danger: "剩余额度进入危险区间",
     weeklyReset: "通用每周额度完成重置",
@@ -530,6 +538,7 @@ const chinese: SettingsCopy = {
     playSound: "通知时播放声音",
     sendTest: "发送测试通知",
     testDescription: "测试 Windows 通知，不会更改用量、重置额度或账户状态。",
+    desktopTestDescription: "测试桌面通知，不会更改用量、重置额度或账户状态。",
     testSent: "测试通知已发送。",
     capabilityAppDisabled: "Windows 已关闭 codex-barbar 的通知。请打开 Windows 通知设置，并允许 codex-barbar 发送通知。",
     capabilityGlobalDisabled: "Windows 通知已关闭。请打开 Windows 通知设置并启用通知。",

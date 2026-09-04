@@ -33,6 +33,7 @@ export interface AccountsTabProps {
   profiles: ProfileSummaryDto[];
   selectedProfileId: string;
   loginState: ManagedLoginStateDto | null;
+  managedCredentialsAvailable: boolean;
   onSelect(profileId: string): void;
   onRename(profileId: string, label: string): Promise<unknown>;
   onRemove(profileId: string): Promise<unknown>;
@@ -41,7 +42,7 @@ export interface AccountsTabProps {
   copy?: SettingsCopy;
 }
 
-export default function AccountsTab({ profiles, selectedProfileId, loginState, onSelect, onRename, onRemove, onStartLogin, onCancelLogin, copy = settingsCopy("en-US") }: AccountsTabProps) {
+export default function AccountsTab({ profiles, selectedProfileId, loginState, managedCredentialsAvailable, onSelect, onRename, onRemove, onStartLogin, onCancelLogin, copy = settingsCopy("en-US") }: AccountsTabProps) {
   const [dialogOpen, setDialogOpen] = useState(false);
   const [newLabel, setNewLabel] = useState(copy.accounts.managed);
   const selectedProfile = profiles.find((profile) => profile.id === selectedProfileId) ?? null;
@@ -56,6 +57,10 @@ export default function AccountsTab({ profiles, selectedProfileId, loginState, o
     setAvatarPreviewUri(selectedProfile?.avatarAssetUri ?? null);
     setAvatarStatus(null);
   }, [selectedProfile?.id, selectedProfile?.avatarAssetUri]);
+
+  useEffect(() => {
+    if (!managedCredentialsAvailable) setDialogOpen(false);
+  }, [managedCredentialsAvailable]);
 
   const handleAvatarFile = async (file: File) => {
     if (!selectedProfile) {
@@ -114,10 +119,11 @@ export default function AccountsTab({ profiles, selectedProfileId, loginState, o
         </> : null}
       </li>)}
     </ul>
+    {!managedCredentialsAvailable ? <p className="settings-platform-notice" role="status">{copy.keyringUnavailable}</p> : null}
     <p className="settings-field">
       <label htmlFor="new-account-label">{copy.accounts.newAccountLabel}</label>
-      <input id="new-account-label" value={newLabel} onChange={(event) => setNewLabel(event.target.value)} />
-      <button ref={addButtonRef} type="button" onClick={() => setDialogOpen(true)}>{copy.accounts.addAccount}</button>
+      <input id="new-account-label" value={newLabel} onChange={(event) => setNewLabel(event.target.value)} disabled={!managedCredentialsAvailable} />
+      <button ref={addButtonRef} type="button" onClick={() => setDialogOpen(true)} disabled={!managedCredentialsAvailable}>{copy.accounts.addAccount}</button>
     </p>
     <fieldset className="settings-preference-group account-avatar-settings">
       <legend>{copy.accounts.avatarTitle}</legend>
@@ -153,6 +159,6 @@ export default function AccountsTab({ profiles, selectedProfileId, loginState, o
         </div>
       </div>
     </fieldset>
-    <ManagedLoginDialog open={dialogOpen} state={loginState} copy={copy} onStart={(method) => onStartLogin(method, newLabel.trim() || copy.accounts.managed)} onCancel={onCancelLogin} onClose={() => { setDialogOpen(false); addButtonRef.current?.focus(); }} />
+    <ManagedLoginDialog open={dialogOpen && managedCredentialsAvailable} state={loginState} copy={copy} onStart={(method) => { if (managedCredentialsAvailable) onStartLogin(method, newLabel.trim() || copy.accounts.managed); }} onCancel={onCancelLogin} onClose={() => { setDialogOpen(false); addButtonRef.current?.focus(); }} />
   </section>;
 }

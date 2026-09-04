@@ -35,13 +35,13 @@ function initialTab(): SettingsTabId {
 }
 
 const FALLBACK_PLATFORM: PlatformCapabilitiesDto = {
-  platform: "windows",
-  systemTray: true,
-  taskbarStatus: true,
-  floatingBall: true,
-  autostart: true,
-  notifications: "available",
-  managedCredentials: true,
+  platform: "other",
+  systemTray: false,
+  taskbarStatus: false,
+  floatingBall: false,
+  autostart: false,
+  notifications: "unsupported",
+  managedCredentials: false,
 };
 
 function PlaceholderTab({ tab, copy }: { tab: SettingsTabId; copy: SettingsCopy }) {
@@ -122,13 +122,13 @@ export default function Settings() {
         },
       },
       platform: {
-        platform: "windows",
-        systemTray: true,
-        taskbarStatus: true,
-        floatingBall: true,
-        autostart: true,
-        notifications: "available",
-        managedCredentials: true,
+        platform: "other",
+        systemTray: false,
+        taskbarStatus: false,
+        floatingBall: false,
+        autostart: false,
+        notifications: "unsupported",
+        managedCredentials: false,
       },
     },
   );
@@ -176,6 +176,7 @@ export default function Settings() {
           profiles={usage.profiles}
           selectedProfileId={usage.selectedProfileId}
           loginState={usage.loginState}
+          managedCredentialsAvailable={bootstrap?.platform.managedCredentials ?? false}
           onSelect={(profileId) => void usage.selectProfile(profileId)}
           onRename={(profileId, label) => renameManagedProfile(profileId, label)}
           onRemove={(profileId) => removeManagedProfile(profileId)}
@@ -191,7 +192,12 @@ export default function Settings() {
         />
       ) : null}
       {tab === "notifications" ? (
-        <NotificationsTab settings={settings} update={update} copy={copy} />
+        <NotificationsTab
+          settings={settings}
+          update={update}
+          platform={platform.platform}
+          copy={copy}
+        />
       ) : null}
       {tab === "menuBar" ? (
         <TaskbarTrayTab

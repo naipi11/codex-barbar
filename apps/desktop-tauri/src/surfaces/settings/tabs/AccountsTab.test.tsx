@@ -13,6 +13,7 @@ vi.mock("../../../lib/tauri", () => ({
 const baseProps = {
   selectedProfileId: "personal",
   loginState: null,
+  managedCredentialsAvailable: true,
   onSelect: vi.fn(),
   onRename: vi.fn(async () => undefined),
   onRemove: vi.fn(async () => undefined),
@@ -21,6 +22,22 @@ const baseProps = {
 };
 
 describe("AccountsTab", () => {
+  it("disables managed login when the runtime keyring is unavailable", () => {
+    render(
+      <AccountsTab
+        {...baseProps}
+        profiles={[currentCliProfile()]}
+        managedCredentialsAvailable={false}
+      />,
+    );
+
+    expect(screen.getByLabelText("New account label")).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Add account" })).toBeDisabled();
+    expect(screen.getByRole("status")).toHaveTextContent(
+      "Managed credentials require an available system keyring.",
+    );
+  });
+
   it("shows the concrete current Codex identity instead of Current CLI", () => {
     render(
       <AccountsTab

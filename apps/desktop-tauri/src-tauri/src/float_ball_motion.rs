@@ -11,6 +11,11 @@ use tauri::Emitter;
 
 pub const FLOAT_BALL_MOTION_CHANGED: &str = "codexbar:float-ball-motion-changed";
 
+#[cfg(target_os = "linux")]
+const MOTION_MONITOR_INTERVAL: Duration = Duration::from_secs(1);
+#[cfg(not(target_os = "linux"))]
+const MOTION_MONITOR_INTERVAL: Duration = Duration::from_millis(250);
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub enum MotionState {
@@ -246,7 +251,7 @@ pub fn get_float_ball_motion() -> FloatBallMotion {
 
 pub fn start_float_ball_motion_monitor(app: tauri::AppHandle) {
     tauri::async_runtime::spawn(async move {
-        let mut interval = tokio::time::interval(Duration::from_millis(250));
+        let mut interval = tokio::time::interval(MOTION_MONITOR_INTERVAL);
         interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
         let mut monitor = MotionMonitor::new();
         loop {
