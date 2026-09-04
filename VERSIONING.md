@@ -76,37 +76,45 @@ Use pre-release tags for testing before stable release:
 
 ### Before Release
 
-1. **Update every product manifest** to the exact version.
-2. **Update CHANGELOG.md** with release notes; label it `Unreleased` until
-   all release gates have passed.
-3. **Run Windows and Ubuntu CI** for the exact commit, including their
-   artifact verifiers.
+1. **Update every product manifest and CHANGELOG.md**, then commit the exact
+   candidate. Keep the changelog entry `Unreleased` until all release gates
+   have passed.
+2. **Validate that checked-out candidate before tagging.** Local release
+   scripts must use `-Ref HEAD` (or an explicit ref that resolves to the
+   checked-out candidate) because they require exact HEAD/ref equality.
+3. **Run Windows and Ubuntu CI** for the exact candidate commit, including
+   their artifact verifiers.
 4. **Complete the platform acceptance records**. An Ubuntu Debian release
    requires [docs/verification/linux/ubuntu-24.04-acceptance.md](docs/verification/linux/ubuntu-24.04-acceptance.md)
    with no `PENDING`/`NOT RUN` release-blocking item, including the package
    SHA-256 and desktop/session evidence.
-5. Only then commit the version bump, tag the exact commit, inspect the draft
+5. Only then create an annotated `vX.Y.Z` tag pointing to that exact candidate
+   commit, push it to rerun/continue release aggregation, inspect the draft
    assets, and obtain explicit authorization to publish.
 
 ### Creating a Release
 
 ```bash
-# 1. Commit the already-validated version bump
+# 1. Commit the versioned candidate, then validate the checked-out commit
 git add rust/Cargo.toml apps/desktop-tauri/src-tauri/Cargo.toml apps/desktop-tauri/package.json apps/desktop-tauri/src-tauri/tauri.conf.json CHANGELOG.md
 git commit -m "chore: bump version to X.Y.Z"
+./scripts/windows-release-build.ps1 -Ref HEAD -Version X.Y.Z -OutputDirectory ./artifacts/release
 
-# 2. Create annotated tag
-git tag -a vX.Y.Z -m "vX.Y.Z - Brief description"
+# 2. After exact-commit CI and acceptance records pass, tag that same commit
+git tag -a vX.Y.Z -m "vX.Y.Z - Brief description" HEAD
 
-# 3. Push the validated tag to run the dual-platform workflow
+# 3. Push the tag to run/continue dual-platform release aggregation
 git push origin main --tags
 
 # 4. Inspect the draft assets; publish only with explicit authorization
 ```
 
-The hosted workflows deliberately use `pwsh` for PowerShell policy/release
-steps, including where the Ubuntu runner supplies PowerShell Core. This is an
-execution detail, not evidence that a Linux desktop acceptance test ran.
+The `v*` workflow path resolves the version from the tag; the
+`workflow_dispatch` path checks its requested version against the committed
+manifests. The hosted workflows deliberately use `pwsh` for PowerShell
+policy/release steps, including where the Ubuntu runner supplies PowerShell
+Core. These are execution details, not evidence that a Linux desktop
+acceptance test ran.
 
 ---
 

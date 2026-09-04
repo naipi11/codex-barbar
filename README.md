@@ -1,7 +1,7 @@
 <div align="center">
   <img src="rust/icons/codex-barbar.png" alt="codex-barbar icon" width="144">
   <h1>codex-barbar</h1>
-  <p><strong>A Windows and Ubuntu tray app that shows your Codex usage and limits at a glance.</strong></p>
+  <p><strong>A Windows tray app; Ubuntu 24.04 amd64 is a release target pending desktop acceptance.</strong></p>
   <p><strong>English</strong> · <a href="README.zh-CN.md">中文</a></p>
 </div>
 
@@ -24,12 +24,13 @@
 The floating ball stays icon-sized and clockwise. Color shows remaining quota
 (green / gold / red). Speed shows activity: idle, thinking ×2, Fast ×3.
 
-codex-barbar is a Windows 11 x64 and Ubuntu 24.04 amd64 tray application for tracking your
+codex-barbar is a Windows 11 x64 tray application for tracking your
 [Codex](https://developers.openai.com/codex/) usage and quota limits. It
-talks to the official Codex App Server protocol, keeps credentials local,
-and shows live quota in your tray and a floating ball. The Windows taskbar
-status surface is Windows-only. Ubuntu desktop acceptance is still pending;
-see [Linux acceptance](docs/LINUX_ACCEPTANCE.md) before treating a Debian
+talks to the official Codex App Server protocol, keeps credentials local, and
+shows live quota in your tray and a floating ball. Ubuntu 24.04 amd64 is a
+Debian release target in preview, pending desktop acceptance; it is not yet a
+supported release platform. The Windows taskbar status surface is Windows-only.
+See [Linux acceptance](docs/LINUX_ACCEPTANCE.md) before treating a Debian
 asset as release-ready.
 
 ![codex-barbar overview](docs/images/showcase/hero-en.png)

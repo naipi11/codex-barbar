@@ -118,8 +118,8 @@ that separately in [LINUX_ACCEPTANCE.md](./LINUX_ACCEPTANCE.md).
 ## Release build
 
 ```powershell
-.\scripts\windows-release-build.ps1 -Ref HEAD -Version 1.0.0 -OutputDirectory .\artifacts\release
-.\scripts\verify-release-artifacts.ps1 -Version 1.0.0 -AssetsDirectory .\artifacts\release
+.\scripts\windows-release-build.ps1 -Ref HEAD -Version <version> -OutputDirectory .\artifacts\release
+.\scripts\verify-release-artifacts.ps1 -Version <version> -AssetsDirectory .\artifacts\release
 ```
 
 The build script requires a clean worktree and exact HEAD/ref equality

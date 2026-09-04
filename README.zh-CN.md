@@ -1,7 +1,7 @@
 <div align="center">
   <img src="rust/icons/codex-barbar.png" alt="codex-barbar 图标" width="144">
   <h1>codex-barbar</h1>
-  <p><strong>一款在 Windows 与 Ubuntu 托盘显示 Codex 用量与额度的应用。</strong></p>
+  <p><strong>一款在 Windows 托盘显示 Codex 用量与额度的应用；Ubuntu 24.04 amd64 为待桌面验收的发布目标。</strong></p>
   <p><a href="README.md">English</a> · <strong>中文</strong></p>
 </div>
 
@@ -24,10 +24,11 @@
 悬浮球保持和图标一样大，并顺时针旋转。颜色表示剩余额度（绿 / 金 / 红），
 转速表示状态：空闲、思考 ×2、Fast ×3。
 
-codex-barbar 是一款 Windows 11 x64 与 Ubuntu 24.04 amd64 托盘应用，用于随时查看你的
+codex-barbar 是一款 Windows 11 x64 托盘应用，用于随时查看你的
 [Codex](https://developers.openai.com/codex/) 用量与额度。它通过官方
-Codex App Server 协议读取数据，凭据保存在本地，并在托盘和悬浮球中实时展示额度；
-任务栏状态仅支持 Windows。Ubuntu 桌面验收尚未完成，Debian 资产发布前请先查看
+Codex App Server 协议读取数据，凭据保存在本地，并在托盘和悬浮球中实时展示额度。
+Ubuntu 24.04 amd64 是预览中的 Debian 发布目标，仍待桌面验收，尚不是已支持的发布平台；
+任务栏状态仅支持 Windows。Debian 资产发布前请先查看
 [Linux 验收说明](docs/LINUX_ACCEPTANCE.md)。
 
 ![codex-barbar 界面总览](docs/images/showcase/hero-zh-CN.png)

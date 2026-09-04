@@ -52,3 +52,30 @@ C3A2AA4A4C6EE0ADC18FF62FF8E6E9552A01D7C76276962A2FC15123D68F0119  docs/verificat
 No package, frontend, or Rust test/build command was run because this task
 changes documentation only. No Ubuntu package build or desktop acceptance was
 attempted on this Windows host.
+
+## Fix round 1 (review follow-up)
+
+- Corrected the aggregate release asset contract: the aggregator emits the
+  combined `SHA256SUMS.txt`, renamed per-target SBOMs, and
+  `artifact-manifest-windows.json` / `artifact-manifest-linux.json`; it does
+  not emit an aggregate `artifact-manifest.json`.
+- Reordered release documentation around the exact candidate commit. Pre-tag
+  local validation now uses `-Ref HEAD`; only after exact-commit Windows and
+  Ubuntu CI plus acceptance records pass may `v<version>` be created at that
+  commit and pushed to run/continue aggregation. The docs retain the `v*`
+  resolution rule and workflow-dispatch manifest-version check.
+- Replaced the stale `1.0.0` Windows build example with `<version>`.
+- Reframed Ubuntu 24.04 amd64 in both READMEs as a preview release target
+  pending desktop acceptance, not a supported release platform.
+
+### Fix-round hashes
+
+```text
+FBA0EE40790C674FB4FAC4B532E21BCFDFC1217A302E31F47D6C38D6D7320728  README.md
+2B0828F6C4238955B556AFF47DAA4D02B63F7F9219BE588DC6120BC35B408FDC  README.zh-CN.md
+57D69DEB4CDE639B725D9A935E1A6E31B69A17649A800FD64C034539A9D0BF4E  docs/BUILDING.md
+6AC4DF83E8636CDB6B48433395CC3ADFF2D1D047A61D50772AF437E1A94530B6  docs/RELEASING.md
+4906435C6352FE6810B99BCFD4EB7D097F57B81E072BDA20BEEB9FA841C02CF9  VERSIONING.md
+```
+
+Ubuntu package hash, Ubuntu acceptance, tag, and release remain unclaimed.

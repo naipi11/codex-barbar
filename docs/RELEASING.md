@@ -19,22 +19,27 @@ codex-barbar_<version>_windows-sbom.spdx.json  Windows SPDX 2.3 SBOM
 codex-barbar_<version>_linux-sbom.spdx.json    Linux SPDX 2.3 SBOM
 artifact-manifest-windows.json            Windows target manifest
 artifact-manifest-linux.json              Linux target manifest
-artifact-manifest.json                    Aggregate version, commit, sizes, hashes
 ```
+
+The aggregate step does not create an aggregate `artifact-manifest.json`; it
+copies the two renamed target manifests above and writes the combined
+`SHA256SUMS.txt`.
 
 Binaries are unsigned until an Authenticode certificate is supplied;
 SmartScreen warnings are expected.
 
 ## Local release build
 
-1. Ensure all product manifests match the version:
+1. Commit the versioned candidate and ensure all product manifests match its
+   version:
    `rust/Cargo.toml`, `apps/desktop-tauri/src-tauri/Cargo.toml`,
    `apps/desktop-tauri/package.json`, and
    `apps/desktop-tauri/src-tauri/tauri.conf.json`.
-2. Build and verify the Windows artifacts from a clean worktree:
+2. Check out that exact candidate commit. Before a tag exists, build and
+   verify the Windows artifacts from its clean worktree with `HEAD`:
 
    ```powershell
-   .\scripts\windows-release-build.ps1 -Ref v<version> -Version <version> -OutputDirectory .\artifacts\release
+   .\scripts\windows-release-build.ps1 -Ref HEAD -Version <version> -OutputDirectory .\artifacts\release
    .\scripts\verify-release-artifacts.ps1 -Version <version> -AssetsDirectory .\artifacts\release
    .\scripts\release-doctor.ps1 -Version <version> -AssetsDirectory .\artifacts\release
    ```
@@ -58,10 +63,11 @@ SmartScreen warnings are expected.
    including the package SHA-256, tray/panel/settings/Current CLI refresh,
    float-ball, notification, XDG autostart, Secret Service, and unsupported
    taskbar behavior.
-6. Wait for green Windows and Ubuntu CI for the exact candidate commit. Only
-   after both CI jobs and both platform acceptance records are complete may
-   you commit/tag the exact commit, inspect the draft assets, and request
-   authorization to publish.
+6. Wait for green Windows and Ubuntu CI for the exact candidate commit. After
+   both CI jobs and both platform acceptance records are complete, create an
+   annotated `v<version>` tag that points to that same candidate commit, then
+   push the tag to rerun/continue release aggregation. Inspect the resulting
+   draft assets and request authorization before publishing.
 
 The build script refuses to run on a dirty worktree or when `-Ref` does not
 resolve to HEAD. `-AllowDirty` exists only for development.
@@ -76,6 +82,11 @@ triggered by a `v*` tag; it uses only the repository `GITHUB_TOKEN`. The
 workflow deliberately uses `pwsh` for PowerShell policy/release steps,
 including where the Ubuntu runner provides PowerShell Core. A green build job
 does not replace real GNOME/KDE/Wayland/X11/D-Bus/Secret Service acceptance.
+
+For a `v*` invocation, the workflow resolves the version from the tag and
+rejects a tag that does not start with `v`. For `workflow_dispatch`, provide
+the requested version that matches the committed product manifests; dispatch
+does not make an unaccepted Ubuntu desktop result pass.
 
 Before a public release, the workflow queries enabled Dependabot alerts and
 fails on open high/critical findings. If Dependabot/security-events read
