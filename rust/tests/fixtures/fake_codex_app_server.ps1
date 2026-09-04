@@ -14,7 +14,8 @@ param(
         'rpc-timeout',
         'crash',
         'refuse-exit',
-        'login-failed'
+        'login-failed',
+        'login-cancelled'
     )]
     [string] $Mode,
 
@@ -259,6 +260,13 @@ while ($true) {
                     params = @{
                         loginId = 'login-browser'
                         error = 'fixture secret text'
+                    }
+                }
+            } elseif ($Mode -eq 'login-cancelled') {
+                Write-Frame @{
+                    method = 'account/login/cancelled'
+                    params = @{
+                        loginId = 'login-browser'
                     }
                 }
             } else {

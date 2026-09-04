@@ -11,7 +11,7 @@ MODES = {
     "normal", "interleaved", "out-of-order", "unknown-notification",
     "duplicate-id", "invalid-json", "truncated", "oversized",
     "initialize-timeout", "rpc-timeout", "crash", "refuse-exit",
-    "login-failed",
+    "login-failed", "login-cancelled",
 }
 
 
@@ -131,6 +131,8 @@ def main():
                 response(request_id, {"loginId": "login-browser", "authorizationUrl": "https://auth.openai.com/authorize?client=codex-barbar"})
                 if mode == "login-failed":
                     write_frame({"method": "account/login/failed", "params": {"loginId": "login-browser", "error": "fixture secret text"}})
+                elif mode == "login-cancelled":
+                    write_frame({"method": "account/login/cancelled", "params": {"loginId": "login-browser"}})
                 else:
                     write_frame({"method": "account/login/completed", "params": {"loginId": "login-browser"}})
             elif login_type == "chatgptDeviceCode":

@@ -58,6 +58,11 @@ impl Drop for RuntimeCleanupGuard<'_> {
     }
 }
 
+enum ManagedLoginTerminal {
+    Succeeded(crate::core::AuthMode),
+    Cancelled,
+}
+
 /// The account lifecycle service used by the desktop shell.
 pub struct AccountProfileService {
     repositories: AccountRepositories,
@@ -197,24 +202,15 @@ impl AccountProfileService {
         let this = Arc::clone(self);
         let operation_id = status.operation_id;
         tokio::spawn(async move {
-            let result = this
+            if let Err(error) = this
                 .run_managed_login(profile_id, request.method, operation_id, replace_profile_id)
-                .await;
-            if result.is_err() && this.actor.active_login().await.is_some() {
-                if let Some(status) = this
-                    .actor
-                    .update_login(
-                        operation_id,
-                        crate::accounts::model::ManagedLoginStage::Failed,
-                        None,
-                        None,
-                        Some(AppErrorKind::VaultFailure),
-                    )
-                    .await
-                {
-                    this.publish_login(status);
-                }
-                this.actor.finish_login(operation_id).await;
+                .await
+            {
+                tracing::warn!(
+                    code = "MANAGED_LOGIN_TERMINAL_FAILURE",
+                    %error,
+                    "managed login ended with a published failure"
+                );
             }
         });
         Ok(status)
@@ -582,307 +578,248 @@ impl AccountProfileService {
 
         // Managed re-login restores credentials from the existing Vault;
         // a brand-new login starts from an empty restricted runtime.
-        let (runtime, base_generation) = match replace_profile_id {
-            Some(_) => {
-                let (runtime, generation) = match self.vault.unseal(profile_id) {
-                    Ok((mut bundle, info)) => {
-                        let _ = &mut bundle;
-                        let runtime = self
-                            .runtime_homes
-                            .restore(profile_id, &bundle, info.generation)
-                            .map_err(|_error| {
-                                AccountServiceError::App(AppError::new(
-                                    AppErrorKind::StorageFailure,
-                                    "errors.runtimeRestoreFailed",
-                                    crate::core::RecoveryAction::Retry,
-                                    "RUNTIME_RESTORE_FAILED",
-                                ))
-                            })?;
-                        (runtime, info.generation)
-                    }
-                    Err(_error) => {
-                        #[cfg(target_os = "linux")]
-                        if let Some(generation) = self
-                            .vault
-                            .legacy_replacement_generation(profile_id)
-                            .ok()
-                            .flatten()
-                        {
+        let prepared = (|| -> Result<_, AccountServiceError> {
+            match replace_profile_id {
+                Some(_) => {
+                    let (runtime, generation) = match self.vault.unseal(profile_id) {
+                        Ok((mut bundle, info)) => {
+                            let _ = &mut bundle;
                             let runtime = self
                                 .runtime_homes
-                                .prepare_new(profile_id)
-                                .map_err(|_| AccountServiceError::Busy)?;
-                            (runtime, generation)
-                        } else {
-                            return Err(AccountServiceError::App(AppError::new(
-                                AppErrorKind::VaultFailure,
-                                "errors.vaultUnsealFailed",
-                                crate::core::RecoveryAction::ExportDiagnostics,
-                                "VAULT_UNSEAL_FAILED",
-                            )));
+                                .restore(profile_id, &bundle, info.generation)
+                                .map_err(|_error| {
+                                    AccountServiceError::App(AppError::new(
+                                        AppErrorKind::StorageFailure,
+                                        "errors.runtimeRestoreFailed",
+                                        crate::core::RecoveryAction::Retry,
+                                        "RUNTIME_RESTORE_FAILED",
+                                    ))
+                                })?;
+                            (runtime, info.generation)
                         }
-                        #[cfg(not(target_os = "linux"))]
-                        {
-                            return Err(AccountServiceError::App(AppError::new(
-                                AppErrorKind::VaultFailure,
-                                "errors.vaultUnsealFailed",
-                                crate::core::RecoveryAction::ExportDiagnostics,
-                                "VAULT_UNSEAL_FAILED",
-                            )));
+                        Err(_error) => {
+                            #[cfg(target_os = "linux")]
+                            if let Some(generation) = self
+                                .vault
+                                .legacy_replacement_generation(profile_id)
+                                .ok()
+                                .flatten()
+                            {
+                                let runtime = self
+                                    .runtime_homes
+                                    .prepare_new(profile_id)
+                                    .map_err(|_| AccountServiceError::Busy)?;
+                                (runtime, generation)
+                            } else {
+                                return Err(AccountServiceError::App(AppError::new(
+                                    AppErrorKind::VaultFailure,
+                                    "errors.vaultUnsealFailed",
+                                    crate::core::RecoveryAction::ExportDiagnostics,
+                                    "VAULT_UNSEAL_FAILED",
+                                )));
+                            }
+                            #[cfg(not(target_os = "linux"))]
+                            {
+                                return Err(AccountServiceError::App(AppError::new(
+                                    AppErrorKind::VaultFailure,
+                                    "errors.vaultUnsealFailed",
+                                    crate::core::RecoveryAction::ExportDiagnostics,
+                                    "VAULT_UNSEAL_FAILED",
+                                )));
+                            }
                         }
-                    }
-                };
-                (runtime, generation)
+                    };
+                    Ok((runtime, generation))
+                }
+                None => {
+                    let runtime = self
+                        .runtime_homes
+                        .prepare_new(profile_id)
+                        .map_err(|_| AccountServiceError::Busy)?;
+                    Ok((runtime, 0))
+                }
             }
-            None => {
-                let runtime = self
-                    .runtime_homes
-                    .prepare_new(profile_id)
-                    .map_err(|_| AccountServiceError::Busy)?;
-                (runtime, 0)
+        })();
+        let (runtime, base_generation) = match prepared {
+            Ok(prepared) => prepared,
+            Err(error) => {
+                return self
+                    .finish_managed_login(profile_id, operation_id, Err(error), Ok(()))
+                    .await;
             }
         };
         let mut cleanup_guard = RuntimeCleanupGuard::new(&runtime);
-        runtime
-            .set_state(RuntimeState::LoggingIn)
-            .map_err(|_| AccountServiceError::Busy)?;
+        let operation_result = async {
+            runtime
+                .set_state(RuntimeState::LoggingIn)
+                .map_err(|_| AccountServiceError::Busy)?;
 
-        let mut session = match self
-            .app_server_factory
-            .open_managed(runtime.codex_home())
-            .await
-        {
-            Ok(session) => session,
-            Err(error) => {
-                if let Some(status) = self
-                    .actor
-                    .update_login(
-                        operation_id,
-                        ManagedLoginStage::Failed,
-                        None,
-                        None,
-                        Some(error.kind),
-                    )
-                    .await
-                {
-                    self.publish_login(status);
-                }
-                self.actor.finish_login(operation_id).await;
-                return Err(AccountServiceError::App(error));
-            }
-        };
-        let challenge = session.start_login(flow).await;
-
-        let mut terminal_error = None;
-        let _challenge = match challenge {
-            Ok(challenge) => {
-                if let Some(status) = self
-                    .actor
-                    .update_login(
-                        operation_id,
-                        ManagedLoginStage::AwaitingUser,
-                        challenge.verification_url.clone(),
-                        challenge.user_code.clone(),
-                        None,
-                    )
-                    .await
-                {
-                    self.publish_login(status);
-                }
-                challenge
-            }
-            Err(error) => {
-                let _ = error;
-                if let Some(status) = self
-                    .actor
-                    .update_login(
-                        operation_id,
-                        ManagedLoginStage::Failed,
-                        None,
-                        None,
-                        Some(AppErrorKind::ProtocolMismatch),
-                    )
-                    .await
-                {
-                    self.publish_login(status);
-                }
-                let _ = session.shutdown().await;
-                self.actor.finish_login(operation_id).await;
-                return Err(AccountServiceError::App(AppError::new(
-                    AppErrorKind::ProtocolMismatch,
-                    "errors.loginStartFailed",
-                    crate::core::RecoveryAction::Retry,
-                    "LOGIN_START_FAILED",
-                )));
-            }
-        };
-
-        let event = session.next_login_event().await;
-        let _ = session.shutdown().await;
-
-        let mut completed_auth_mode = None;
-        match event {
-            Ok(LoginEvent::Completed { .. }) => {
-                let account = match self
-                    .app_server_factory
-                    .open_managed(runtime.codex_home())
-                    .await
-                {
-                    Ok(session) => {
-                        let account = session.account_read(false).await;
-                        let _ = session.shutdown().await;
-                        account
-                    }
-                    Err(error) => Err(error),
-                };
-                let account = match account {
-                    Ok(account) => account,
-                    Err(error) => {
-                        if let Some(status) = self
-                            .actor
-                            .update_login(
-                                operation_id,
-                                ManagedLoginStage::Failed,
-                                None,
-                                None,
-                                Some(error.kind),
-                            )
-                            .await
-                        {
-                            self.publish_login(status);
-                        }
-                        self.actor.finish_login(operation_id).await;
-                        return Err(AccountServiceError::App(error));
-                    }
-                };
-                let account = enrich_identity_from_auth_file(account, runtime.codex_home());
-                if let Err(error) = self.cache_identity(profile_id, &account).await {
-                    tracing::warn!(code = "IDENTITY_CACHE_WRITE_FAILED", %error, "account identity cache update failed");
-                }
-                if account.auth_mode != crate::core::AuthMode::ChatGpt {
-                    if let Some(status) = self
-                        .actor
-                        .update_login(
-                            operation_id,
-                            ManagedLoginStage::Failed,
-                            None,
-                            None,
-                            Some(AppErrorKind::ApiKeyNoQuota),
-                        )
-                        .await
-                    {
-                        self.publish_login(status);
-                    }
-                    self.actor.finish_login(operation_id).await;
+            let mut session = self
+                .app_server_factory
+                .open_managed(runtime.codex_home())
+                .await
+                .map_err(AccountServiceError::App)?;
+            let challenge = match session.start_login(flow).await {
+                Ok(challenge) => challenge,
+                Err(_error) => {
+                    let _ = session.shutdown().await;
                     return Err(AccountServiceError::App(AppError::new(
-                        AppErrorKind::ApiKeyNoQuota,
-                        "errors.apiKeyNoQuota",
-                        crate::core::RecoveryAction::None,
-                        "LOGIN_API_KEY_REJECTED",
+                        AppErrorKind::ProtocolMismatch,
+                        "errors.loginStartFailed",
+                        crate::core::RecoveryAction::Retry,
+                        "LOGIN_START_FAILED",
                     )));
                 }
-
-                completed_auth_mode = Some(account.auth_mode);
-                let mut bundle = crate::accounts::credential_bundle::collect_bundle(
-                    runtime.codex_home(),
-                    profile_id,
-                )
-                .map_err(|_| AccountServiceError::Busy)?;
-                bundle.private_metadata = PrivateProfileMetadata {
-                    email: account.email,
-                    plan_type: account.plan_type,
-                    auth_mode: account.auth_mode,
-                };
-                let expected = if replace_profile_id.is_some() {
-                    Some(base_generation)
-                } else if base_generation == 0 {
-                    Some(0)
-                } else {
-                    None
-                };
-                self.actor
-                    .seal_bundle(profile_id, expected, &mut bundle)
-                    .await
-                    .map_err(AccountServiceError::from)?;
-            }
-            Ok(LoginEvent::Failed { error, .. }) => {
-                terminal_error = Some(error);
-                if let Some(status) = self
-                    .actor
-                    .update_login(
-                        operation_id,
-                        ManagedLoginStage::Failed,
-                        None,
-                        None,
-                        Some(AppErrorKind::AuthExpired),
-                    )
-                    .await
-                {
-                    self.publish_login(status);
-                }
-            }
-            Ok(LoginEvent::Cancelled { .. }) => {
-                if let Some(status) = self
-                    .actor
-                    .update_login(operation_id, ManagedLoginStage::Cancelled, None, None, None)
-                    .await
-                {
-                    self.publish_login(status);
-                }
-            }
-            Err(error) => {
-                terminal_error = Some(error);
-                if let Some(status) = self
-                    .actor
-                    .update_login(
-                        operation_id,
-                        ManagedLoginStage::Failed,
-                        None,
-                        None,
-                        Some(AppErrorKind::OfflineOrTimeout),
-                    )
-                    .await
-                {
-                    self.publish_login(status);
-                }
-            }
-        }
-
-        let cleanup_error = cleanup_guard.cleanup_now().err();
-        self.actor.finish_login(operation_id).await;
-        if terminal_error.is_none()
-            && let Some(_error) = cleanup_error
-        {
-            return Err(AccountServiceError::App(AppError::new(
-                AppErrorKind::StorageFailure,
-                "errors.runtimeCleanupFailed",
-                crate::core::RecoveryAction::ExportDiagnostics,
-                "RUNTIME_CLEANUP_FAILED",
-            )));
-        }
-        if terminal_error.is_none() {
-            self.repositories
-                .accounts
-                .update_profile(
-                    profile_id,
-                    "Managed",
-                    completed_auth_mode.expect("completed login auth mode"),
-                    ProfileLifecycle::Ready,
-                    None,
-                )
-                .map_err(storage_error)?;
+            };
             if let Some(status) = self
                 .actor
-                .update_login(operation_id, ManagedLoginStage::Succeeded, None, None, None)
+                .update_login(
+                    operation_id,
+                    ManagedLoginStage::AwaitingUser,
+                    challenge.verification_url.clone(),
+                    challenge.user_code.clone(),
+                    None,
+                )
                 .await
             {
                 self.publish_login(status);
             }
+
+            let event = session.next_login_event().await;
+            let _ = session.shutdown().await;
+            match event {
+                Ok(LoginEvent::Completed { .. }) => {
+                    let session = self
+                        .app_server_factory
+                        .open_managed(runtime.codex_home())
+                        .await
+                        .map_err(AccountServiceError::App)?;
+                    let account = session.account_read(false).await;
+                    let _ = session.shutdown().await;
+                    let account = account.map_err(AccountServiceError::App)?;
+                    let account = enrich_identity_from_auth_file(account, runtime.codex_home());
+                    if let Err(error) = self.cache_identity(profile_id, &account).await {
+                        tracing::warn!(code = "IDENTITY_CACHE_WRITE_FAILED", %error, "account identity cache update failed");
+                    }
+                    if account.auth_mode != crate::core::AuthMode::ChatGpt {
+                        return Err(AccountServiceError::App(AppError::new(
+                            AppErrorKind::ApiKeyNoQuota,
+                            "errors.apiKeyNoQuota",
+                            crate::core::RecoveryAction::None,
+                            "LOGIN_API_KEY_REJECTED",
+                        )));
+                    }
+
+                    let auth_mode = account.auth_mode;
+                    let mut bundle = crate::accounts::credential_bundle::collect_bundle(
+                        runtime.codex_home(),
+                        profile_id,
+                    )
+                    .map_err(|_| AccountServiceError::Busy)?;
+                    bundle.private_metadata = PrivateProfileMetadata {
+                        email: account.email,
+                        plan_type: account.plan_type,
+                        auth_mode,
+                    };
+                    let expected = if replace_profile_id.is_some() {
+                        Some(base_generation)
+                    } else if base_generation == 0 {
+                        Some(0)
+                    } else {
+                        None
+                    };
+                    self.actor
+                        .seal_bundle(profile_id, expected, &mut bundle)
+                        .await
+                        .map_err(AccountServiceError::from)?;
+                    Ok(ManagedLoginTerminal::Succeeded(auth_mode))
+                }
+                Ok(LoginEvent::Failed { error, .. }) => Err(AccountServiceError::App(error)),
+                Ok(LoginEvent::Cancelled { .. }) => Ok(ManagedLoginTerminal::Cancelled),
+                Err(error) => Err(AccountServiceError::App(error)),
+            }
         }
-        if let Some(error) = terminal_error {
-            return Err(AccountServiceError::App(error));
+        .await;
+
+        let cleanup_result = cleanup_guard.cleanup_now();
+        self.finish_managed_login(profile_id, operation_id, operation_result, cleanup_result)
+            .await
+    }
+
+    async fn finish_managed_login(
+        &self,
+        profile_id: ProfileId,
+        operation_id: uuid::Uuid,
+        operation_result: Result<ManagedLoginTerminal, AccountServiceError>,
+        cleanup_result: Result<(), crate::accounts::runtime_home::RuntimeHomeError>,
+    ) -> Result<(), AccountServiceError> {
+        use crate::accounts::model::ManagedLoginStage;
+
+        let cleanup_failed = cleanup_result.is_err();
+        let (stage, error_kind, result) = match operation_result {
+            Err(primary) => {
+                if cleanup_failed {
+                    tracing::warn!(
+                        code = "RUNTIME_CLEANUP_FAILED_AFTER_LOGIN_ERROR",
+                        "managed login runtime cleanup failed; preserving the primary error"
+                    );
+                }
+                (
+                    ManagedLoginStage::Failed,
+                    Some(managed_login_error_kind(&primary)),
+                    Err(primary),
+                )
+            }
+            Ok(_) if cleanup_failed => {
+                let error = AccountServiceError::App(AppError::new(
+                    AppErrorKind::StorageFailure,
+                    "errors.runtimeCleanupFailed",
+                    crate::core::RecoveryAction::ExportDiagnostics,
+                    "RUNTIME_CLEANUP_FAILED",
+                ));
+                (
+                    ManagedLoginStage::Failed,
+                    Some(AppErrorKind::StorageFailure),
+                    Err(error),
+                )
+            }
+            Ok(ManagedLoginTerminal::Cancelled) => (ManagedLoginStage::Cancelled, None, Ok(())),
+            Ok(ManagedLoginTerminal::Succeeded(auth_mode)) => {
+                match self.repositories.accounts.update_profile(
+                    profile_id,
+                    "Managed",
+                    auth_mode,
+                    ProfileLifecycle::Ready,
+                    None,
+                ) {
+                    Ok(()) => (ManagedLoginStage::Succeeded, None, Ok(())),
+                    Err(error) => {
+                        let error = storage_error(error);
+                        (
+                            ManagedLoginStage::Failed,
+                            Some(managed_login_error_kind(&error)),
+                            Err(error),
+                        )
+                    }
+                }
+            }
+        };
+
+        if let Some(status) = self
+            .actor
+            .update_login(operation_id, stage, None, None, error_kind)
+            .await
+        {
+            self.publish_login(status);
+        } else {
+            tracing::warn!(
+                code = "MANAGED_LOGIN_TERMINAL_STATUS_LOST",
+                %operation_id,
+                "managed login actor was not active during terminal publication"
+            );
         }
-        Ok(())
+        self.actor.finish_login(operation_id).await;
+        result
     }
 
     pub fn subscribe(&self) -> broadcast::Receiver<AccountServiceEvent> {
@@ -1085,6 +1022,17 @@ fn current_cli_codex_home() -> Option<PathBuf> {
         .or_else(|| dirs::home_dir().map(|home| home.join(".codex")))
 }
 
+fn managed_login_error_kind(error: &AccountServiceError) -> AppErrorKind {
+    match error {
+        AccountServiceError::App(error) => error.kind,
+        AccountServiceError::Busy => AppErrorKind::StorageFailure,
+        AccountServiceError::InvalidLabel
+        | AccountServiceError::CurrentCliImmutable
+        | AccountServiceError::DuplicateProfile { .. }
+        | AccountServiceError::LoginOperationNotFound => AppErrorKind::AuthExpired,
+    }
+}
+
 fn storage_error(error: crate::storage::StorageError) -> AccountServiceError {
     AccountServiceError::App(error.into_app_error())
 }
@@ -1092,8 +1040,8 @@ fn storage_error(error: crate::storage::StorageError) -> AccountServiceError {
 #[cfg(test)]
 mod tests {
     use super::{
-        AccountIdentity, AccountIdentityRecord, Utc, enrich_identity_from_auth,
-        presentation_identity,
+        AccountIdentity, AccountIdentityRecord, ManagedLoginTerminal, Utc,
+        enrich_identity_from_auth, presentation_identity,
     };
     use crate::accounts::avatar::AvatarKind;
     use crate::accounts::model::{AccountServiceEvent, StartManagedLogin};
@@ -1120,6 +1068,27 @@ mod tests {
             }
         }
         results
+    }
+
+    async fn terminal_login_status(
+        events: &mut tokio::sync::broadcast::Receiver<AccountServiceEvent>,
+    ) -> crate::accounts::model::ManagedLoginStatus {
+        tokio::time::timeout(std::time::Duration::from_secs(5), async {
+            loop {
+                if let AccountServiceEvent::LoginChanged(status) = events.recv().await.unwrap()
+                    && matches!(
+                        status.stage,
+                        crate::accounts::model::ManagedLoginStage::Succeeded
+                            | crate::accounts::model::ManagedLoginStage::Failed
+                            | crate::accounts::model::ManagedLoginStage::Cancelled
+                    )
+                {
+                    break status;
+                }
+            }
+        })
+        .await
+        .expect("login did not publish a terminal status")
     }
 
     #[tokio::test]
@@ -1423,6 +1392,85 @@ mod tests {
                 .generation,
             before.generation
         );
+    }
+
+    #[tokio::test]
+    async fn cancelled_managed_login_returns_without_panicking_and_stays_cancelled() {
+        let fixture = fixture();
+        let profile_id = uuid::Uuid::new_v4();
+        let status = fixture
+            .service
+            .actor
+            .try_start_login(
+                profile_id,
+                crate::accounts::model::ManagedLoginMethod::Browser,
+            )
+            .await
+            .unwrap();
+        let mut events = fixture.service.subscribe();
+        fixture.factory.cancel_next_login();
+
+        fixture
+            .service
+            .run_managed_login(
+                profile_id,
+                crate::accounts::model::ManagedLoginMethod::Browser,
+                status.operation_id,
+                None,
+            )
+            .await
+            .unwrap();
+
+        let terminal = terminal_login_status(&mut events).await;
+        assert_eq!(
+            terminal.stage,
+            crate::accounts::model::ManagedLoginStage::Cancelled
+        );
+        assert_eq!(terminal.error_kind, None);
+        assert!(fixture.service.actor.active_login().await.is_none());
+    }
+
+    #[tokio::test]
+    async fn cleanup_failure_publishes_failed_before_finishing_login() {
+        let fixture = fixture();
+        let status = fixture
+            .service
+            .actor
+            .try_start_login(
+                managed_id(),
+                crate::accounts::model::ManagedLoginMethod::Browser,
+            )
+            .await
+            .unwrap();
+        let mut events = fixture.service.subscribe();
+
+        let result = fixture
+            .service
+            .finish_managed_login(
+                managed_id(),
+                status.operation_id,
+                Ok(ManagedLoginTerminal::Succeeded(
+                    crate::core::AuthMode::ChatGpt,
+                )),
+                Err(crate::accounts::runtime_home::RuntimeHomeError::Io),
+            )
+            .await;
+
+        assert!(matches!(
+            result,
+            Err(crate::accounts::model::AccountServiceError::App(ref error))
+                if error.kind == crate::core::AppErrorKind::StorageFailure
+        ));
+        let terminal = terminal_login_status(&mut events).await;
+        assert_eq!(
+            terminal.stage,
+            crate::accounts::model::ManagedLoginStage::Failed
+        );
+        assert_eq!(
+            terminal.error_kind,
+            Some(crate::core::AppErrorKind::StorageFailure)
+        );
+        assert!(fixture.service.actor.active_login().await.is_none());
     }
 
     #[cfg(target_os = "linux")]
