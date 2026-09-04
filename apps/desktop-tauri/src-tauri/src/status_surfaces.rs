@@ -1,5 +1,7 @@
 use std::sync::Mutex;
-use std::time::{Duration, Instant};
+use std::time::Duration;
+#[cfg(windows)]
+use std::time::Instant;
 
 use codexbar::storage::AppSettings;
 use tauri::Manager;
@@ -19,6 +21,7 @@ pub(crate) enum ReconciliationAction {
 }
 
 const STATUS_SURFACE_REASSERT_INTERVAL_MS: u64 = 250;
+#[cfg(windows)]
 const STATUS_SURFACE_RECONCILE_INTERVAL: Duration = Duration::from_secs(2);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -263,9 +266,10 @@ pub fn apply_status_surface_settings(
         .lock()
         .map_err(|_| "STATUS_SURFACE_STATE_UNAVAILABLE".to_string())?;
     let mut first_error = None;
-    if let Err(error) = state
-        .taskbar
-        .apply_enabled(app, settings.taskbar_status_enabled)
+    if controller::StatusSurfaceController::supports(controller::StatusSurfaceKind::TaskbarStatus)
+        && let Err(error) = state
+            .taskbar
+            .apply_enabled(app, settings.taskbar_status_enabled)
     {
         first_error = Some(error);
     }
@@ -344,6 +348,7 @@ fn reconcile_deferred_measurement_state<T, W>(
     true
 }
 
+#[cfg(windows)]
 pub fn start_monitor(app: tauri::AppHandle) {
     tauri::async_runtime::spawn(async move {
         let mut interval =
@@ -369,12 +374,16 @@ pub fn start_monitor(app: tauri::AppHandle) {
     });
 }
 
+#[cfg(not(windows))]
+pub fn start_monitor(_app: tauri::AppHandle) {}
+
 pub fn handle_taskbar_window_destroyed(app: &tauri::AppHandle) {
     try_with_state(&app.state::<Mutex<StatusSurfaceState>>(), |state| {
         state.taskbar.handle_window_destroyed();
     });
 }
 
+#[cfg(windows)]
 pub fn handle_taskbar_measurement_window_destroyed(app: &tauri::AppHandle) {
     let deferred_app = app.clone();
     let dispatch = try_with_state_or_defer(
@@ -486,8 +495,30 @@ pub fn schedule_status_reposition(app: tauri::AppHandle) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::status_surfaces::controller::{StatusSurfaceController, StatusSurfaceKind};
     use std::sync::{Arc, mpsc};
     use std::time::Duration;
+
+    #[test]
+    fn taskbar_status_support_matches_the_native_windows_runtime() {
+        assert_eq!(
+            StatusSurfaceController::supports(StatusSurfaceKind::TaskbarStatus),
+            cfg!(windows)
+        );
+        assert_eq!(
+            crate::taskbar_overlay::window::creates_windows_on_this_platform(),
+            cfg!(windows)
+        );
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn linux_does_not_create_taskbar_or_measurement_windows() {
+        assert!(!StatusSurfaceController::supports(
+            StatusSurfaceKind::TaskbarStatus
+        ));
+        assert!(!crate::taskbar_overlay::window::creates_windows_on_this_platform());
+    }
 
     #[test]
     fn diagnostics_command_returns_recorded_snapshots() {

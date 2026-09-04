@@ -1,3 +1,5 @@
+#![cfg(windows)]
+
 //! Windows DWM helpers for eliminating the non-client caption area.
 //!
 //! Even with `decorations(false)`, Windows keeps a thin caption strip
@@ -5,9 +7,7 @@
 //! WM_NCCALCSIZE to zero the non-client area and WM_NCPAINT/WM_NCACTIVATE
 //! to suppress DWM painting, making the window truly borderless.
 
-#[cfg(windows)]
 use raw_window_handle::HasWindowHandle;
-#[cfg(windows)]
 use std::ffi::c_void;
 
 #[cfg(windows)]

@@ -69,6 +69,7 @@ pub fn discover_taskbar<A: Win32TaskbarApi>(_api: &A) -> Option<TaskbarSnapshot>
     })
 }
 
+#[cfg(windows)]
 #[derive(Debug, Default, Clone, Copy)]
 pub struct NativeWin32TaskbarApi;
 
@@ -229,37 +230,7 @@ impl Win32TaskbarApi for NativeWin32TaskbarApi {
     }
 }
 
-#[cfg(not(windows))]
-impl Win32TaskbarApi for NativeWin32TaskbarApi {
-    fn find_window(&self, _class_name: &str) -> Option<WindowHandle> {
-        None
-    }
-
-    fn find_descendant(&self, _parent: WindowHandle, _class_name: &str) -> Option<WindowHandle> {
-        None
-    }
-
-    fn window_rect(&self, _window: WindowHandle) -> Option<Rect> {
-        None
-    }
-
-    fn monitor_rect(&self, _window: WindowHandle) -> Option<Rect> {
-        None
-    }
-
-    fn dpi_for_window(&self, _window: WindowHandle) -> Option<u32> {
-        None
-    }
-
-    fn is_window_visible(&self, _window: WindowHandle) -> bool {
-        false
-    }
-
-    fn is_auto_hide_enabled(&self, _window: WindowHandle) -> bool {
-        false
-    }
-}
-
+#[cfg(windows)]
 pub fn discover_native() -> Option<TaskbarSnapshot> {
     discover_taskbar(&NativeWin32TaskbarApi)
 }

@@ -1,5 +1,7 @@
+#[cfg(windows)]
 use tauri::{Manager, WebviewUrl};
 
+#[cfg(windows)]
 use super::positioning::Rect;
 
 pub const TASKBAR_WINDOW_LABEL: &str = "taskbar-status";
@@ -12,6 +14,12 @@ pub const TASKBAR_MAX_LOGICAL_WIDTH: u32 = 318;
 pub const TASKBAR_SAFE_FALLBACK_LOGICAL_WIDTH: u32 = 318;
 pub const TASKBAR_LOGICAL_HEIGHT: u32 = 40;
 
+#[cfg(any(not(windows), test))]
+pub const fn creates_windows_on_this_platform() -> bool {
+    cfg!(windows)
+}
+
+#[cfg(windows)]
 pub fn get_or_create(
     app: &tauri::AppHandle,
     logical_width: u32,
@@ -49,6 +57,7 @@ pub fn get_or_create(
     Ok(window)
 }
 
+#[cfg(windows)]
 pub fn get_or_create_measurement(app: &tauri::AppHandle) -> Result<tauri::WebviewWindow, String> {
     if let Some(window) = app.get_webview_window(TASKBAR_MEASUREMENT_WINDOW_LABEL) {
         return Ok(window);
@@ -84,20 +93,24 @@ pub fn is_measurement_window_label(label: &str) -> bool {
     label == TASKBAR_MEASUREMENT_WINDOW_LABEL
 }
 
+#[cfg(windows)]
 pub fn position_and_show(window: &tauri::WebviewWindow, slot: Rect) -> Result<(), String> {
     crate::shell::dwm::set_no_activate_bounds(window, slot.x, slot.y, slot.width, slot.height, true)
 }
 
+#[cfg(windows)]
 pub fn reassert_topmost(window: &tauri::WebviewWindow) -> Result<(), String> {
     crate::shell::dwm::reassert_topmost(window)
 }
 
+#[cfg(windows)]
 pub fn observe(
     window: &tauri::WebviewWindow,
 ) -> Result<crate::shell::dwm::OverlayWindowObservation, String> {
     crate::shell::dwm::observe_window(window)
 }
 
+#[cfg(windows)]
 pub fn show_noactivate(window: &tauri::WebviewWindow) -> Result<(), String> {
     crate::shell::dwm::show_noactivate(window)
 }

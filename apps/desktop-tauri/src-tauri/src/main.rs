@@ -202,6 +202,7 @@ fn main() {
         ])
         .setup(move |app| {
             if let Some(window) = app.get_webview_window("main") {
+                #[cfg(windows)]
                 shell::dwm::force_dark_caption(&window);
                 let _ = window.set_resizable(false);
                 window.hide()?;
@@ -407,6 +408,7 @@ fn main() {
             Ok(())
         })
         .on_window_event(move |window, event| {
+            #[cfg(windows)]
             if taskbar_overlay::window::is_measurement_window_label(window.label()) {
                 if matches!(event, tauri::WindowEvent::Destroyed) {
                     status_surfaces::handle_taskbar_measurement_window_destroyed(

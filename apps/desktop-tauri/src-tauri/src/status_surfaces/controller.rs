@@ -12,6 +12,17 @@ pub enum StatusSurfaceKind {
     FloatBall,
 }
 
+pub struct StatusSurfaceController;
+
+impl StatusSurfaceController {
+    pub const fn supports(surface: StatusSurfaceKind) -> bool {
+        match surface {
+            StatusSurfaceKind::TaskbarStatus => cfg!(windows),
+            StatusSurfaceKind::FloatBall => cfg!(any(windows, target_os = "linux")),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub enum StatusSurfaceFeedback {
     #[default]

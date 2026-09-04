@@ -1,7 +1,9 @@
 //! Tray flyout window: the hidden `main` WebView shown as a movable,
 //! fixed-size, always-on-top panel that stays above the taskbar.
 
-use crate::window_positioner::{Rect, clamp_to_monitor, place_flyout_sized, subtract_taskbar};
+#[cfg(windows)]
+use crate::window_positioner::subtract_taskbar;
+use crate::window_positioner::{Rect, clamp_to_monitor, place_flyout_sized};
 use std::sync::atomic::{AtomicBool, Ordering};
 use tauri::{AppHandle, Manager, PhysicalPosition, PhysicalSize};
 
@@ -60,6 +62,7 @@ pub fn apply_content_size(app: &AppHandle, width: u32, height: u32) -> Result<()
         place_flyout_sized(usable_work_rect(&monitor), physical_width, physical_height)
     };
     apply_rect(&window, rect)?;
+    #[cfg(windows)]
     let _ = crate::shell::dwm::shape_rounded_rect_window(&window, 28);
     Ok(())
 }
@@ -73,9 +76,14 @@ pub fn should_blur_dismiss() -> bool {
 
 fn usable_work_rect(monitor: &tauri::Monitor) -> Rect {
     let work = work_rect(monitor);
-    crate::taskbar_overlay::win32::discover_native()
-        .map(|snapshot| subtract_taskbar(work, snapshot.taskbar))
-        .unwrap_or(work)
+    #[cfg(windows)]
+    {
+        crate::taskbar_overlay::win32::discover_native()
+            .map(|snapshot| subtract_taskbar(work, snapshot.taskbar))
+            .unwrap_or(work)
+    }
+    #[cfg(not(windows))]
+    work
 }
 fn monitor_rect(monitor: &tauri::Monitor) -> Rect {
     let size = monitor.size();
@@ -167,8 +175,10 @@ pub fn keep_inside_work_area(app: &AppHandle) {
         || next.height != size.height as i32
     {
         let _ = apply_rect(&window, next);
+        #[cfg(windows)]
         let _ = crate::shell::dwm::shape_rounded_rect_window(&window, 28);
     } else {
+        #[cfg(windows)]
         let _ = crate::shell::dwm::shape_rounded_rect_window(&window, 28);
     }
 }
@@ -179,6 +189,7 @@ pub fn open_or_focus(app: &AppHandle, position: Option<(i32, i32)>) -> Result<()
         .get_webview_window(FLYOUT_LABEL)
         .ok_or_else(|| "main tray panel window is unavailable".to_string())?;
 
+    #[cfg(windows)]
     crate::shell::dwm::force_dark_caption(&window);
     let _ = window.set_resizable(false);
     let _ = window.set_shadow(true);
@@ -206,6 +217,7 @@ pub fn open_or_focus(app: &AppHandle, position: Option<(i32, i32)>) -> Result<()
         anchored_rect(app).ok_or_else(|| "unable to resolve tray panel position".to_string())?
     };
     apply_rect(&window, rect)?;
+    #[cfg(windows)]
     let _ = crate::shell::dwm::shape_rounded_rect_window(&window, 28);
     window.show().map_err(|e| e.to_string())?;
     window.set_focus().map_err(|e| e.to_string())?;

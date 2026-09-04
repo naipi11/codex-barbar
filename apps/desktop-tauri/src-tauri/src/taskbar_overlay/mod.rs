@@ -2,18 +2,36 @@ pub mod positioning;
 pub mod win32;
 pub mod window;
 
+#[cfg(windows)]
 use crate::status_surfaces::window_lifecycle::{CloseOutcome, close_cached_or_labeled};
+#[cfg(windows)]
 use positioning::{Rect, compute_slot};
+#[cfg(windows)]
 use tauri::LogicalSize;
 
+#[cfg(any(not(windows), test))]
+pub const TASKBAR_STATUS_UNSUPPORTED_PLATFORM: &str = "TASKBAR_STATUS_UNSUPPORTED_PLATFORM";
+
+#[cfg(any(not(windows), test))]
+pub fn taskbar_runtime_support() -> Result<(), String> {
+    if cfg!(windows) {
+        Ok(())
+    } else {
+        Err(TASKBAR_STATUS_UNSUPPORTED_PLATFORM.to_string())
+    }
+}
+
+#[cfg(windows)]
 const TASKBAR_MEASUREMENT_WINDOW_CLOSE_FAILED: &str = "TASKBAR_MEASUREMENT_WINDOW_CLOSE_FAILED";
 
+#[cfg(windows)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum MeasurementAvailability {
     Ready,
     Deferred,
 }
 
+#[cfg(windows)]
 fn enable_windows_with(
     ensure_visible: impl FnOnce() -> Result<(), String>,
     ensure_measurement: impl FnOnce() -> Result<(), String>,
@@ -26,6 +44,7 @@ fn enable_windows_with(
     })
 }
 
+#[cfg(windows)]
 fn disable_windows_with(
     close_measurement: impl FnOnce() -> Result<(), String>,
     close_visible: impl FnOnce() -> Result<(), String>,
@@ -34,6 +53,7 @@ fn disable_windows_with(
     close_visible()
 }
 
+#[cfg(windows)]
 fn apply_disabled_with(
     enabled: &mut bool,
     close_measurement: impl FnOnce() -> Result<(), String>,
@@ -48,6 +68,7 @@ fn apply_disabled_with(
     Ok(())
 }
 
+#[cfg(windows)]
 fn require_measurement_destroyed(outcome: CloseOutcome) -> Result<(), &'static str> {
     match outcome {
         CloseOutcome::Destroyed => Ok(()),
@@ -55,6 +76,7 @@ fn require_measurement_destroyed(outcome: CloseOutcome) -> Result<(), &'static s
     }
 }
 
+#[cfg(windows)]
 fn enable_logical_width(previously_enabled: bool, current_width: u32) -> u32 {
     if previously_enabled {
         current_width
@@ -63,6 +85,7 @@ fn enable_logical_width(previously_enabled: bool, current_width: u32) -> u32 {
     }
 }
 
+#[cfg(windows)]
 fn replace_measurement_cache_preserving_enabled<T>(
     enabled: &mut bool,
     cache: &mut Option<T>,
@@ -73,11 +96,13 @@ fn replace_measurement_cache_preserving_enabled<T>(
     *enabled = previous_enabled;
 }
 
+#[cfg(windows)]
 trait EnabledWindowOperations {
     fn ensure_measurement(&mut self) -> Result<(), String>;
     fn reposition_visible(&mut self) -> Result<(), String>;
 }
 
+#[cfg(windows)]
 fn reconcile_enabled_with(
     operations: &mut impl EnabledWindowOperations,
     on_measurement_deferred: impl FnOnce(),
@@ -106,6 +131,7 @@ pub fn clamp_logical_width(width: f64) -> u32 {
     ) as u32
 }
 
+#[cfg(windows)]
 trait TaskbarWidthOperations {
     fn logical_width(&self) -> u32;
     fn set_logical_width(&mut self, width: u32);
@@ -114,6 +140,7 @@ trait TaskbarWidthOperations {
     fn invalidate_slot(&mut self);
 }
 
+#[cfg(windows)]
 fn apply_content_width_transaction(
     operations: &mut impl TaskbarWidthOperations,
     width: u32,
@@ -147,6 +174,7 @@ fn apply_content_width_transaction(
     Err("TASKBAR_STATUS_RESIZE_FAILED".to_string())
 }
 
+#[cfg(windows)]
 pub struct TaskbarOverlay {
     window: Option<tauri::WebviewWindow>,
     measurement_window: Option<tauri::WebviewWindow>,
@@ -155,6 +183,7 @@ pub struct TaskbarOverlay {
     last_slot: Option<Rect>,
 }
 
+#[cfg(windows)]
 impl Default for TaskbarOverlay {
     fn default() -> Self {
         Self {
@@ -167,6 +196,7 @@ impl Default for TaskbarOverlay {
     }
 }
 
+#[cfg(windows)]
 impl TaskbarOverlay {
     pub fn apply_enabled(&mut self, app: &tauri::AppHandle, enabled: bool) -> Result<(), String> {
         let previous_enabled = self.enabled;
@@ -379,11 +409,13 @@ impl TaskbarOverlay {
     }
 }
 
+#[cfg(windows)]
 struct OverlayEnabledWindowOperations<'a> {
     overlay: &'a mut TaskbarOverlay,
     app: &'a tauri::AppHandle,
 }
 
+#[cfg(windows)]
 impl EnabledWindowOperations for OverlayEnabledWindowOperations<'_> {
     fn ensure_measurement(&mut self) -> Result<(), String> {
         self.overlay.ensure_measurement_window(self.app)
@@ -394,11 +426,13 @@ impl EnabledWindowOperations for OverlayEnabledWindowOperations<'_> {
     }
 }
 
+#[cfg(windows)]
 struct OverlayWidthOperations<'a> {
     overlay: &'a mut TaskbarOverlay,
     app: &'a tauri::AppHandle,
 }
 
+#[cfg(windows)]
 impl TaskbarWidthOperations for OverlayWidthOperations<'_> {
     fn logical_width(&self) -> u32 {
         self.overlay.logical_width
@@ -429,10 +463,100 @@ impl TaskbarWidthOperations for OverlayWidthOperations<'_> {
     }
 }
 
-#[cfg(test)]
+#[cfg(not(windows))]
+#[derive(Default)]
+pub struct TaskbarOverlay;
+
+#[cfg(not(windows))]
+impl TaskbarOverlay {
+    pub fn apply_enabled(&mut self, _app: &tauri::AppHandle, _enabled: bool) -> Result<(), String> {
+        taskbar_runtime_support()
+    }
+
+    #[allow(dead_code)]
+    pub fn is_enabled(&self) -> bool {
+        false
+    }
+
+    pub(crate) fn force_enabled(&mut self, _enabled: bool) {}
+
+    pub fn set_content_width(
+        &mut self,
+        _app: &tauri::AppHandle,
+        _width: u32,
+    ) -> Result<(), String> {
+        taskbar_runtime_support()
+    }
+
+    pub fn reposition(&mut self, _app: &tauri::AppHandle) -> Result<(), String> {
+        Ok(())
+    }
+
+    #[allow(dead_code)]
+    pub fn handle_shell_change(&mut self, _app: &tauri::AppHandle) -> Result<(), String> {
+        Ok(())
+    }
+
+    pub fn hide_for_fullscreen(&self) -> Result<(), String> {
+        Ok(())
+    }
+
+    pub fn restore_after_shell(&mut self, _app: &tauri::AppHandle) -> Result<(), String> {
+        Ok(())
+    }
+
+    pub fn reassert_topmost(&self) -> Result<(), String> {
+        Ok(())
+    }
+
+    pub fn observe_lifecycle(
+        &self,
+        foreground_class: crate::shell::fullscreen_guard::ForegroundClass,
+        suspension_reason: crate::shell::surface_lifecycle_trace::SurfaceSuspensionReason,
+    ) -> crate::shell::surface_lifecycle_trace::SurfaceLifecycleSnapshot {
+        use crate::shell::surface_lifecycle_trace::{
+            SurfaceLabel, SurfaceLifecycleSnapshot, TopmostResult,
+        };
+
+        SurfaceLifecycleSnapshot {
+            surface: SurfaceLabel::TaskbarStatus,
+            desired_visible: false,
+            actual_visible: false,
+            minimized: false,
+            bounds: None,
+            topmost_result: TopmostResult::Skipped,
+            foreground_class,
+            suspension_reason,
+            observed_at_ms: 0,
+        }
+        .observed_now()
+    }
+
+    pub fn handle_window_destroyed(&mut self) {}
+
+    pub fn handle_measurement_window_destroyed(&mut self) {}
+
+    pub fn reconcile_measurement_window_after_destroy(
+        &mut self,
+        _live_measurement: Option<tauri::WebviewWindow>,
+    ) {
+    }
+}
+
+#[cfg(all(test, windows))]
 mod tests {
     use super::*;
     use std::collections::VecDeque;
+
+    #[test]
+    fn taskbar_runtime_support_matches_the_native_windows_runtime() {
+        let result = taskbar_runtime_support();
+        if cfg!(windows) {
+            assert_eq!(result, Ok(()));
+        } else {
+            assert_eq!(result, Err(TASKBAR_STATUS_UNSUPPORTED_PLATFORM.to_string()));
+        }
+    }
 
     #[test]
     fn overlay_starts_at_the_safe_fallback_width() {
@@ -755,5 +879,25 @@ mod tests {
             ["resize:185", "reposition:185", "resize:166"]
         );
         assert!(operations.slot_invalidated);
+    }
+}
+
+#[cfg(all(test, not(windows)))]
+mod non_windows_tests {
+    use super::*;
+
+    #[test]
+    fn taskbar_runtime_uses_the_stable_unsupported_error() {
+        assert_eq!(
+            taskbar_runtime_support(),
+            Err("TASKBAR_STATUS_UNSUPPORTED_PLATFORM".to_string())
+        );
+    }
+
+    #[test]
+    fn unsupported_taskbar_runtime_never_tracks_enabled_state() {
+        let mut overlay = TaskbarOverlay;
+        overlay.force_enabled(true);
+        assert!(!overlay.is_enabled());
     }
 }
