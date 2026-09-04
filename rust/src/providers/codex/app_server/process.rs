@@ -443,6 +443,33 @@ async fn wait_after_kill<T>(wait: impl Future<Output = T>) {
     let _ = tokio::time::timeout(POST_KILL_WAIT, wait).await;
 }
 
+/// Wait for the Linux process group to disappear while reaping any background
+/// child that was orphaned when the App Server leader exited. This is bounded:
+/// a malformed or uncooperative child cannot stall provider refresh forever.
+#[cfg(target_os = "linux")]
+async fn wait_for_process_group_exit(
+    child: &mut Child,
+    process_group: i32,
+    limit: Duration,
+) -> bool {
+    let deadline = tokio::time::Instant::now() + limit;
+    loop {
+        // Never reap the leader behind Tokio's Child handle. Once Tokio has
+        // observed it, this process is the subreaper for any orphaned members
+        // of this group and can safely collect those descendants.
+        if matches!(child.try_wait(), Ok(Some(_))) {
+            super::job::reap_process_group_children(process_group);
+        }
+        if !super::job::process_group_exists(process_group) {
+            return true;
+        }
+        if tokio::time::Instant::now() >= deadline {
+            return false;
+        }
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+}
+
 /// A running, supervised App Server child. Dropping the Job handle kills the
 /// entire process tree via KILL_ON_JOB_CLOSE.
 pub struct SupervisedAppServerProcess {
@@ -457,6 +484,16 @@ impl SupervisedAppServerProcess {
     /// Spawn the child with piped stdio, the fixed environment, and
     /// CREATE_NO_WINDOW, then assign it to a kill-on-close Job Object.
     pub fn spawn(spec: &AppServerSpawnSpec) -> Result<Self, AppError> {
+        #[cfg(target_os = "linux")]
+        if !super::job::enable_child_subreaper() {
+            return Err(AppError::new(
+                AppErrorKind::StorageFailure,
+                "errors.appServerSpawnFailed",
+                RecoveryAction::Retry,
+                "APP_SERVER_SUBREAPER_FAILED",
+            ));
+        }
+
         let mut command = Command::new(&spec.program);
         command
             .args(&spec.arguments)
@@ -549,7 +586,7 @@ impl SupervisedAppServerProcess {
         match tokio::time::timeout(grace, self.child.wait()).await {
             Ok(_) => {}
             Err(_) => {
-                #[cfg(unix)]
+                #[cfg(all(unix, not(target_os = "linux")))]
                 if let Some(process_group) = self.process_group {
                     super::job::terminate_process_group(process_group);
                     if tokio::time::timeout(Duration::from_millis(250), self.child.wait())
@@ -568,6 +605,19 @@ impl SupervisedAppServerProcess {
                     let _ = self.child.start_kill();
                     let _ = self.child.wait().await;
                 }
+            }
+        };
+        #[cfg(target_os = "linux")]
+        if let Some(process_group) = self.process_group {
+            // A leader can exit normally while a shell-created background
+            // child remains in its process group. Always clean the group,
+            // rather than treating a reaped leader as tree completion.
+            super::job::terminate_process_group(process_group);
+            if !wait_for_process_group_exit(&mut self.child, process_group, POST_KILL_WAIT).await {
+                super::job::kill_process_group(process_group);
+                wait_after_kill(self.child.wait()).await;
+                let _ = wait_for_process_group_exit(&mut self.child, process_group, POST_KILL_WAIT)
+                    .await;
             }
         }
         // `job` is dropped here, terminating any surviving tree members.
@@ -748,11 +798,66 @@ mod tests {
         assert_ne!(unsafe { getpgid(pid) }, unsafe { getpgrp() });
 
         process.shutdown(Duration::from_millis(50)).await;
-        assert_ne!(
-            unsafe { kill(-pid, 0) },
-            0,
-            "process group {pid} survived shutdown"
+        assert_process_group_exits_within(pid, Duration::from_secs(1)).await;
+    }
+
+    #[cfg(target_os = "linux")]
+    #[tokio::test]
+    async fn unix_shutdown_reaps_a_background_descendant_after_its_shell_exits() {
+        use tokio::io::AsyncBufReadExt;
+
+        unsafe extern "C" {
+            fn getpgid(pid: i32) -> i32;
+        }
+
+        let command = ResolvedCodexCommand::from_parts(
+            PathBuf::from("/bin/sh"),
+            vec![
+                OsString::from("-c"),
+                OsString::from("sleep 60 & printf '%s\\n' \"$!\"; exit 0"),
+            ],
+            super::super::discovery::CodexInstallation::NativeExe,
         );
+        let mut spec = AppServerSpawnSpec::current_cli(command);
+        spec.arguments.truncate(spec.arguments.len() - 1);
+        let mut process = SupervisedAppServerProcess::spawn(&spec).unwrap();
+        let process_group = process.child.id().expect("child pid") as i32;
+        let mut stdout = tokio::io::BufReader::new(process.stdout().expect("stdout piped"));
+        let mut descendant = String::new();
+        tokio::time::timeout(Duration::from_secs(1), stdout.read_line(&mut descendant))
+            .await
+            .expect("shell must report its background descendant")
+            .expect("background descendant pid must be readable");
+        drop(stdout);
+        let descendant: i32 = descendant
+            .trim()
+            .parse()
+            .expect("background descendant pid");
+        assert_eq!(unsafe { getpgid(descendant) }, process_group);
+
+        let started = std::time::Instant::now();
+        process.shutdown(Duration::from_millis(50)).await;
+        assert!(started.elapsed() < Duration::from_secs(2));
+        assert_process_group_exits_within(process_group, Duration::from_secs(1)).await;
+    }
+
+    #[cfg(target_os = "linux")]
+    async fn assert_process_group_exits_within(process_group: i32, limit: Duration) {
+        unsafe extern "C" {
+            fn kill(pid: i32, signal: i32) -> i32;
+        }
+
+        let deadline = tokio::time::Instant::now() + limit;
+        loop {
+            if unsafe { kill(-process_group, 0) } != 0 {
+                return;
+            }
+            assert!(
+                tokio::time::Instant::now() < deadline,
+                "process group {process_group} survived bounded shutdown"
+            );
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
     }
 
     #[cfg(target_os = "linux")]

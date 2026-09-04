@@ -29,6 +29,57 @@ pub(crate) fn kill_process_group(process_group: i32) {
     signal_process_group(process_group, SIGKILL);
 }
 
+/// Make this process the nearest reaper for orphaned descendants of its
+/// children. Linux otherwise reparents a background child to init as soon as
+/// its App Server leader exits, leaving this supervisor unable to reap it.
+#[cfg(target_os = "linux")]
+pub(crate) fn enable_child_subreaper() -> bool {
+    const PR_SET_CHILD_SUBREAPER: i32 = 36;
+
+    unsafe extern "C" {
+        fn prctl(option: i32, arg2: usize, arg3: usize, arg4: usize, arg5: usize) -> i32;
+    }
+
+    unsafe { prctl(PR_SET_CHILD_SUBREAPER, 1, 0, 0, 0) == 0 }
+}
+
+/// Reap exited members that Linux reparented to this process after their App
+/// Server leader exited. A negative `waitpid` target selects direct children
+/// in exactly one process group and therefore cannot consume another group's
+/// child.
+#[cfg(target_os = "linux")]
+pub(crate) fn reap_process_group_children(process_group: i32) {
+    const WNOHANG: i32 = 1;
+
+    unsafe extern "C" {
+        fn waitpid(pid: i32, status: *mut i32, options: i32) -> i32;
+    }
+
+    if process_group <= 0 {
+        return;
+    }
+    loop {
+        let mut status = 0;
+        let result = unsafe { waitpid(-process_group, &mut status, WNOHANG) };
+        if result <= 0 {
+            return;
+        }
+    }
+}
+
+/// Whether a Unix process group still has any member. This intentionally uses
+/// `kill(..., 0)`: after `reap_process_group_children` has run, a successful
+/// probe represents a member still awaiting termination rather than one of
+/// this supervisor's unreaped zombies.
+#[cfg(target_os = "linux")]
+pub(crate) fn process_group_exists(process_group: i32) -> bool {
+    unsafe extern "C" {
+        fn kill(pid: i32, signal: i32) -> i32;
+    }
+
+    process_group > 0 && unsafe { kill(-process_group, 0) == 0 }
+}
+
 #[cfg(windows)]
 use windows::Win32::Foundation::{CloseHandle, HANDLE};
 #[cfg(windows)]
