@@ -20,6 +20,10 @@ if (-not (Test-Path -LiteralPath $prWorkflowPath)) {
 }
 $prWorkflow = Get-Content -Raw -Encoding utf8 -LiteralPath $prWorkflowPath
 
+if ($workflow -notmatch '(?ms)^permissions:\r?\n  contents: read\r?$') {
+    throw 'Release workflow default permissions must be contents: read.'
+}
+
 foreach ($fragment in @('windows-build:', 'linux-build:', 'publish:')) {
     if (-not $workflow.Contains($fragment)) {
         throw "Release workflow must define job: $fragment"
@@ -40,6 +44,18 @@ if (-not $publishMatch.Success) {
     throw 'Release workflow has no publish job.'
 }
 $publish = $publishMatch.Value
+if ($publish -notmatch '(?ms)^  publish:\r?\n.*?^    permissions:\r?\n      contents: write\r?$') {
+    throw 'Publish must be the only job granted contents: write.'
+}
+if ([regex]::Matches($workflow, '(?m)^\s+contents: write$').Count -ne 1) {
+    throw 'No job other than publish may be granted contents: write.'
+}
+foreach ($buildJob in @('windows-build', 'linux-build')) {
+    $buildMatch = [regex]::Match($workflow, "(?ms)^  $($buildJob):\r?\n.*?(?=^  \S|\z)")
+    if (-not $buildMatch.Success -or -not $buildMatch.Value.Contains('persist-credentials: false')) {
+        throw "$buildJob checkout must disable persisted credentials."
+    }
+}
 if ($publish -notmatch '(?m)^    needs:\s*\[windows-build, linux-build\]$') {
     throw 'Publish must require both windows-build and linux-build.'
 }
@@ -61,6 +77,21 @@ foreach ($fragment in @(
 $releaseCreates = [regex]::Matches($workflow, 'gh release create')
 if ($releaseCreates.Count -ne 1 -or -not $publish.Contains('gh release create')) {
     throw 'Only the publish job may create exactly one GitHub release.'
+}
+
+if ($workflow -match '(?m)^\s*\$resolved\s*=\s*"?\$\{\{ inputs\.version \}\}"?$' -or $workflow -match "(?m)^\s*resolved='\$\{\{ inputs\.version \}\}'$") {
+    throw 'Workflow-dispatch version must not be interpolated into shell source.'
+}
+foreach ($fragment in @(
+    'REQUESTED_VERSION: ${{ inputs.version }}',
+    '$resolved = $env:REQUESTED_VERSION',
+    'resolved="$REQUESTED_VERSION"',
+    "if (`$resolved -notmatch '^\d+\.\d+\.\d+(?:-(?:alpha|beta|rc)\.\d+)?`$')",
+    '[[ "$resolved" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-((alpha|beta|rc)\.[0-9]+))?$ ]]'
+)) {
+    if (-not $workflow.Contains($fragment)) {
+        throw "Version resolver must contain safe validation: $fragment"
+    }
 }
 
 $gateMatch = [regex]::Match(

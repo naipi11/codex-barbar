@@ -75,15 +75,17 @@ printf '%s  %s\n' "$deb_hash" "$deb_name" >"$sums_asset"
 commit="$(git -C "$repo_root" rev-parse HEAD 2>/dev/null || printf '%040d' 0)"
 commit_date="$(git -C "$repo_root" show -s --format=%cI HEAD 2>/dev/null || printf '1970-01-01T00:00:00Z')"
 
-node - "$version" "$commit" "$commit_date" "$deb_name" "$deb_hash" "$deb_asset" "$sbom_asset" "$manifest_asset" <<'NODE'
+node - "$version" "$commit" "$commit_date" "$deb_name" "$deb_hash" "$deb_asset" "$sums_asset" "$sbom_asset" "$manifest_asset" <<'NODE'
+const crypto = require('crypto');
 const fs = require('fs');
-const [version, commit, created, debName, debHash, debPath, sbomPath, manifestPath] = process.argv.slice(2);
+const [version, commit, created, debName, debHash, debPath, sumsPath, sbomPath, manifestPath] = process.argv.slice(2);
 const rootId = 'SPDXRef-Package-codex-barbar';
 const sbom = {
   spdxVersion: 'SPDX-2.3',
   dataLicense: 'CC0-1.0',
   SPDXID: 'SPDXRef-DOCUMENT',
   name: 'codex-barbar',
+  target: 'x86_64-unknown-linux-gnu',
   documentNamespace: `https://github.com/naipi11/codex-barbar/sbom/${version}/${commit}`,
   creationInfo: { created, creators: ['Tool: codex-barbar-linux-release'] },
   packages: [{
@@ -93,14 +95,19 @@ const sbom = {
     checksums: [{ algorithm: 'SHA256', checksumValue: debHash }]
   }]
 };
+fs.writeFileSync(sbomPath, `${JSON.stringify(sbom, null, 2)}\n`);
+const sha256 = (path) => crypto.createHash('sha256').update(fs.readFileSync(path)).digest('hex');
 const manifest = {
   version,
   commit,
   target: 'x86_64-unknown-linux-gnu',
   package: 'codex-barbar',
-  files: [{ name: debName, size: fs.statSync(debPath).size, sha256: debHash }]
+  files: [
+    { name: debName, size: fs.statSync(debPath).size, sha256: debHash },
+    { name: 'SHA256SUMS.txt', size: fs.statSync(sumsPath).size, sha256: sha256(sumsPath) },
+    { name: `codex-barbar_${version}_sbom.spdx.json`, size: fs.statSync(sbomPath).size, sha256: sha256(sbomPath) }
+  ]
 };
-fs.writeFileSync(sbomPath, `${JSON.stringify(sbom, null, 2)}\n`);
 fs.writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);
 NODE
 

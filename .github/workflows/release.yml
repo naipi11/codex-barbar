@@ -17,8 +17,7 @@ on:
       - 'v*'
 
 permissions:
-  contents: write
-  security-events: read
+  contents: read
 
 jobs:
   windows-build:
@@ -29,10 +28,14 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
 
       - name: Resolve version
         id: version
         shell: pwsh
+        env:
+          REQUESTED_VERSION: ${{ inputs.version }}
         run: |
           if ($env:GITHUB_EVENT_NAME -eq 'push') {
             $tag = $env:GITHUB_REF_NAME
@@ -41,7 +44,10 @@ jobs:
             }
             $resolved = $tag.Substring(1)
           } else {
-            $resolved = "${{ inputs.version }}"
+            $resolved = $env:REQUESTED_VERSION
+          }
+          if ($resolved -notmatch '^\d+\.\d+\.\d+(?:-(?:alpha|beta|rc)\.\d+)?$') {
+            throw "invalid release version: $resolved"
           }
           "version=$resolved" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
 
@@ -134,17 +140,25 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
 
       - name: Resolve version
         id: version
         shell: bash
+        env:
+          REQUESTED_VERSION: ${{ inputs.version }}
         run: |
           if [[ "$GITHUB_EVENT_NAME" == 'push' ]]; then
             [[ "$GITHUB_REF_NAME" == v* ]] || { echo "release tag must start with v: $GITHUB_REF_NAME" >&2; exit 1; }
             resolved="${GITHUB_REF_NAME#v}"
           else
-            resolved='${{ inputs.version }}'
+            resolved="$REQUESTED_VERSION"
           fi
+          [[ "$resolved" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-((alpha|beta|rc)\.[0-9]+))?$ ]] || {
+            echo "invalid release version: $resolved" >&2
+            exit 1
+          }
           printf 'version=%s\n' "$resolved" >> "$GITHUB_OUTPUT"
 
       - name: Install Ubuntu build dependencies
@@ -227,9 +241,13 @@ jobs:
     name: Aggregate and draft release
     runs-on: ubuntu-24.04
     needs: [windows-build, linux-build]
+    permissions:
+      contents: write
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
 
       - name: Verify build versions agree
         shell: bash

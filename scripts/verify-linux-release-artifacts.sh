@@ -90,18 +90,22 @@ expected_hash="$(awk -v name="$deb_name" '$2 == name && $1 ~ /^[0-9a-f]{64}$/ { 
 actual_hash="$(sha256sum "$deb" | awk '{print $1}')"
 [[ "$expected_hash" == "$actual_hash" ]] || die "SHA256 mismatch for $deb_name"
 
-node - "$version" "$deb_name" "$actual_hash" "$assets/$sbom_name" "$assets/artifact-manifest.json" "$deb" <<'NODE'
+node - "$version" "$deb_name" "$actual_hash" "$assets/$sbom_name" "$assets/artifact-manifest.json" "$deb" "$sums" <<'NODE'
+const crypto = require('crypto');
 const fs = require('fs');
-const [version, debName, debHash, sbomPath, manifestPath, debPath] = process.argv.slice(2);
+const [version, debName, debHash, sbomPath, manifestPath, debPath, sumsPath] = process.argv.slice(2);
 const sbom = JSON.parse(fs.readFileSync(sbomPath, 'utf8'));
-if (sbom.spdxVersion !== 'SPDX-2.3' || sbom.name !== 'codex-barbar') throw new Error('invalid SPDX document');
+if (sbom.spdxVersion !== 'SPDX-2.3' || sbom.name !== 'codex-barbar' || sbom.target !== 'x86_64-unknown-linux-gnu') throw new Error('invalid SPDX document');
 const root = (sbom.packages || []).find((entry) => entry.SPDXID === 'SPDXRef-Package-codex-barbar');
 if (!root || root.versionInfo !== version || root.licenseDeclared !== 'MIT' || root.licenseConcluded !== 'MIT') throw new Error('invalid SPDX root package');
 if (!root.checksums?.some((entry) => entry.algorithm === 'SHA256' && entry.checksumValue === debHash)) throw new Error('SPDX package hash mismatch');
 const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
 if (manifest.version !== version || manifest.target !== 'x86_64-unknown-linux-gnu' || manifest.package !== 'codex-barbar') throw new Error('invalid target manifest');
-const asset = (manifest.files || []).find((entry) => entry.name === debName);
-if (!asset || asset.sha256 !== debHash || asset.size !== fs.statSync(debPath).size) throw new Error('invalid target manifest asset');
+const sha256 = (path) => crypto.createHash('sha256').update(fs.readFileSync(path)).digest('hex');
+for (const [name, path] of [[debName, debPath], ['SHA256SUMS.txt', sumsPath], [`codex-barbar_${version}_sbom.spdx.json`, sbomPath]]) {
+  const asset = (manifest.files || []).find((entry) => entry.name === name);
+  if (!asset || asset.sha256 !== sha256(path) || asset.size !== fs.statSync(path).size) throw new Error(`invalid target manifest asset: ${name}`);
+}
 NODE
 
 printf 'Linux release artifacts verified: %s\n' "$assets"

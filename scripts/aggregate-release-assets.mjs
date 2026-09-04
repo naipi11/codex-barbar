@@ -81,20 +81,42 @@ async function loadTarget({ label, directory, version }) {
     if (info.size !== size) fail(`${label} target asset size mismatch: ${name}`);
     const actualHash = await sha256File(path);
     if (actualHash !== sha256) fail(`${label} target asset hash mismatch: ${name}`);
-    if (checksums.get(name) !== actualHash) {
+    if (checksums.has(name) && checksums.get(name) !== actualHash) {
       fail(`${label} SHA256SUMS.txt does not match ${name}`);
     }
     assets.push({ name, path, sha256: actualHash });
   }
 
   const sbomName = `codex-barbar_${version}_sbom.spdx.json`;
-  const sbomPath = join(directory, sbomName);
-  const sbom = await readJson(sbomPath, `${label} SBOM`);
-  if (sbom.spdxVersion !== "SPDX-2.3" || sbom.name !== "codex-barbar") {
-    fail(`${label} SBOM is not a codex-barbar SPDX 2.3 document`);
+  const supportNames = new Set(["SHA256SUMS.txt", sbomName]);
+  const payloads = assets.filter(({ name }) => !supportNames.has(name));
+  if (payloads.length === 0) fail(`${label} target manifest has no release payloads`);
+  if (checksums.size !== payloads.length || [...checksums.keys()].some((name) => !payloads.some((asset) => asset.name === name))) {
+    fail(`${label} SHA256SUMS.txt must contain exactly the release payloads`);
   }
 
-  return { label, manifestPath, sbomPath, assets };
+  const sbomPath = join(directory, sbomName);
+  const sbom = await readJson(sbomPath, `${label} SBOM`);
+  if (sbom.spdxVersion !== "SPDX-2.3" || sbom.name !== "codex-barbar" || sbom.target !== TARGETS[label]) {
+    fail(`${label} SBOM is not a codex-barbar SPDX 2.3 document`);
+  }
+  if (!sbom.documentNamespace?.includes(`/sbom/${version}/`)) {
+    fail(`${label} SBOM document namespace does not match version ${version}`);
+  }
+  const product = sbom.packages?.find((entry) => entry?.SPDXID === "SPDXRef-Package-codex-barbar");
+  if (!product || product.name !== "codex-barbar" || product.versionInfo !== version) {
+    fail(`${label} SBOM product version does not match ${version}`);
+  }
+  const sbomHashes = new Set(
+    (product.checksums ?? [])
+      .filter((entry) => entry?.algorithm === "SHA256" && /^[a-f0-9]{64}$/.test(entry.checksumValue ?? ""))
+      .map((entry) => entry.checksumValue),
+  );
+  if (payloads.some(({ sha256 }) => !sbomHashes.has(sha256))) {
+    fail(`${label} SBOM does not reference payload checksum`);
+  }
+
+  return { label, manifestPath, sbomPath, payloads };
 }
 
 async function assertEmptyDirectory(path) {
@@ -123,7 +145,7 @@ export async function aggregateReleaseAssets({ version, windows, linux, output }
   ]);
   await assertEmptyDirectory(output);
 
-  const allAssets = [...windowsTarget.assets, ...linuxTarget.assets];
+  const allAssets = [...windowsTarget.payloads, ...linuxTarget.payloads];
   const names = new Set();
   for (const asset of allAssets) {
     if (names.has(asset.name)) fail(`target artifact names collide: ${asset.name}`);
