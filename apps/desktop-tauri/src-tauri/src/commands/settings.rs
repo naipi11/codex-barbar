@@ -12,8 +12,8 @@ use super::bridge::{
 };
 use crate::{
     notification_controller::{
-        NotificationCapabilityDto, NotificationCapabilityStatus, NotificationController,
-        WindowsToastSink, notification_capability,
+        DesktopNotificationSink, NotificationCapabilityDto, NotificationCapabilityStatus,
+        NotificationController, notification_capability,
     },
     state::AppState,
 };
@@ -162,7 +162,7 @@ pub async fn update_settings(
 pub fn send_test_notification(
     app: tauri::AppHandle,
     state: tauri::State<'_, Mutex<AppState>>,
-    controller: tauri::State<'_, Mutex<NotificationController<WindowsToastSink>>>,
+    controller: tauri::State<'_, Mutex<NotificationController<DesktopNotificationSink>>>,
 ) -> Result<(), String> {
     let capability = notification_capability();
     let proof_mode = crate::proof_harness::is_proof_mode(&app);

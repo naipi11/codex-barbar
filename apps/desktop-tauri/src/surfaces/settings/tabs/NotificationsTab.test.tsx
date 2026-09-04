@@ -221,7 +221,7 @@ describe("NotificationsTab", () => {
     await waitFor(() => expect(sendButton).toBeEnabled());
     fireEvent.click(sendButton);
     expect(await screen.findByRole("alert")).toHaveTextContent(
-      "Windows could not send the test notification. Check notification settings and try again.",
+      "The desktop could not send the test notification. Check notification settings and try again.",
     );
   });
 
@@ -473,7 +473,7 @@ describe("NotificationsTab", () => {
 
   it.each([
     ["globalDisabled", /windows notifications are turned off/i, true],
-    ["unsupported", /availability could not be checked/i, false],
+    ["unsupported", /desktop notification availability could not be checked/i, false],
   ] as const)(
     "distinguishes the %s capability state",
     async (status, message, canOpenSettings) => {

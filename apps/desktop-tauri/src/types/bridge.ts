@@ -49,8 +49,14 @@ export interface NotificationPreferencesDto {
   dangerRemainingPercent: number;
 }
 
+export type NotificationCapabilityStatus =
+  | "available"
+  | "appDisabled"
+  | "globalDisabled"
+  | "unsupported";
+
 export interface NotificationCapabilityDto {
-  status: "available" | "appDisabled" | "globalDisabled" | "unsupported";
+  status: NotificationCapabilityStatus;
   canOpenSettings: boolean;
 }
 
@@ -340,7 +346,7 @@ export interface PlatformCapabilitiesDto {
   taskbarStatus: boolean;
   floatingBall: boolean;
   autostart: boolean;
-  notifications: "available" | "appDisabled" | "globalDisabled" | "unsupported";
+  notifications: NotificationCapabilityStatus;
   managedCredentials: boolean;
 }
 

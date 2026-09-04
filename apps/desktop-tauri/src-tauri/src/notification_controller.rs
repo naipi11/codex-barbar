@@ -150,19 +150,95 @@ pub(crate) fn detect_notification_capability<P: NotificationSettingProbe>(
 }
 
 pub fn notification_capability() -> NotificationCapabilityDto {
-    detect_notification_capability(&SystemNotificationSettingProbe, cfg!(target_os = "windows"))
+    #[cfg(target_os = "windows")]
+    {
+        return detect_notification_capability(&SystemNotificationSettingProbe, true);
+    }
+    #[cfg(target_os = "linux")]
+    {
+        return detect_linux_notification_capability(linux_notification_server_available);
+    }
+    #[allow(unreachable_code)]
+    NotificationCapabilityDto {
+        status: NotificationCapabilityStatus::Unsupported,
+        can_open_settings: false,
+    }
 }
 
 pub trait ToastSink: Send {
     fn send(&mut self, title: &str, body: &str, play_sound: bool) -> Result<(), String>;
 }
 
-pub struct WindowsToastSink;
+#[allow(dead_code)]
+pub enum DesktopNotificationSink {
+    Windows,
+    Linux,
+    Unsupported,
+}
 
-impl ToastSink for WindowsToastSink {
-    fn send(&mut self, title: &str, body: &str, play_sound: bool) -> Result<(), String> {
-        send_windows_toast(title, body, play_sound)
+pub fn platform_notification_sink() -> DesktopNotificationSink {
+    #[cfg(target_os = "windows")]
+    {
+        return DesktopNotificationSink::Windows;
     }
+    #[cfg(target_os = "linux")]
+    {
+        return DesktopNotificationSink::Linux;
+    }
+    #[allow(unreachable_code)]
+    DesktopNotificationSink::Unsupported
+}
+
+impl ToastSink for DesktopNotificationSink {
+    fn send(&mut self, title: &str, body: &str, play_sound: bool) -> Result<(), String> {
+        match self {
+            Self::Windows => send_windows_toast(title, body, play_sound),
+            Self::Linux => send_linux_notification(title, body, play_sound),
+            Self::Unsupported => Err("NOTIFICATION_TRANSPORT_UNAVAILABLE".to_string()),
+        }
+    }
+}
+
+#[cfg(any(target_os = "linux", test))]
+fn detect_linux_notification_capability<F>(probe_server: F) -> NotificationCapabilityDto
+where
+    F: FnOnce() -> Result<(), ()>,
+{
+    NotificationCapabilityDto {
+        status: if probe_server().is_ok() {
+            NotificationCapabilityStatus::Available
+        } else {
+            NotificationCapabilityStatus::Unsupported
+        },
+        can_open_settings: false,
+    }
+}
+
+#[cfg(target_os = "linux")]
+fn linux_notification_server_available() -> Result<(), ()> {
+    notify_rust::get_server_information()
+        .map(|_| ())
+        .map_err(|_| ())
+}
+
+#[cfg(target_os = "linux")]
+fn send_linux_notification(title: &str, body: &str, play_sound: bool) -> Result<(), String> {
+    use notify_rust::{Hint, Notification, Timeout};
+
+    Notification::new()
+        .appname("codex-barbar")
+        .summary(title)
+        .body(body)
+        .timeout(Timeout::Milliseconds(5_000))
+        .hint(Hint::SuppressSound(!play_sound))
+        .show()
+        .map(|_| ())
+        .map_err(|_| "NOTIFICATION_TRANSPORT_UNAVAILABLE".to_string())
+}
+
+#[cfg(not(target_os = "linux"))]
+fn send_linux_notification(_title: &str, _body: &str, _play_sound: bool) -> Result<(), String> {
+    Err("NOTIFICATION_TRANSPORT_UNAVAILABLE".to_string())
 }
 
 pub struct NotificationController<S: ToastSink> {
@@ -609,7 +685,7 @@ pub fn start_update_check_loop(app: tauri::AppHandle) {
                 continue;
             };
             let controller =
-                app.state::<std::sync::Mutex<NotificationController<WindowsToastSink>>>();
+                app.state::<std::sync::Mutex<NotificationController<DesktopNotificationSink>>>();
             if let Ok(mut controller) = controller.lock()
                 && controller
                     .observe_update_available(&repository, &latest_version)
@@ -641,10 +717,11 @@ mod tests {
     use uuid::Uuid;
 
     use super::{
-        NOTIFICATION_REGISTRATION_SCRIPT, NotificationCapabilityStatus, NotificationController,
-        NotificationSettingProbe, ToastSink, account_marker_from_email,
-        detect_notification_capability, parse_notification_setting, send_windows_toast_with,
-        should_check_for_updates, toast_transport_result, windows_toast_script, xml_escape,
+        DesktopNotificationSink, NOTIFICATION_REGISTRATION_SCRIPT, NotificationCapabilityStatus,
+        NotificationController, NotificationSettingProbe, ToastSink, account_marker_from_email,
+        detect_linux_notification_capability, detect_notification_capability,
+        parse_notification_setting, send_windows_toast_with, should_check_for_updates,
+        toast_transport_result, windows_toast_script, xml_escape,
     };
 
     struct FakeNotificationSettingProbe {
@@ -757,6 +834,14 @@ mod tests {
             },
         );
         (temp, repository, controller, sent)
+    }
+
+    #[test]
+    fn controller_accepts_the_platform_sink_type() {
+        let _: NotificationController<DesktopNotificationSink> = NotificationController::new(
+            V1NotificationEngine::load(&AppPaths::from_local_app_data(&std::env::temp_dir())),
+            DesktopNotificationSink::Unsupported,
+        );
     }
 
     fn weekly(profile_id: ProfileId, used: f64) -> ProfileUsageState {
@@ -1052,6 +1137,22 @@ mod tests {
         assert_eq!(capability.status, NotificationCapabilityStatus::Unsupported);
         assert!(!capability.can_open_settings);
         assert!(probe.calls.lock().unwrap().is_empty());
+    }
+
+    #[test]
+    fn linux_server_probe_reports_available_without_opening_settings() {
+        let capability = detect_linux_notification_capability(|| Ok(()));
+
+        assert_eq!(capability.status, NotificationCapabilityStatus::Available);
+        assert!(!capability.can_open_settings);
+    }
+
+    #[test]
+    fn linux_server_probe_reports_unsupported_when_the_session_bus_is_unavailable() {
+        let capability = detect_linux_notification_capability(|| Err(()));
+
+        assert_eq!(capability.status, NotificationCapabilityStatus::Unsupported);
+        assert!(!capability.can_open_settings);
     }
 
     #[test]

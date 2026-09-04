@@ -136,7 +136,7 @@ fn main() {
     });
     let notification_controller = notification_controller::NotificationController::new(
         codexbar::notifications::v1::V1NotificationEngine::load(&notification_paths),
-        notification_controller::WindowsToastSink,
+        notification_controller::platform_notification_sink(),
     );
 
     let protocol_avatar_store = Arc::clone(&avatar_store);
@@ -261,7 +261,7 @@ fn main() {
                                         );
                                     let controller = handle.state::<Mutex<
                                         notification_controller::NotificationController<
-                                            notification_controller::WindowsToastSink,
+                                            notification_controller::DesktopNotificationSink,
                                         >,
                                     >>();
                                     if let Ok(mut controller) = controller.lock()
@@ -317,7 +317,7 @@ fn main() {
                                         );
                                     let controller = handle.state::<Mutex<
                                         notification_controller::NotificationController<
-                                            notification_controller::WindowsToastSink,
+                                            notification_controller::DesktopNotificationSink,
                                         >,
                                     >>();
                                     if let Ok(mut controller) = controller.lock() {
