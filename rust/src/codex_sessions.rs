@@ -111,15 +111,15 @@ mod tests {
 
     #[test]
     fn normalizes_codex_root_to_sessions_dir() {
+        let root = PathBuf::from("home").join("kk").join(".codex");
         assert_eq!(
-            normalize_codex_sessions_dir(r"\\wsl.localhost\archlinux\home\kk\.codex"),
-            Some(PathBuf::from(
-                r"\\wsl.localhost\archlinux\home\kk\.codex\sessions"
-            ))
+            normalize_codex_sessions_dir(root.to_string_lossy()),
+            Some(root.join("sessions"))
         );
+        let sessions = root.join("sessions");
         assert_eq!(
-            normalize_codex_sessions_dir(r"C:\Users\me\.codex\sessions"),
-            Some(PathBuf::from(r"C:\Users\me\.codex\sessions"))
+            normalize_codex_sessions_dir(sessions.to_string_lossy()),
+            Some(sessions)
         );
         assert_eq!(normalize_codex_sessions_dir("  "), None);
     }

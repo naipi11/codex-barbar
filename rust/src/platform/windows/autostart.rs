@@ -80,7 +80,7 @@ pub fn set_enabled(_enabled: bool) -> Result<(), AutostartError> {
     Ok(())
 }
 
-#[cfg(test)]
+#[cfg(all(test, windows))]
 mod tests {
     use super::*;
 

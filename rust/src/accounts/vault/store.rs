@@ -817,8 +817,26 @@ mod tests {
         let (vault, _) = test_vault_fixture();
         let mut first = bundle(b"first");
         let gen1 = vault.seal_expected(Uuid::nil(), None, &mut first).unwrap();
-        // Crash after ReplaceFileW but before backup deletion: final is the
-        // new generation and the previous generation remains in the backup.
+        let final_path = vault.final_path(Uuid::nil());
+        let backup_path = vault.backup_path(Uuid::nil());
+        std::fs::copy(&final_path, &backup_path).unwrap();
+        std::fs::write(&final_path, b"corrupt").unwrap();
+
+        let actions = vault.recover_atomic_artifacts().unwrap();
+        assert!(actions.contains(&VaultRecovery::RestoredBackup));
+        let info = vault.inspect(Uuid::nil()).unwrap().unwrap();
+        assert_eq!(info.generation, gen1.generation);
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn published_vault_keeps_previous_generation_in_backup_until_commit() {
+        let (vault, _) = test_vault_fixture();
+        let mut first = bundle(b"first");
+        let gen1 = vault.seal_expected(Uuid::nil(), None, &mut first).unwrap();
+
+        // ReplaceFileW leaves the previous final at the backup path. Exercise
+        // that Windows-specific crash window separately from portable recovery.
         vault
             .fault
             .lock()
@@ -830,12 +848,12 @@ mod tests {
                 .seal_expected(Uuid::nil(), Some(gen1.generation), &mut second)
                 .is_err()
         );
-        let final_path = vault.final_path(Uuid::nil());
-        std::fs::write(&final_path, b"corrupt").unwrap();
-        let actions = vault.recover_atomic_artifacts().unwrap();
-        assert!(actions.contains(&VaultRecovery::RestoredBackup));
-        let info = vault.inspect(Uuid::nil()).unwrap().unwrap();
-        assert_eq!(info.generation, gen1.generation);
+        let backup = vault.backup_path(Uuid::nil());
+        assert!(backup.is_file());
+        assert_eq!(
+            vault.read_envelope(&backup).unwrap().unwrap().generation,
+            gen1.generation
+        );
     }
 
     #[test]

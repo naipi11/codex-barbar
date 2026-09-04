@@ -479,12 +479,18 @@ fn test_start_at_login_uses_the_canonical_run_value_name() {
 
 #[test]
 fn test_start_at_login_ignores_unrelated_test_executables() {
+    let test_binary = std::env::temp_dir()
+        .join("target")
+        .join("debug")
+        .join("deps")
+        .join("codexbar-abc123.exe");
     assert!(!Settings::is_supported_start_at_login_executable(
-        Path::new(r"C:\work\target\debug\deps\codexbar-abc123.exe")
+        &test_binary
     ));
-    assert!(Settings::is_supported_start_at_login_executable(Path::new(
-        r"C:\Program Files\codex-barbar\codex-barbar.exe"
-    )));
+    let desktop_binary = std::env::temp_dir().join("codex-barbar.exe");
+    assert!(Settings::is_supported_start_at_login_executable(
+        &desktop_binary
+    ));
 }
 
 #[test]

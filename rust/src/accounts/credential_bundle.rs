@@ -9,8 +9,14 @@ use super::runtime_home::RuntimeHomeError;
 
 /// Reject any bundle path that could escape the guarded runtime root.
 pub(crate) fn validate_credential_entry(relative_path: &str) -> Result<(), RuntimeHomeError> {
+    let has_windows_volume_prefix = relative_path
+        .as_bytes()
+        .get(1)
+        .is_some_and(|character| *character == b':');
     if relative_path.is_empty()
         || relative_path.contains('\0')
+        || relative_path.starts_with('\\')
+        || has_windows_volume_prefix
         || std::path::Path::new(relative_path).is_absolute()
     {
         return Err(RuntimeHomeError::UnsafeBundlePath);
@@ -126,7 +132,12 @@ mod tests {
 
     #[test]
     fn bundle_restore_rejects_parent_absolute_and_reparse_paths() {
-        for path in ["../auth.json", r"C:\outside\auth.json", "a/../../auth.json"] {
+        for path in [
+            "../auth.json",
+            r"C:\outside\auth.json",
+            r"\\server\share\auth.json",
+            "a/../../auth.json",
+        ] {
             assert!(validate_credential_entry(path).is_err(), "{path}");
         }
         assert!(validate_credential_entry("auth.json").is_ok());

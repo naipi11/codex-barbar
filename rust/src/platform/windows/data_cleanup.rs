@@ -297,7 +297,7 @@ mod tests {
     }
 
     fn fake_base() -> PathBuf {
-        PathBuf::from(r"C:\Users\A\AppData\Local")
+        std::env::temp_dir().join("codex-barbar-data-cleanup-tests")
     }
 
     fn data_root() -> PathBuf {
