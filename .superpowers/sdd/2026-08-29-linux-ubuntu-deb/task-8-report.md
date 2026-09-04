@@ -89,3 +89,16 @@ sha256sum artifacts/linux-release/codex-barbar_1.1.0_amd64.deb
 - Re-ran the Git Bash shell regression after the correction; static checks
   passed and the `dpkg-deb` fixture segment remained correctly skipped on this
   non-Debian host. Ubuntu package-build evidence remains unperformed as above.
+
+## Fix round 2: generated desktop-entry fixture
+
+- Corrected the `dpkg-deb` fixture application entry to
+  `usr/share/applications/codex-barbar.desktop`, matching the Tauri Debian
+  bundler's product-name-derived output and the verifier. A static fixture-path
+  assertion now runs before the Windows `dpkg-deb` skip, so this mismatch cannot
+  be hidden by the host limitation again.
+- Left the separate XDG autostart contract unchanged:
+  `~/.config/autostart/com.naipi11.codexbarbar.desktop` remains the sole
+  user-owned autostart filename.
+- Re-ran shell syntax/static tests, 300 frontend tests, the frontend build,
+  desktop Rust tests (260), and formatting check; all completed successfully.

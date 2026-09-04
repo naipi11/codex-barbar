@@ -53,6 +53,11 @@ for (const script of ['scripts/linux-release-build.sh', 'scripts/verify-linux-re
     throw new Error(`${script} must validate Tauri's codex-barbar Debian Package field`);
   }
 }
+const fixtureScript = fs.readFileSync('scripts/linux-release-build.test.sh', 'utf8');
+const fixtureDesktop = fixtureScript.match(/\$fixture\/usr\/share\/applications\/([^"\n]+)/)?.[1];
+if (fixtureDesktop !== 'codex-barbar.desktop') {
+  throw new Error('dpkg-deb fixture must use Tauri generated codex-barbar.desktop');
+}
 NODE
 
 grep -Eq 'codex-barbar_.*_amd64\.deb' scripts/verify-linux-release-artifacts.sh
@@ -87,7 +92,7 @@ Depends: libwebkit2gtk-4.1-0, libgtk-3-0, libayatana-appindicator3-1, libsecret-
 CONTROL
 printf '#!/bin/sh\nexit 0\n' >"$fixture/usr/bin/codex-barbar"
 chmod 0755 "$fixture/usr/bin/codex-barbar"
-printf '[Desktop Entry]\nType=Application\nName=codex-barbar\n' >"$fixture/usr/share/applications/com.naipi11.codexbarbar.desktop"
+printf '[Desktop Entry]\nType=Application\nName=codex-barbar\n' >"$fixture/usr/share/applications/codex-barbar.desktop"
 printf 'fixture icon\n' >"$fixture/usr/share/icons/hicolor/1024x1024/apps/codex-barbar.png"
 
 mkdir -p "$tmp/target/release/bundle/deb"
