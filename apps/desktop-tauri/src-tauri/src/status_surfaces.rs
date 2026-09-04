@@ -1,4 +1,5 @@
 use std::sync::Mutex;
+#[cfg(windows)]
 use std::time::Duration;
 #[cfg(windows)]
 use std::time::Instant;
@@ -20,15 +21,19 @@ pub(crate) enum ReconciliationAction {
     Cleanup,
 }
 
+#[cfg(any(windows, test))]
 const STATUS_SURFACE_REASSERT_INTERVAL_MS: u64 = 250;
 #[cfg(windows)]
 const STATUS_SURFACE_RECONCILE_INTERVAL: Duration = Duration::from_secs(2);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum ReconcileCause {
+    #[cfg(windows)]
     ForegroundChanged,
     ShellChanged,
+    #[cfg(windows)]
     PeriodicFallback,
+    #[cfg(windows)]
     FullscreenTransition,
 }
 
@@ -115,6 +120,7 @@ pub fn get_status_surface_diagnostics() -> Vec<SurfaceLifecycleSnapshot> {
     recent_global(64)
 }
 
+#[cfg(windows)]
 pub fn schedule_foreground_reconcile(app: tauri::AppHandle, foreground: ForegroundClass) {
     let app_for_task = app.clone();
     tauri::async_runtime::spawn(async move {
@@ -231,10 +237,10 @@ pub fn reconcile_surfaces(
         ReconcileAction::Suspend => suspend_enabled_surfaces(&mut state),
         ReconcileAction::Restore => restore_enabled_surfaces(app, &mut state),
         ReconcileAction::KeepVisible => {
-            if matches!(
-                cause,
-                ReconcileCause::PeriodicFallback | ReconcileCause::ShellChanged
-            ) {
+            let restore_for_cause = cause == ReconcileCause::ShellChanged;
+            #[cfg(windows)]
+            let restore_for_cause = restore_for_cause || cause == ReconcileCause::PeriodicFallback;
+            if restore_for_cause {
                 restore_enabled_surfaces(app, &mut state)
             } else {
                 keep_enabled_surfaces_visible(&mut state)
@@ -309,11 +315,13 @@ fn try_with_state<T>(state: &Mutex<T>, operation: impl FnOnce(&mut T)) -> bool {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg(any(windows, test))]
 enum StateMutationDispatch {
     Immediate,
     Deferred,
 }
 
+#[cfg(any(windows, test))]
 fn try_with_state_or_defer<T, O, D>(
     state: &Mutex<T>,
     operation: O,
@@ -335,6 +343,7 @@ where
     }
 }
 
+#[cfg(any(windows, test))]
 fn reconcile_deferred_measurement_state<T, W>(
     state: &Mutex<T>,
     lookup_live_measurement: impl FnOnce() -> Option<W>,

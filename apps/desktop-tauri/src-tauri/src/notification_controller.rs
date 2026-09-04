@@ -13,14 +13,19 @@ pub use crate::platform_capabilities::NotificationCapabilityStatus;
 use crate::state::AppState;
 
 const UPDATE_CHECK_INTERVAL: Duration = Duration::from_secs(24 * 60 * 60);
+#[cfg(any(windows, test))]
 const TOAST_EXIT_APP_DISABLED: i32 = 20;
+#[cfg(any(windows, test))]
 const TOAST_EXIT_GLOBAL_DISABLED: i32 = 21;
+#[cfg(any(windows, test))]
 const TOAST_EXIT_UNSUPPORTED: i32 = 22;
+#[cfg(any(windows, test))]
 const NOTIFICATION_REGISTRATION_SCRIPT: &str = r#"try {
     $appIdPath = 'HKCU:\SOFTWARE\Classes\AppUserModelId\CodexBarbar'
     New-Item -Path $appIdPath -Force | Out-Null
     New-ItemProperty -Path $appIdPath -Name DisplayName -Value 'codex-barbar' -PropertyType String -Force | Out-Null
 } catch { exit 1 }"#;
+#[cfg(windows)]
 const NOTIFICATION_SETTING_SCRIPT: &str = r#"try {
     [Windows.UI.Notifications.ToastNotificationManager, Windows.UI.Notifications, ContentType = WindowsRuntime] | Out-Null
     $notifier = [Windows.UI.Notifications.ToastNotificationManager]::CreateToastNotifier('CodexBarbar')
@@ -35,6 +40,7 @@ pub struct NotificationCapabilityDto {
     pub can_open_settings: bool,
 }
 
+#[cfg(any(windows, test))]
 pub(crate) trait NotificationSettingProbe {
     fn ensure_registration(&self) -> Result<(), ()> {
         Ok(())
@@ -42,6 +48,7 @@ pub(crate) trait NotificationSettingProbe {
     fn notification_setting(&self) -> Result<u32, ()>;
 }
 
+#[cfg(windows)]
 struct SystemNotificationSettingProbe;
 
 #[cfg(target_os = "windows")]
@@ -92,17 +99,7 @@ impl NotificationSettingProbe for SystemNotificationSettingProbe {
     }
 }
 
-#[cfg(not(target_os = "windows"))]
-impl NotificationSettingProbe for SystemNotificationSettingProbe {
-    fn ensure_registration(&self) -> Result<(), ()> {
-        Err(())
-    }
-
-    fn notification_setting(&self) -> Result<u32, ()> {
-        Err(())
-    }
-}
-
+#[cfg(any(windows, test))]
 fn parse_notification_setting(output: &[u8]) -> Result<u32, ()> {
     let setting = std::str::from_utf8(output)
         .map_err(|_| ())?
@@ -115,6 +112,7 @@ fn parse_notification_setting(output: &[u8]) -> Result<u32, ()> {
     }
 }
 
+#[cfg(any(windows, test))]
 pub(crate) fn detect_notification_capability<P: NotificationSettingProbe>(
     probe: &P,
     is_windows: bool,
@@ -161,31 +159,38 @@ pub trait ToastSink: Send {
     fn send(&mut self, title: &str, body: &str, play_sound: bool) -> Result<(), String>;
 }
 
-#[allow(dead_code)]
 pub enum DesktopNotificationSink {
+    #[cfg(windows)]
     Windows,
+    #[cfg(target_os = "linux")]
     Linux,
+    #[cfg(any(test, not(any(windows, target_os = "linux"))))]
     Unsupported,
 }
 
 pub fn platform_notification_sink() -> DesktopNotificationSink {
-    #[cfg(target_os = "windows")]
+    #[cfg(windows)]
     {
-        return DesktopNotificationSink::Windows;
+        DesktopNotificationSink::Windows
     }
     #[cfg(target_os = "linux")]
     {
-        return DesktopNotificationSink::Linux;
+        DesktopNotificationSink::Linux
     }
-    #[allow(unreachable_code)]
-    DesktopNotificationSink::Unsupported
+    #[cfg(not(any(windows, target_os = "linux")))]
+    {
+        DesktopNotificationSink::Unsupported
+    }
 }
 
 impl ToastSink for DesktopNotificationSink {
     fn send(&mut self, title: &str, body: &str, play_sound: bool) -> Result<(), String> {
         match self {
+            #[cfg(windows)]
             Self::Windows => send_windows_toast(title, body, play_sound),
+            #[cfg(target_os = "linux")]
             Self::Linux => send_linux_notification(title, body, play_sound),
+            #[cfg(any(test, not(any(windows, target_os = "linux"))))]
             Self::Unsupported => Err("NOTIFICATION_TRANSPORT_UNAVAILABLE".to_string()),
         }
     }
@@ -226,11 +231,6 @@ fn send_linux_notification(title: &str, body: &str, play_sound: bool) -> Result<
         .show()
         .map(|_| ())
         .map_err(|_| "NOTIFICATION_TRANSPORT_UNAVAILABLE".to_string())
-}
-
-#[cfg(not(target_os = "linux"))]
-fn send_linux_notification(_title: &str, _body: &str, _play_sound: bool) -> Result<(), String> {
-    Err("NOTIFICATION_TRANSPORT_UNAVAILABLE".to_string())
 }
 
 pub struct NotificationController<S: ToastSink> {
@@ -546,6 +546,7 @@ fn event_copy(settings: &AppSettings, event: &V1NotificationEvent) -> (String, S
     }
 }
 
+#[cfg(any(windows, test))]
 fn xml_escape(value: &str) -> String {
     value
         .replace('&', "&amp;")
@@ -555,6 +556,7 @@ fn xml_escape(value: &str) -> String {
         .replace('\'', "&apos;")
 }
 
+#[cfg(any(windows, test))]
 fn send_windows_toast_with<P, F>(probe: &P, is_windows: bool, transport: F) -> Result<(), String>
 where
     P: NotificationSettingProbe,
@@ -579,6 +581,7 @@ fn send_windows_toast(title: &str, body: &str, play_sound: bool) -> Result<(), S
     })
 }
 
+#[cfg(any(windows, test))]
 fn windows_toast_script(title: &str, body: &str, play_sound: bool) -> String {
     let audio = if play_sound {
         ""
@@ -613,6 +616,7 @@ fn windows_toast_script(title: &str, body: &str, play_sound: bool) -> String {
     )
 }
 
+#[cfg(any(windows, test))]
 fn toast_transport_result(success: bool, code: Option<i32>) -> Result<(), String> {
     if success {
         return Ok(());
@@ -648,11 +652,6 @@ fn run_windows_toast_transport(title: &str, body: &str, play_sound: bool) -> Res
         .status()
         .map_err(|_| "NOTIFICATION_TRANSPORT_UNAVAILABLE".to_string())?;
     toast_transport_result(status.success(), status.code())
-}
-
-#[cfg(not(target_os = "windows"))]
-fn send_windows_toast(_title: &str, _body: &str, _play_sound: bool) -> Result<(), String> {
-    send_windows_toast_with(&SystemNotificationSettingProbe, false, || Ok(()))
 }
 
 pub(crate) fn repository_from_app(app: &tauri::AppHandle) -> Option<SettingsRepository> {

@@ -1,4 +1,6 @@
+#[cfg(any(windows, test))]
 pub mod positioning;
+#[cfg(any(windows, test))]
 pub mod win32;
 pub mod window;
 
@@ -487,10 +489,6 @@ impl TaskbarOverlay {
         taskbar_runtime_support()
     }
 
-    pub fn reposition(&mut self, _app: &tauri::AppHandle) -> Result<(), String> {
-        Ok(())
-    }
-
     #[allow(dead_code)]
     pub fn handle_shell_change(&mut self, _app: &tauri::AppHandle) -> Result<(), String> {
         Ok(())
@@ -532,14 +530,6 @@ impl TaskbarOverlay {
     }
 
     pub fn handle_window_destroyed(&mut self) {}
-
-    pub fn handle_measurement_window_destroyed(&mut self) {}
-
-    pub fn reconcile_measurement_window_after_destroy(
-        &mut self,
-        _live_measurement: Option<tauri::WebviewWindow>,
-    ) {
-    }
 }
 
 #[cfg(all(test, windows))]

@@ -5,16 +5,21 @@ use tauri::{Manager, WebviewUrl};
 use super::positioning::Rect;
 
 pub const TASKBAR_WINDOW_LABEL: &str = "taskbar-status";
+#[cfg(any(windows, test))]
 pub const TASKBAR_FRONTEND_ROUTE: &str = "index.html?window=taskbar-status";
 pub const TASKBAR_MEASUREMENT_WINDOW_LABEL: &str = "taskbar-status-measure";
+#[cfg(any(windows, test))]
 pub const TASKBAR_MEASUREMENT_FRONTEND_ROUTE: &str = "index.html?window=taskbar-status-measure";
+#[cfg(any(windows, test))]
 pub const TASKBAR_MEASUREMENT_LOGICAL_WIDTH: u32 = 318;
 pub const TASKBAR_MIN_LOGICAL_WIDTH: u32 = 104;
 pub const TASKBAR_MAX_LOGICAL_WIDTH: u32 = 318;
+#[cfg(any(windows, test))]
 pub const TASKBAR_SAFE_FALLBACK_LOGICAL_WIDTH: u32 = 318;
+#[cfg(any(windows, test))]
 pub const TASKBAR_LOGICAL_HEIGHT: u32 = 40;
 
-#[cfg(any(not(windows), test))]
+#[cfg(test)]
 pub const fn creates_windows_on_this_platform() -> bool {
     cfg!(windows)
 }

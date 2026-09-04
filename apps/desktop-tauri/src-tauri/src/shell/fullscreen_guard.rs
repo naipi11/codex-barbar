@@ -416,7 +416,7 @@ pub(crate) fn is_fullscreen_active() -> bool {
     detect_fullscreen()
 }
 
-#[cfg(not(windows))]
+#[cfg(all(not(windows), test))]
 pub(crate) fn is_fullscreen_active() -> bool {
     false
 }
