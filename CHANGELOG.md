@@ -1,5 +1,26 @@
 # Changelog
 
+## 1.1.0 - Unreleased
+
+### Added
+- Ubuntu 24.04 amd64 Debian release documentation and an explicit GNOME/KDE,
+  Wayland/X11, AppIndicator, XDG autostart, notification, and Secret Service
+  acceptance record.
+- Dual-platform release policy: Windows and Ubuntu CI plus a completed Ubuntu
+  acceptance record are required before publication of
+  `codex-barbar_1.1.0_amd64.deb`.
+
+### Security
+- Linux credential acceptance requires Secret Service with no plaintext
+  fallback; the on-disk marker must not contain credentials.
+
+### Known limitations
+- This entry is documentation for an unreleased target, not a release or tag.
+  Ubuntu desktop acceptance and the Debian package hash are still pending on a
+  real Ubuntu 24.04 desktop.
+
+---
+
 ## 1.0.0 - 2026-08-08
 
 First stable V1 release of codex-barbar: a Windows 11 x64 tray app for

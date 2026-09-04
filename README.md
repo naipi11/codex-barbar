@@ -1,7 +1,7 @@
 <div align="center">
   <img src="rust/icons/codex-barbar.png" alt="codex-barbar icon" width="144">
   <h1>codex-barbar</h1>
-  <p><strong>A Windows tray app that shows your Codex usage and limits at a glance.</strong></p>
+  <p><strong>A Windows and Ubuntu tray app that shows your Codex usage and limits at a glance.</strong></p>
   <p><strong>English</strong> · <a href="README.zh-CN.md">中文</a></p>
 </div>
 
@@ -15,6 +15,7 @@
 
 <p align="center">
   <img src="https://img.shields.io/badge/Windows-11%20x64-0078D4?style=flat-square&logo=windows&logoColor=white" alt="Windows 11 x64">
+  <img src="https://img.shields.io/badge/Ubuntu-24.04%20amd64-E95420?style=flat-square&logo=ubuntu&logoColor=white" alt="Ubuntu 24.04 amd64 target">
   <img src="https://img.shields.io/badge/Tauri-2-24C8DB?style=flat-square&logo=tauri&logoColor=white" alt="Tauri 2">
   <img src="https://img.shields.io/badge/Rust-2024-000000?style=flat-square&logo=rust&logoColor=white" alt="Rust 2024">
   <img src="https://img.shields.io/badge/React-18-61DAFB?style=flat-square&logo=react&logoColor=111827" alt="React 18">
@@ -23,10 +24,13 @@
 The floating ball stays icon-sized and clockwise. Color shows remaining quota
 (green / gold / red). Speed shows activity: idle, thinking ×2, Fast ×3.
 
-codex-barbar is a Windows 11 x64 tray application for tracking your
+codex-barbar is a Windows 11 x64 and Ubuntu 24.04 amd64 tray application for tracking your
 [Codex](https://developers.openai.com/codex/) usage and quota limits. It
 talks to the official Codex App Server protocol, keeps credentials local,
-and shows live quota in your tray, taskbar, and a floating ball.
+and shows live quota in your tray and a floating ball. The Windows taskbar
+status surface is Windows-only. Ubuntu desktop acceptance is still pending;
+see [Linux acceptance](docs/LINUX_ACCEPTANCE.md) before treating a Debian
+asset as release-ready.
 
 ![codex-barbar overview](docs/images/showcase/hero-en.png)
 
@@ -61,16 +65,19 @@ rotation shows activity: **Idle 1×**, **Thinking 2×**, **Fast 3×**.
 ## Features
 
 - Tray panel with account, quota, reset time, and manual refresh
-- Taskbar status overlay (optional, opacity adjustable)
+- Taskbar status overlay (Windows only; optional, opacity adjustable)
 - Floating status ball (optional) with green / yellow / red quota colors
 - Clockwise activity animation: Idle 1×, Thinking 2×, Fast 3×
 - Auto refresh on a configurable interval (default 5 minutes)
 - Shows the real OpenAI account name (not "current cli")
 - Weekly quota with reset countdown
-- Per-user install, no admin required
-- No telemetry; credentials stay local (DPAPI protected)
+- Per-user Windows install, no admin required
+- No telemetry; credentials stay local (Windows uses DPAPI; Linux release
+  acceptance requires Secret Service with no plaintext fallback)
 
 ## Quick Start
+
+### Windows 11 x64
 
 1. Go to [Releases](https://github.com/naipi11/codex-barbar/releases/latest).
 2. Download `codex-barbar_<version>_x64-setup.exe` (recommended) or `codex-barbar_<version>_x64-portable.zip`.
@@ -79,10 +86,37 @@ rotation shows activity: **Idle 1×**, **Thinking 2×**, **Fast 3×**.
 5. If it shows **Not signed in**, run `codex login` in a terminal, then click **Refresh** in the panel.
 6. Open **Settings → General** to configure the taskbar status and floating ball. New installs enable **Start at login** and the floating ball; the taskbar status is optional and off by default.
 
+### Ubuntu 24.04 amd64 (desktop acceptance pending)
+
+The current planned Debian asset is `codex-barbar_1.1.0_amd64.deb`. Do not
+infer that it has been published or accepted from this filename: release
+publication requires the completed record in
+[docs/verification/linux/ubuntu-24.04-acceptance.md](docs/verification/linux/ubuntu-24.04-acceptance.md)
+and green Windows and Ubuntu CI.
+
+1. Get the matching `codex-barbar_<version>_amd64.deb` from the release you
+   have verified.
+2. Install it with APT so its declared WebKitGTK, GTK, AppIndicator, and
+   Secret Service dependencies are resolved:
+
+   ```bash
+   sudo apt install ./codex-barbar_1.1.0_amd64.deb
+   ```
+
+3. Start the app with `codex-barbar`, then use the tray icon to open the
+   panel. If it shows **Not signed in**, run `codex login` and refresh.
+4. GNOME is the primary desktop target. KDE is best effort: its panel and
+   AppIndicator integration can differ. Test both Wayland and X11 when they
+   are available; on Wayland the floating ball is a normal draggable window
+   and compositor policy can limit its placement or always-on-top behavior.
+
 ## Requirements
 
 - Windows 11 x64 (23H2 or newer)
 - A working [Codex](https://developers.openai.com/codex/) installation signed in with `codex login`
+- Ubuntu 24.04 amd64 for the Debian target, with a working GNOME/KDE tray or
+  AppIndicator implementation. The package declares `libwebkit2gtk-4.1-0`,
+  `libgtk-3-0`, `libayatana-appindicator3-1`, and `libsecret-1-0`.
 
 ## First Run
 
@@ -101,6 +135,11 @@ uninstaller's confirmation prompt.
 
 - Reads usage through the official but experimental `codex app-server` stdio JSONL protocol. `experimentalApi` stays disabled; private `/wham/*` calls are removed.
 - Managed profiles use an isolated `CODEX_HOME`, force file credential storage, and protect credentials with Windows DPAPI (Current User only).
+- On Linux, managed credentials must be stored in the desktop Secret Service;
+  the on-disk vault is only a `codex-barbar-secret-service:v1:<profile-uuid>`
+  marker. A locked or unavailable Secret Service is an error, never a
+  plaintext credential fallback. This remains an acceptance requirement until
+  recorded on a real Ubuntu desktop.
 - The current CLI profile is read-only. codex-barbar never logs in, logs out, switches, or deletes accounts on your behalf.
 - No telemetry. Startup never checks for, downloads, or applies updates; you trigger update checks manually from the UI.
 
@@ -128,6 +167,8 @@ See [docs/BUILDING.md](docs/BUILDING.md) and [docs/ARCHITECTURE.md](docs/ARCHITE
 - [PRIVACY.md](PRIVACY.md) — what is stored, where, and the threat boundary
 - [TROUBLESHOOTING.md](TROUBLESHOOTING.md) — error states and recovery steps
 - [docs/TESTED_CODEX_VERSIONS.md](docs/TESTED_CODEX_VERSIONS.md) — tested Codex version limits
+- [docs/LINUX_ACCEPTANCE.md](docs/LINUX_ACCEPTANCE.md) — Ubuntu desktop and
+  package acceptance gate
 - [CHANGELOG.md](CHANGELOG.md) — release history
 
 ## Upstream

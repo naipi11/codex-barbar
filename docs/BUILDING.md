@@ -2,6 +2,8 @@
 
 ## Prerequisites
 
+### Windows 11 x64
+
 - Windows 11 x64 host (native Windows is required for tray, DPAPI, and
   installer behavior)
 - Rust stable (edition 2024) with the `x86_64-pc-windows-msvc` target,
@@ -9,6 +11,33 @@
 - Microsoft Visual Studio Build Tools with the **Desktop development with
   C++** workload
 - Node.js 20 and pnpm 10.18.1 (`corepack enable`)
+
+### Ubuntu 24.04 amd64
+
+Ubuntu builds must run on native Ubuntu 24.04 amd64. Install the desktop and
+Debian packaging prerequisites before building:
+
+```bash
+sudo apt-get update
+sudo apt-get install -y \
+  curl \
+  libwebkit2gtk-4.1-dev \
+  libgtk-3-dev \
+  libayatana-appindicator3-dev \
+  librsvg2-dev \
+  libssl-dev \
+  patchelf \
+  libfuse2 \
+  file \
+  build-essential \
+  jq \
+  dpkg-dev
+```
+
+Use Rust stable with `rustfmt` and `clippy`, Node.js 20, and pnpm 10.18.1.
+`libwebkit2gtk-4.1-dev`, GTK 3, and Ayatana AppIndicator are required for the
+Tauri tray build; the Debian package declares the matching runtime libraries
+plus `libsecret-1-0` for Secret Service credentials.
 
 ## Frontend dependencies
 
@@ -33,6 +62,21 @@ Debug build (faster, no optimization):
 ```powershell
 corepack pnpm@10.18.1 --dir apps/desktop-tauri run tauri:build:debug
 ```
+
+## Build the Ubuntu Debian package
+
+```bash
+export TAURI_LINUX_AYATANA_APPINDICATOR=1
+corepack pnpm@10.18.1 --dir apps/desktop-tauri install --frozen-lockfile
+corepack pnpm@10.18.1 --dir apps/desktop-tauri run tauri:build:linux
+bash scripts/linux-release-build.sh --version 1.1.0 --output artifacts/linux-release
+bash scripts/verify-linux-release-artifacts.sh --version 1.1.0 --assets artifacts/linux-release
+```
+
+The staged package is exactly `codex-barbar_1.1.0_amd64.deb`; its companion
+assets are `SHA256SUMS.txt`, `codex-barbar_1.1.0_sbom.spdx.json`, and
+`artifact-manifest.json`. The package hash is release evidence only after a
+native Ubuntu build and verification. This Windows host cannot provide it.
 
 ## Build the CLI
 
@@ -66,6 +110,11 @@ corepack pnpm@10.18.1 --dir apps/desktop-tauri run build
 The local CI mirror is `.\scripts\local-check.ps1`; `-All` also runs the
 production dependency audit, license audit, and Tauri x64 production build.
 
+On Ubuntu, run the same Rust and frontend commands with Bash paths, then the
+Debian artifact verifier shown above. `pnpm run tauri:build:linux` and
+`dpkg-deb` validate packaging, not GNOME/KDE/Wayland runtime behavior; record
+that separately in [LINUX_ACCEPTANCE.md](./LINUX_ACCEPTANCE.md).
+
 ## Release build
 
 ```powershell
@@ -89,7 +138,8 @@ rust/                          Shared backend crate + CLI
   src/core/                    ProviderId, Provider trait, factory
   src/providers/codex/         Codex App Server client (V1 provider)
   src/accounts/                SQLite store, DPAPI vault, managed runtimes
-  src/platform/windows/        Autostart, purge, locale
+  src/platform/windows/        Windows autostart, purge, locale
+  src/platform/linux/          XDG autostart, Linux locale
   src/tray/                    Tray icon rendering
   src/cli/                     CLI subcommands
 docs/                          Documentation
@@ -103,6 +153,7 @@ scripts/                       Dev/release helper scripts
 | [ARCHITECTURE.md](./ARCHITECTURE.md) | Modules, entry points, data flow |
 | [RELEASING.md](./RELEASING.md) | Release workflow and artifact verification |
 | [WINDOWS_PROOF.md](./WINDOWS_PROOF.md) | Windows proof checklist |
+| [LINUX_ACCEPTANCE.md](./LINUX_ACCEPTANCE.md) | Ubuntu package and desktop acceptance checklist |
 | [TESTED_CODEX_VERSIONS.md](./TESTED_CODEX_VERSIONS.md) | Tested Codex versions |
 | [../AGENTS.md](../AGENTS.md) | Agent/contributor guidelines |
 

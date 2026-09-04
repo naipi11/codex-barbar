@@ -1,0 +1,54 @@
+# Task 10 report - Ubuntu documentation and acceptance
+
+## Scope completed
+
+- Added English and Simplified Chinese Ubuntu 24.04 amd64 installation guidance
+  while preserving the existing Windows installer/portable instructions.
+- Documented the exact target asset `codex-barbar_1.1.0_amd64.deb`, Debian
+  runtime dependencies (WebKitGTK, GTK, Ayatana AppIndicator, and Secret
+  Service), GNOME/KDE caveats, Wayland/X11 expectations, Linux's unsupported
+  taskbar status, notification capability acceptance, float-ball fallback, and
+  XDG autostart filename `com.naipi11.codexbarbar.desktop`.
+- Added `docs/LINUX_ACCEPTANCE.md` and the per-candidate record at
+  `docs/verification/linux/ubuntu-24.04-acceptance.md`.
+- Made release publication explicitly require green Windows and Ubuntu CI plus
+  a completed Ubuntu acceptance record for the exact candidate commit.
+- Preserved the Task 9 workflow fact that CI uses `pwsh`; no PowerShell 5.1
+  BOM concern is made release-blocking in these docs.
+
+## Evidence boundary
+
+This Windows host cannot run Ubuntu GNOME, GNOME Wayland/X11, KDE,
+D-Bus/Secret Service, or `dpkg-deb`. The new acceptance record intentionally
+labels every package hash, CI link, and desktop/session observation
+`PENDING` or `NOT RUN`; it does not claim a tag, a release, or Ubuntu desktop
+acceptance.
+
+## Documentation hashes
+
+Hashes are SHA-256 values after the documentation checks below and before the
+documentation-only commit:
+
+```text
+DD16BF0FB5ABF91516157777E9EFEAC2D687C736C2E91D6D98600CEF9F5B1B15  README.md
+F826E276052FE49801EC1C0670F994D1E864B3052104BD69B64A90516C161F25  README.zh-CN.md
+7C100A6C3598850425323BFE4A1198AE854EC4ACCF418CAF9C7C88882C0A3A1D  docs/BUILDING.md
+BC22D0CAE37564DCAC822762AC755A290272EFCFD00DFDE8E5D6C332A8810D25  docs/RELEASING.md
+6782664AC6934A5EB7268D2C1DFB30F8CE3582F96425E31BD2C848592C5D82C7  docs/ARCHITECTURE.md
+62CCB91EE6CCCD2C10E237CC7B8E67DAB50E53BD7341A5B46F207DEC28D422C5  CHANGELOG.md
+7DBA8BA448915ADB6FCE8F818B3D8D12BE7CD01A5091A9593F040B196E816280  VERSIONING.md
+1F7C39058D2363BFA113145F38E4B96060142284B2B2115B6D4A4162A9CB8085  docs/LINUX_ACCEPTANCE.md
+C3A2AA4A4C6EE0ADC18FF62FF8E6E9552A01D7C76276962A2FC15123D68F0119  docs/verification/linux/ubuntu-24.04-acceptance.md
+```
+
+## Verification
+
+- `rg -n "Ubuntu|\\.deb|amd64|Wayland|Secret Service|AppIndicator|com\\.naipi11\\.codexbarbar\\.desktop|PENDING|NOT RUN|pwsh" ...` — pass; required terms and pending evidence are present across the changed documentation.
+- `rg -n "codex-barbar_\\$\\{version\\}_amd64\\.deb|codex-barbar_.*_amd64\\.deb|libwebkit2gtk-4\\.1-0|libayatana-appindicator3-1|libsecret-1-0" ...` — pass; documentation agrees with the Linux Tauri config and package scripts.
+- Node local-Markdown-link checker for all nine changed/added documentation files — pass; all local links resolve.
+- `cargo fmt --all --check` — pass.
+- `git diff --check` — pass.
+
+No package, frontend, or Rust test/build command was run because this task
+changes documentation only. No Ubuntu package build or desktop acceptance was
+attempted on this Windows host.
