@@ -105,3 +105,27 @@ instruction. It also checks the matching `VERSIONING.md` order.
 ```
 
 Ubuntu package hash, Ubuntu acceptance, tag, and release remain unclaimed.
+
+## Fix round 3 (SBOM names and fail-closed publication order)
+
+- Corrected aggregate SBOM names in `docs/RELEASING.md` to the exact emitted
+  and checked names: `codex-barbar_<version>_windows_sbom.spdx.json` and
+  `codex-barbar_<version>_linux_sbom.spdx.json`.
+- Aligned both release documents to the required order: candidate `HEAD`,
+  dual CI and acceptance, exact tag, aggregation, release doctor, draft-asset
+  inspection/authorization, then publication. Documentation does not imply
+  that any of those external gates has completed.
+
+### Fix-round consistency assertions and hashes
+
+The static checks reject the stale hyphenated SBOM names, require both
+underscore names to match `scripts/aggregate-release-assets.mjs` and
+`scripts/release-doctor.ps1`, and require both documents to order tag/aggregate
+before release doctor and release doctor before draft inspection/authorization.
+
+```text
+981C7134BD1FE4251A1294D9B80B814705518B538BC4728368D927ADD5D2242E  docs/RELEASING.md
+B0F70423C8137D1C1F275C95404BA20727365166620B57DE3D1FDB438254C247  VERSIONING.md
+```
+
+Ubuntu package hash, Ubuntu acceptance, tag, and release remain unclaimed.

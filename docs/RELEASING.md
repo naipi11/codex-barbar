@@ -15,8 +15,8 @@ codex-barbar_<version>_x64-setup.exe      NSIS per-user installer
 codex-barbar_<version>_x64-portable.zip   Portable ZIP (same exe + docs)
 codex-barbar_<version>_amd64.deb          Ubuntu 24.04 Debian package
 SHA256SUMS.txt                            Aggregate hashes for Windows + Debian payloads
-codex-barbar_<version>_windows-sbom.spdx.json  Windows SPDX 2.3 SBOM
-codex-barbar_<version>_linux-sbom.spdx.json    Linux SPDX 2.3 SBOM
+codex-barbar_<version>_windows_sbom.spdx.json  Windows SPDX 2.3 SBOM
+codex-barbar_<version>_linux_sbom.spdx.json    Linux SPDX 2.3 SBOM
 artifact-manifest-windows.json            Windows target manifest
 artifact-manifest-linux.json              Linux target manifest
 ```
@@ -65,8 +65,7 @@ SmartScreen warnings are expected.
 6. Wait for green Windows and Ubuntu CI for the exact candidate commit. After
    both CI jobs and both platform acceptance records are complete, create an
    annotated `v<version>` tag that points to that same candidate commit, then
-   push the tag to rerun/continue release aggregation. Inspect the resulting
-   draft assets and request authorization before publishing.
+   push the tag to rerun/continue release aggregation.
 7. Run release doctor only after aggregation has produced the eight-file
    Windows + Linux set in `artifacts/aggregate-release` (for example, after
    the tagged workflow downloads and aggregates both target artifacts):
@@ -78,6 +77,8 @@ SmartScreen warnings are expected.
    Do not point release doctor at the pre-aggregation Windows-only
    `artifacts/release` directory: it correctly requires the Debian payload,
    aggregate checksums, both renamed SBOMs, and both target manifests.
+8. Only after release doctor completes for the aggregate set, inspect the
+   resulting draft assets and obtain explicit authorization before publishing.
 
 The build script refuses to run on a dirty worktree or when `-Ref` does not
 resolve to HEAD. `-AllowDirty` exists only for development.

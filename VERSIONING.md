@@ -89,8 +89,9 @@ Use pre-release tags for testing before stable release:
    with no `PENDING`/`NOT RUN` release-blocking item, including the package
    SHA-256 and desktop/session evidence.
 5. Only then create an annotated `vX.Y.Z` tag pointing to that exact candidate
-   commit, push it to rerun/continue release aggregation, inspect the draft
-   assets, and obtain explicit authorization to publish.
+   commit and push it to rerun/continue release aggregation. Run release
+   doctor on the aggregate set, then inspect the draft assets and obtain
+   explicit authorization to publish.
 
 ### Creating a Release
 
@@ -109,7 +110,7 @@ git push origin main --tags
 # 4. After aggregation produces all Windows + Linux assets, run release doctor
 ./scripts/release-doctor.ps1 -Version X.Y.Z -AssetsDirectory ./artifacts/aggregate-release
 
-# 5. Inspect the draft assets; publish only with explicit authorization
+# 5. Only after release doctor passes, inspect the draft assets; publish only with explicit authorization
 ```
 
 The `v*` workflow path resolves the version from the tag; the
