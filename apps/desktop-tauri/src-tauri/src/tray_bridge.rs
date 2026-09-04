@@ -225,7 +225,12 @@ fn load_presentation(app: &AppHandle) -> TrayPresentation {
         .unwrap_or("en-US")
         .to_string();
     let language = if language == "system" {
-        codexbar::platform::windows::system_locale::default_language().to_string()
+        match codexbar::platform::system_locale::language() {
+            codexbar::storage::LanguagePreference::ZhCn => "zh-CN",
+            codexbar::storage::LanguagePreference::System
+            | codexbar::storage::LanguagePreference::EnUs => "en-US",
+        }
+        .to_string()
     } else {
         language
     };

@@ -48,6 +48,7 @@ pub fn protect_directory(path: &Path) -> Result<GuardedRuntimeDir, RuntimeHomeEr
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[cfg(windows)]
     use crate::accounts::RuntimeHomeManager;
 
     #[test]

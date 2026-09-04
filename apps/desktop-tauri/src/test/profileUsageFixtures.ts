@@ -204,6 +204,15 @@ export function bootstrapWithTwoProfiles(): BootstrapDto {
         managedLogin: true,
       },
     },
+    platform: {
+      platform: "windows",
+      systemTray: true,
+      taskbarStatus: true,
+      floatingBall: true,
+      autostart: true,
+      notifications: "available",
+      managedCredentials: true,
+    },
   };
 }
 

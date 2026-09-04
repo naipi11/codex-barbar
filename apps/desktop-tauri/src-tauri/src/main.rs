@@ -8,6 +8,7 @@ mod float_ball;
 mod float_ball_motion;
 mod geometry_store;
 mod notification_controller;
+mod platform_capabilities;
 mod pricing_refresh;
 mod proof_harness;
 mod shell;
@@ -89,7 +90,7 @@ fn main() {
                 .as_ref()
                 .map(|paths| paths.vault.clone())
                 .unwrap_or_else(|| std::path::PathBuf::from("codex-barbar-vault")),
-            Arc::new(codexbar::accounts::vault::WindowsDpapiProtector::new()),
+            codexbar::accounts::vault::platform_credential_protector(),
         ));
         let runtime_root = app_paths
             .as_ref()
@@ -135,7 +136,7 @@ fn main() {
     });
     let notification_controller = notification_controller::NotificationController::new(
         codexbar::notifications::v1::V1NotificationEngine::load(&notification_paths),
-        notification_controller::WindowsToastSink,
+        notification_controller::platform_notification_sink(),
     );
 
     let protocol_avatar_store = Arc::clone(&avatar_store);
@@ -162,6 +163,7 @@ fn main() {
         }))
         .invoke_handler(tauri::generate_handler![
             commands::get_bootstrap_state,
+            commands::get_platform_capabilities,
             float_ball_motion::get_float_ball_motion,
             commands::get_settings_snapshot,
             commands::get_notification_capability,
@@ -200,6 +202,7 @@ fn main() {
         ])
         .setup(move |app| {
             if let Some(window) = app.get_webview_window("main") {
+                #[cfg(windows)]
                 shell::dwm::force_dark_caption(&window);
                 let _ = window.set_resizable(false);
                 window.hide()?;
@@ -259,7 +262,7 @@ fn main() {
                                         );
                                     let controller = handle.state::<Mutex<
                                         notification_controller::NotificationController<
-                                            notification_controller::WindowsToastSink,
+                                            notification_controller::DesktopNotificationSink,
                                         >,
                                     >>();
                                     if let Ok(mut controller) = controller.lock()
@@ -315,7 +318,7 @@ fn main() {
                                         );
                                     let controller = handle.state::<Mutex<
                                         notification_controller::NotificationController<
-                                            notification_controller::WindowsToastSink,
+                                            notification_controller::DesktopNotificationSink,
                                         >,
                                     >>();
                                     if let Ok(mut controller) = controller.lock() {
@@ -370,7 +373,7 @@ fn main() {
             });
             if let Some(settings) = loaded_settings.as_ref()
                 && let Err(error) =
-                    codexbar::platform::windows::autostart::set_enabled(settings.start_at_login)
+                    codexbar::platform::autostart::set_enabled(settings.start_at_login)
             {
                 tracing::warn!(
                     code = "AUTOSTART_STARTUP_RECONCILE_FAILED",
@@ -405,6 +408,7 @@ fn main() {
             Ok(())
         })
         .on_window_event(move |window, event| {
+            #[cfg(windows)]
             if taskbar_overlay::window::is_measurement_window_label(window.label()) {
                 if matches!(event, tauri::WindowEvent::Destroyed) {
                     status_surfaces::handle_taskbar_measurement_window_destroyed(

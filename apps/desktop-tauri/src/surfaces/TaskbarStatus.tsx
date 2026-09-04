@@ -7,6 +7,9 @@ import "./TaskbarStatus.css";
 export default function TaskbarStatus() {
   const surface = useStatusSurface();
   useTheme(surface.bootstrap?.settings.theme ?? "system");
+  if (surface.bootstrap && !surface.bootstrap.platform.taskbarStatus) {
+    return null;
+  }
   const presentation = buildTaskbarStatusPresentation(surface);
   const closeFailed = surface.closeFailedBySurface.taskbarStatus;
 

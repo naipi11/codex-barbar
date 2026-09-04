@@ -70,7 +70,16 @@ function Write-JsonFile {
         [hashtable]$Data,
         [string]$Path
     )
-    $Data | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath $Path -Encoding utf8
+    Write-Utf8NoBom -Path $Path -Content ($Data | ConvertTo-Json -Depth 6)
+}
+
+function Write-Utf8NoBom {
+    param(
+        [string]$Path,
+        [string]$Content
+    )
+    $utf8 = New-Object System.Text.UTF8Encoding($false)
+    [System.IO.File]::WriteAllText($Path, $Content + [Environment]::NewLine, $utf8)
 }
 
 if (-not $Version) {
@@ -175,11 +184,26 @@ try {
 
     Invoke-Native "powershell.exe" @("-NoProfile", "-ExecutionPolicy", "Bypass", "-File", (Join-Path $RepoRoot "scripts\generate-sbom.ps1"), "-Version", $Version, "-Commit", $head, "-OutputPath", $sbomAsset) "SPDX SBOM generation"
 
+    $sbom = Get-Content -Raw -LiteralPath $sbomAsset | ConvertFrom-Json
+    $product = @($sbom.packages | Where-Object { $_.SPDXID -eq "SPDXRef-Package-codex-barbar" })[0]
+    if ($null -eq $product) {
+        throw "SPDX SBOM has no codex-barbar root package."
+    }
+    $product | Add-Member -NotePropertyName checksums -NotePropertyValue @(
+        [pscustomobject]@{ algorithm = "SHA256"; checksumValue = $setupHash }
+        [pscustomobject]@{ algorithm = "SHA256"; checksumValue = $zipHash }
+    ) -Force
+    $sbom | Add-Member -NotePropertyName target -NotePropertyValue "x86_64-pc-windows-msvc" -Force
+    Write-Utf8NoBom -Path $sbomAsset -Content ($sbom | ConvertTo-Json -Depth 12)
+
+    $sumsHash = (Get-FileHash -Algorithm SHA256 -LiteralPath $sumsAsset).Hash.ToLowerInvariant()
+    $sbomHash = (Get-FileHash -Algorithm SHA256 -LiteralPath $sbomAsset).Hash.ToLowerInvariant()
+
     $files = @(
         @{ name = $setupName; size = (Get-Item -LiteralPath $setupAsset).Length; sha256 = $setupHash }
         @{ name = $zipName; size = (Get-Item -LiteralPath $zipAsset).Length; sha256 = $zipHash }
-        @{ name = "SHA256SUMS.txt"; size = (Get-Item -LiteralPath $sumsAsset).Length }
-        @{ name = (Split-Path $sbomAsset -Leaf); size = (Get-Item -LiteralPath $sbomAsset).Length }
+        @{ name = "SHA256SUMS.txt"; size = (Get-Item -LiteralPath $sumsAsset).Length; sha256 = $sumsHash }
+        @{ name = (Split-Path $sbomAsset -Leaf); size = (Get-Item -LiteralPath $sbomAsset).Length; sha256 = $sbomHash }
     )
     $manifest = @{
         version = $Version

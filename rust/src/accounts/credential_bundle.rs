@@ -9,8 +9,14 @@ use super::runtime_home::RuntimeHomeError;
 
 /// Reject any bundle path that could escape the guarded runtime root.
 pub(crate) fn validate_credential_entry(relative_path: &str) -> Result<(), RuntimeHomeError> {
+    let has_windows_volume_prefix = relative_path
+        .as_bytes()
+        .get(1)
+        .is_some_and(|character| *character == b':');
     if relative_path.is_empty()
         || relative_path.contains('\0')
+        || relative_path.starts_with('\\')
+        || has_windows_volume_prefix
         || std::path::Path::new(relative_path).is_absolute()
     {
         return Err(RuntimeHomeError::UnsafeBundlePath);
@@ -32,6 +38,7 @@ pub(crate) fn restore_entry(
     validate_credential_entry(&entry.relative_path)?;
     let target = dest_root.join(&entry.relative_path);
     let parent = target.parent().ok_or(RuntimeHomeError::UnsafeBundlePath)?;
+    super::runtime_home::reject_symlinked_ancestors(parent)?;
     if let Ok(metadata) = std::fs::symlink_metadata(parent)
         && super::windows_acl::is_reparse_point(&metadata)
     {
@@ -42,8 +49,8 @@ pub(crate) fn restore_entry(
     {
         return Err(RuntimeHomeError::ReparsePointRejected);
     }
-    std::fs::create_dir_all(parent).map_err(|_| RuntimeHomeError::Io)?;
-    std::fs::write(&target, entry.contents.as_slice()).map_err(|_| RuntimeHomeError::Io)?;
+    super::runtime_home::ensure_restricted_directory(parent)?;
+    super::runtime_home::write_restricted_file(&target, entry.contents.as_slice())?;
     Ok(())
 }
 
@@ -76,6 +83,7 @@ fn collect_dir(
     if super::windows_acl::is_reparse_point(&metadata) {
         return Err(RuntimeHomeError::ReparsePointRejected);
     }
+    super::runtime_home::verify_restricted_directory(dir)?;
     let entries = std::fs::read_dir(dir).map_err(|_| RuntimeHomeError::Io)?;
     for entry in entries {
         let entry = entry.map_err(|_| RuntimeHomeError::Io)?;
@@ -91,6 +99,7 @@ fn collect_dir(
         if !meta.is_file() {
             continue;
         }
+        super::runtime_home::verify_restricted_file(&path)?;
         let name = entry.file_name();
         if name == "config.toml" || name == "manifest.json" {
             continue;
@@ -123,7 +132,12 @@ mod tests {
 
     #[test]
     fn bundle_restore_rejects_parent_absolute_and_reparse_paths() {
-        for path in ["../auth.json", r"C:\outside\auth.json", "a/../../auth.json"] {
+        for path in [
+            "../auth.json",
+            r"C:\outside\auth.json",
+            r"\\server\share\auth.json",
+            "a/../../auth.json",
+        ] {
             assert!(validate_credential_entry(path).is_err(), "{path}");
         }
         assert!(validate_credential_entry("auth.json").is_ok());

@@ -24,6 +24,7 @@ pub const FLYOUT_LOGICAL_SIZE: (u32, u32) = (380, 470);
 pub const WORK_AREA_INSET: i32 = 20;
 
 /// Subtract a bottom/top/side taskbar from a monitor work area.
+#[cfg(any(windows, test))]
 pub fn subtract_taskbar(work_area: Rect, taskbar: Rect) -> Rect {
     let work_right = work_area.x + work_area.width;
     let work_bottom = work_area.y + work_area.height;

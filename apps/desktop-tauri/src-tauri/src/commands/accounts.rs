@@ -76,11 +76,21 @@ pub struct StartManagedLoginArgs {
     pub replace_profile_id: Option<String>,
 }
 
+fn require_managed_credentials(available: bool) -> Result<(), &'static str> {
+    available
+        .then_some(())
+        .ok_or("MANAGED_CREDENTIALS_UNAVAILABLE")
+}
+
 #[tauri::command]
 pub async fn start_managed_login(
     state: tauri::State<'_, Mutex<AppState>>,
     args: StartManagedLoginArgs,
 ) -> Result<ManagedLoginStateDto, String> {
+    require_managed_credentials(
+        codexbar::accounts::vault::platform_managed_credentials_available(),
+    )
+    .map_err(str::to_string)?;
     let method = match args.method.as_str() {
         "deviceCode" => ManagedLoginMethod::DeviceCode,
         "browser" => ManagedLoginMethod::Browser,
@@ -314,7 +324,10 @@ pub fn request_graceful_quit(app: tauri::AppHandle, state: tauri::State<'_, Mute
 
 #[cfg(test)]
 mod tests {
-    use super::{account_avatar_protocol_response, decode_profile_avatar_payload};
+    use super::{
+        account_avatar_protocol_response, decode_profile_avatar_payload,
+        require_managed_credentials,
+    };
     use crate::commands::bridge::{ProfileSummaryDto, ProfileUsageStateDto};
     use codexbar::accounts::avatar::AvatarStore;
     use codexbar::accounts::model::{AccountProfile, ProfileKind, ProfileLifecycle};
@@ -371,6 +384,15 @@ mod tests {
         for forbidden in ["token", "authjson", "codexhome", "vaultpath", "fingerprint"] {
             assert!(!text.contains(forbidden), "leaked {forbidden}: {text}");
         }
+    }
+
+    #[test]
+    fn managed_login_command_fails_closed_when_secure_storage_is_unavailable() {
+        assert_eq!(
+            require_managed_credentials(false),
+            Err("MANAGED_CREDENTIALS_UNAVAILABLE")
+        );
+        assert_eq!(require_managed_credentials(true), Ok(()));
     }
 
     #[test]

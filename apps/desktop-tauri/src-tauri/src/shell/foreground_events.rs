@@ -4,21 +4,33 @@
 //! non-blocking reconcile. It never takes the status-surface mutex or calls
 //! WebView APIs.
 
+#[cfg(windows)]
 use std::sync::OnceLock;
+#[cfg(windows)]
 use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
+#[cfg(windows)]
 use std::time::Duration;
 
+#[cfg(windows)]
 use super::fullscreen_guard::{ForegroundClass, classify_current_foreground};
 
+#[cfg(windows)]
 const CLASS_NORMAL: u8 = 0;
+#[cfg(windows)]
 const CLASS_SHELL_TRANSIENT: u8 = 1;
+#[cfg(windows)]
 const CLASS_REAL_FULLSCREEN: u8 = 2;
 
+#[cfg(windows)]
 static PENDING: AtomicBool = AtomicBool::new(false);
+#[cfg(windows)]
 static LAST_CLASS: AtomicU8 = AtomicU8::new(CLASS_NORMAL);
+#[cfg(windows)]
 static STARTED: AtomicBool = AtomicBool::new(false);
+#[cfg(windows)]
 static APP: OnceLock<tauri::AppHandle> = OnceLock::new();
 
+#[cfg(windows)]
 fn encode(class: ForegroundClass) -> u8 {
     match class {
         ForegroundClass::Normal => CLASS_NORMAL,
@@ -27,6 +39,7 @@ fn encode(class: ForegroundClass) -> u8 {
     }
 }
 
+#[cfg(windows)]
 fn decode(value: u8) -> ForegroundClass {
     match value {
         CLASS_SHELL_TRANSIENT => ForegroundClass::ShellTransient,
@@ -35,10 +48,12 @@ fn decode(value: u8) -> ForegroundClass {
     }
 }
 
+#[cfg(windows)]
 pub fn last_foreground_class() -> ForegroundClass {
     decode(LAST_CLASS.load(Ordering::Relaxed))
 }
 
+#[cfg(windows)]
 fn note_foreground_change() {
     let class = classify_current_foreground();
     LAST_CLASS.store(encode(class), Ordering::Relaxed);
@@ -109,13 +124,7 @@ mod native {
     }
 }
 
-#[cfg(not(windows))]
-mod native {
-    pub fn install_hook() -> bool {
-        false
-    }
-}
-
+#[cfg(windows)]
 pub fn start_foreground_event_monitor(app: tauri::AppHandle) {
     if STARTED.swap(true, Ordering::SeqCst) {
         return;
@@ -130,7 +139,10 @@ pub fn start_foreground_event_monitor(app: tauri::AppHandle) {
     }
 }
 
-#[cfg(test)]
+#[cfg(not(windows))]
+pub fn start_foreground_event_monitor(_app: tauri::AppHandle) {}
+
+#[cfg(all(test, windows))]
 mod tests {
     use super::*;
 

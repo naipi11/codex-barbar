@@ -496,12 +496,13 @@ impl Settings {
     /// Load the desktop settings file at an explicit path, normalizing the
     /// provider selection to the Codex-only shipping registry.
     pub fn shipping_load_at(path: &std::path::Path) -> Self {
-        let mut settings: Self = match crate::secure_file::read_string(path) {
+        let mut settings: Self = match crate::secure_file::read_non_secret_string(path) {
             Ok(content) => {
                 serde_json::from_str(content.trim_start_matches('\u{feff}')).unwrap_or_default()
             }
             Err(_) => Self::default(),
         };
+        settings.remove_linux_inline_secrets(path);
         settings.normalize_shipping_provider_lists();
         settings
     }
@@ -555,14 +556,19 @@ impl Settings {
     pub fn load() -> Self {
         #[allow(unused_mut)]
         let mut settings = match Self::settings_path() {
-            Some(path) if path.exists() => match crate::secure_file::read_string(&path) {
-                Ok(content) => {
-                    serde_json::from_str(content.trim_start_matches('\u{feff}')).unwrap_or_default()
+            Some(path) if path.exists() => {
+                match crate::secure_file::read_non_secret_string(&path) {
+                    Ok(content) => serde_json::from_str(content.trim_start_matches('\u{feff}'))
+                        .unwrap_or_default(),
+                    Err(_) => Self::default(),
                 }
-                Err(_) => Self::default(),
-            },
+            }
             _ => Self::default(),
         };
+
+        if let Some(path) = Self::settings_path() {
+            settings.remove_linux_inline_secrets(&path);
+        }
 
         // Sync autostart toggle with actual registry state and repair stale commands from older builds.
         #[cfg(target_os = "windows")]
@@ -618,11 +624,62 @@ impl Settings {
             std::fs::create_dir_all(parent)?;
         }
 
+        #[cfg(target_os = "linux")]
+        if self.has_inline_secrets() {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::Unsupported,
+                "inline settings credentials require a dedicated secure store on Linux",
+            )
+            .into());
+        }
         let json = serde_json::to_string_pretty(self)?;
-        crate::secure_file::write_string(&path, &json)?;
+        crate::secure_file::write_non_secret_string(&path, &json)?;
 
         Ok(())
     }
+
+    #[cfg(target_os = "linux")]
+    fn has_inline_secrets(&self) -> bool {
+        !self.http_proxy_password.is_empty()
+            || self.provider_configs.values().any(|config| {
+                config
+                    .manual_cookie_header
+                    .as_deref()
+                    .is_some_and(|value| !value.is_empty())
+                    || config
+                        .api_token
+                        .as_deref()
+                        .is_some_and(|value| !value.is_empty())
+            })
+    }
+
+    #[cfg(target_os = "linux")]
+    fn remove_linux_inline_secrets(&mut self, path: &std::path::Path) {
+        let mut removed = !self.http_proxy_password.is_empty();
+        self.http_proxy_password.clear();
+        for config in self.provider_configs.values_mut() {
+            removed |= config.manual_cookie_header.take().is_some();
+            removed |= config.api_token.take().is_some();
+        }
+        if !removed {
+            return;
+        }
+        match serde_json::to_string_pretty(self).and_then(|json| {
+            crate::secure_file::write_non_secret_string(path, &json).map_err(serde_json::Error::io)
+        }) {
+            Ok(()) => tracing::warn!(
+                code = "LINUX_PLAINTEXT_SETTINGS_SECRET_REMOVED",
+                "removed unsupported inline credentials from Linux settings; use a dedicated secure store"
+            ),
+            Err(_) => tracing::warn!(
+                code = "LINUX_PLAINTEXT_SETTINGS_SECRET_CLEANUP_FAILED",
+                "could not remove unsupported inline credentials from Linux settings"
+            ),
+        }
+    }
+
+    #[cfg(not(target_os = "linux"))]
+    fn remove_linux_inline_secrets(&mut self, _path: &std::path::Path) {}
 
     fn start_at_login_exe_path(current_exe: &std::path::Path) -> std::path::PathBuf {
         let file_name = current_exe.file_name().and_then(|name| name.to_str());

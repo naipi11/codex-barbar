@@ -479,12 +479,18 @@ fn test_start_at_login_uses_the_canonical_run_value_name() {
 
 #[test]
 fn test_start_at_login_ignores_unrelated_test_executables() {
+    let test_binary = std::env::temp_dir()
+        .join("target")
+        .join("debug")
+        .join("deps")
+        .join("codexbar-abc123.exe");
     assert!(!Settings::is_supported_start_at_login_executable(
-        Path::new(r"C:\work\target\debug\deps\codexbar-abc123.exe")
+        &test_binary
     ));
-    assert!(Settings::is_supported_start_at_login_executable(Path::new(
-        r"C:\Program Files\codex-barbar\codex-barbar.exe"
-    )));
+    let desktop_binary = std::env::temp_dir().join("codex-barbar.exe");
+    assert!(Settings::is_supported_start_at_login_executable(
+        &desktop_binary
+    ));
 }
 
 #[test]
@@ -1015,4 +1021,42 @@ fn shipping_load_normalizes_provider_lists_to_codex_only() {
     enabled.sort();
     assert_eq!(enabled, vec!["codex".to_string()]);
     assert_eq!(settings.provider_order, vec!["codex".to_string()]);
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn linux_plaintext_settings_keep_preferences_but_remove_inline_credentials() {
+    let temp = tempfile::tempdir().expect("temp dir");
+    let path = temp.path().join("settings.json");
+    let json = r#"{
+        "enabled_providers": ["codex"],
+        "provider_order": ["codex"],
+        "ui_language": "chinese",
+        "http_proxy_password": "proxy-secret",
+        "provider_configs": {
+            "alibaba": {
+                "api_region": "cn",
+                "manual_cookie_header": "session=secret",
+                "api_token": "token-secret"
+            }
+        }
+    }"#;
+    std::fs::write(&path, json).expect("write settings");
+
+    let settings = Settings::shipping_load_at(&path);
+
+    assert_eq!(settings.ui_language, Language::Chinese);
+    assert_eq!(settings.api_region(ProviderId::Alibaba), "cn");
+    assert!(settings.http_proxy_password.is_empty());
+    assert!(
+        settings
+            .manual_cookie_header(ProviderId::Alibaba)
+            .is_empty()
+    );
+    assert!(settings.api_token(ProviderId::Alibaba).is_empty());
+    let persisted = std::fs::read_to_string(path).unwrap();
+    assert!(!persisted.contains("proxy-secret"));
+    assert!(!persisted.contains("session=secret"));
+    assert!(!persisted.contains("token-secret"));
+    assert!(persisted.contains("chinese"));
 }

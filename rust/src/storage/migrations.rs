@@ -97,7 +97,7 @@ fn create_backup(path: &Path) -> Result<PathBuf, StorageError> {
         .map(|name| name.to_string_lossy().into_owned())
         .unwrap_or_else(|| "codex-barbar.db".to_string());
     let stamp = chrono::Utc::now().format("%Y%m%dT%H%M%S%.3fZ");
-    let backup = path.with_file_name(format!("{base}.bak-{stamp}"));
+    let backup = path.with_file_name(format!("{base}.bak-{stamp}-{}", uuid::Uuid::new_v4()));
     fs::copy(path, &backup).map_err(|error| {
         StorageError::new(
             AppErrorKind::StorageFailure,

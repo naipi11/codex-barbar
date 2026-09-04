@@ -122,6 +122,15 @@ const EMPTY_BOOTSTRAP: BootstrapDto = {
       managedLogin: false,
     },
   },
+  platform: {
+    platform: "windows",
+    systemTray: true,
+    taskbarStatus: true,
+    floatingBall: true,
+    autostart: true,
+    notifications: "available",
+    managedCredentials: true,
+  },
 };
 
 const EMPTY_CLOSE_FEEDBACK: Record<StatusSurfaceKind, boolean> = {

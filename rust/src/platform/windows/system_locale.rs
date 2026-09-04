@@ -1,5 +1,15 @@
 //! Windows user-default locale mapping for the V1 language setting.
 
+use crate::storage::LanguagePreference;
+
+pub fn language() -> LanguagePreference {
+    if default_language() == "zh-CN" {
+        LanguagePreference::ZhCn
+    } else {
+        LanguagePreference::EnUs
+    }
+}
+
 /// Map the Windows user-default locale to the only two V1 UI languages:
 /// `zh-CN` for Simplified Chinese and `en-US` for everything else.
 pub fn default_language() -> &'static str {
@@ -36,5 +46,9 @@ mod tests {
     #[test]
     fn default_language_is_always_one_of_the_two_v1_choices() {
         assert!(matches!(default_language(), "zh-CN" | "en-US"));
+        assert!(matches!(
+            language(),
+            crate::storage::LanguagePreference::ZhCn | crate::storage::LanguagePreference::EnUs
+        ));
     }
 }

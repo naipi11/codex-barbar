@@ -9,17 +9,23 @@ use codexbar::{
 use serde::Serialize;
 use tauri::Manager;
 
+pub use crate::platform_capabilities::NotificationCapabilityStatus;
 use crate::state::AppState;
 
 const UPDATE_CHECK_INTERVAL: Duration = Duration::from_secs(24 * 60 * 60);
+#[cfg(any(windows, test))]
 const TOAST_EXIT_APP_DISABLED: i32 = 20;
+#[cfg(any(windows, test))]
 const TOAST_EXIT_GLOBAL_DISABLED: i32 = 21;
+#[cfg(any(windows, test))]
 const TOAST_EXIT_UNSUPPORTED: i32 = 22;
+#[cfg(any(windows, test))]
 const NOTIFICATION_REGISTRATION_SCRIPT: &str = r#"try {
     $appIdPath = 'HKCU:\SOFTWARE\Classes\AppUserModelId\CodexBarbar'
     New-Item -Path $appIdPath -Force | Out-Null
     New-ItemProperty -Path $appIdPath -Name DisplayName -Value 'codex-barbar' -PropertyType String -Force | Out-Null
 } catch { exit 1 }"#;
+#[cfg(windows)]
 const NOTIFICATION_SETTING_SCRIPT: &str = r#"try {
     [Windows.UI.Notifications.ToastNotificationManager, Windows.UI.Notifications, ContentType = WindowsRuntime] | Out-Null
     $notifier = [Windows.UI.Notifications.ToastNotificationManager]::CreateToastNotifier('CodexBarbar')
@@ -29,20 +35,12 @@ const NOTIFICATION_SETTING_SCRIPT: &str = r#"try {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub enum NotificationCapabilityStatus {
-    Available,
-    AppDisabled,
-    GlobalDisabled,
-    Unsupported,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "camelCase")]
 pub struct NotificationCapabilityDto {
     pub status: NotificationCapabilityStatus,
     pub can_open_settings: bool,
 }
 
+#[cfg(any(windows, test))]
 pub(crate) trait NotificationSettingProbe {
     fn ensure_registration(&self) -> Result<(), ()> {
         Ok(())
@@ -50,6 +48,7 @@ pub(crate) trait NotificationSettingProbe {
     fn notification_setting(&self) -> Result<u32, ()>;
 }
 
+#[cfg(windows)]
 struct SystemNotificationSettingProbe;
 
 #[cfg(target_os = "windows")]
@@ -100,17 +99,7 @@ impl NotificationSettingProbe for SystemNotificationSettingProbe {
     }
 }
 
-#[cfg(not(target_os = "windows"))]
-impl NotificationSettingProbe for SystemNotificationSettingProbe {
-    fn ensure_registration(&self) -> Result<(), ()> {
-        Err(())
-    }
-
-    fn notification_setting(&self) -> Result<u32, ()> {
-        Err(())
-    }
-}
-
+#[cfg(any(windows, test))]
 fn parse_notification_setting(output: &[u8]) -> Result<u32, ()> {
     let setting = std::str::from_utf8(output)
         .map_err(|_| ())?
@@ -123,6 +112,7 @@ fn parse_notification_setting(output: &[u8]) -> Result<u32, ()> {
     }
 }
 
+#[cfg(any(windows, test))]
 pub(crate) fn detect_notification_capability<P: NotificationSettingProbe>(
     probe: &P,
     is_windows: bool,
@@ -150,19 +140,97 @@ pub(crate) fn detect_notification_capability<P: NotificationSettingProbe>(
 }
 
 pub fn notification_capability() -> NotificationCapabilityDto {
-    detect_notification_capability(&SystemNotificationSettingProbe, cfg!(target_os = "windows"))
+    #[cfg(target_os = "windows")]
+    {
+        return detect_notification_capability(&SystemNotificationSettingProbe, true);
+    }
+    #[cfg(target_os = "linux")]
+    {
+        return detect_linux_notification_capability(linux_notification_server_available);
+    }
+    #[allow(unreachable_code)]
+    NotificationCapabilityDto {
+        status: NotificationCapabilityStatus::Unsupported,
+        can_open_settings: false,
+    }
 }
 
 pub trait ToastSink: Send {
     fn send(&mut self, title: &str, body: &str, play_sound: bool) -> Result<(), String>;
 }
 
-pub struct WindowsToastSink;
+pub enum DesktopNotificationSink {
+    #[cfg(windows)]
+    Windows,
+    #[cfg(target_os = "linux")]
+    Linux,
+    #[cfg(any(test, not(any(windows, target_os = "linux"))))]
+    Unsupported,
+}
 
-impl ToastSink for WindowsToastSink {
-    fn send(&mut self, title: &str, body: &str, play_sound: bool) -> Result<(), String> {
-        send_windows_toast(title, body, play_sound)
+pub fn platform_notification_sink() -> DesktopNotificationSink {
+    #[cfg(windows)]
+    {
+        DesktopNotificationSink::Windows
     }
+    #[cfg(target_os = "linux")]
+    {
+        DesktopNotificationSink::Linux
+    }
+    #[cfg(not(any(windows, target_os = "linux")))]
+    {
+        DesktopNotificationSink::Unsupported
+    }
+}
+
+impl ToastSink for DesktopNotificationSink {
+    fn send(&mut self, title: &str, body: &str, play_sound: bool) -> Result<(), String> {
+        match self {
+            #[cfg(windows)]
+            Self::Windows => send_windows_toast(title, body, play_sound),
+            #[cfg(target_os = "linux")]
+            Self::Linux => send_linux_notification(title, body, play_sound),
+            #[cfg(any(test, not(any(windows, target_os = "linux"))))]
+            Self::Unsupported => Err("NOTIFICATION_TRANSPORT_UNAVAILABLE".to_string()),
+        }
+    }
+}
+
+#[cfg(any(target_os = "linux", test))]
+fn detect_linux_notification_capability<F>(probe_server: F) -> NotificationCapabilityDto
+where
+    F: FnOnce() -> Result<(), ()>,
+{
+    NotificationCapabilityDto {
+        status: if probe_server().is_ok() {
+            NotificationCapabilityStatus::Available
+        } else {
+            NotificationCapabilityStatus::Unsupported
+        },
+        can_open_settings: false,
+    }
+}
+
+#[cfg(target_os = "linux")]
+fn linux_notification_server_available() -> Result<(), ()> {
+    notify_rust::get_server_information()
+        .map(|_| ())
+        .map_err(|_| ())
+}
+
+#[cfg(target_os = "linux")]
+fn send_linux_notification(title: &str, body: &str, play_sound: bool) -> Result<(), String> {
+    use notify_rust::{Hint, Notification, Timeout};
+
+    Notification::new()
+        .appname("codex-barbar")
+        .summary(title)
+        .body(body)
+        .timeout(Timeout::Milliseconds(5_000))
+        .hint(Hint::SuppressSound(!play_sound))
+        .show()
+        .map(|_| ())
+        .map_err(|_| "NOTIFICATION_TRANSPORT_UNAVAILABLE".to_string())
 }
 
 pub struct NotificationController<S: ToastSink> {
@@ -316,21 +384,37 @@ fn use_chinese(settings: &AppSettings) -> bool {
         LanguagePreference::ZhCn => true,
         LanguagePreference::EnUs => false,
         LanguagePreference::System => {
-            codexbar::platform::windows::system_locale::default_language() == "zh-CN"
+            codexbar::platform::system_locale::language() == LanguagePreference::ZhCn
         }
     }
 }
 
 fn test_copy(settings: &AppSettings) -> (&'static str, &'static str) {
+    test_copy_for(settings, cfg!(target_os = "windows"))
+}
+
+fn test_copy_for(settings: &AppSettings, is_windows: bool) -> (&'static str, &'static str) {
     if use_chinese(settings) {
+        if is_windows {
+            (
+                "codex-barbar 测试通知",
+                "Windows 通知已连接；此操作不会更改 Codex 用量或账户。",
+            )
+        } else {
+            (
+                "codex-barbar 测试通知",
+                "桌面通知已连接；此操作不会更改 Codex 用量或账户。",
+            )
+        }
+    } else if is_windows {
         (
-            "codex-barbar 测试通知",
-            "Windows 通知已连接；此操作不会更改 Codex 用量或账户。",
+            "codex-barbar Test Notification",
+            "Windows notifications are connected. This does not change Codex usage or your account.",
         )
     } else {
         (
             "codex-barbar Test Notification",
-            "Windows notifications are connected. This does not change Codex usage or your account.",
+            "Desktop notifications are connected. This does not change Codex usage or your account.",
         )
     }
 }
@@ -408,26 +492,26 @@ fn event_copy(settings: &AppSettings, event: &V1NotificationEvent) -> (String, S
         ),
         V1NotificationEvent::PricingCatalogChanged { source_count } => (
             if zh {
-                "å®ä»·ç®å½å·²æ´æ°"
+                "定价目录已更新"
             } else {
                 "Pricing catalog updated"
             }
             .to_string(),
             if zh {
-                format!("å·²æ´æ° {source_count} ä¸ªå¬å¼å®ä»·æºã")
+                format!("已更新 {source_count} 个公开定价源。")
             } else {
                 format!("Updated {source_count} public pricing sources.")
             },
         ),
         V1NotificationEvent::PricingRefreshFailed => (
             if zh {
-                "å®ä»·å·æ°è¿ç»å¤±è´¥"
+                "定价刷新连续失败"
             } else {
                 "Pricing refresh repeatedly failed"
             }
             .to_string(),
             if zh {
-                "codex-barbar è¿ç»ä¸æ¬¡æ æ³å·æ°å¬å¼å®ä»·ç®å½ã".to_string()
+                "codex-barbar 连续三次无法刷新公开定价目录。".to_string()
             } else {
                 "codex-barbar could not refresh the public pricing catalog three times in a row."
                     .to_string()
@@ -435,13 +519,13 @@ fn event_copy(settings: &AppSettings, event: &V1NotificationEvent) -> (String, S
         ),
         V1NotificationEvent::PricingRefreshRecovered => (
             if zh {
-                "å®ä»·å·æ°å·²æ¢å¤"
+                "定价刷新已恢复"
             } else {
                 "Pricing refresh recovered"
             }
             .to_string(),
             if zh {
-                "codex-barbar å·²æ¢å¤å¬å¼å®ä»·ç®å½å·æ°ã".to_string()
+                "codex-barbar 已恢复公开定价目录刷新。".to_string()
             } else {
                 "codex-barbar is refreshing the public pricing catalog again.".to_string()
             },
@@ -462,6 +546,7 @@ fn event_copy(settings: &AppSettings, event: &V1NotificationEvent) -> (String, S
     }
 }
 
+#[cfg(any(windows, test))]
 fn xml_escape(value: &str) -> String {
     value
         .replace('&', "&amp;")
@@ -471,6 +556,7 @@ fn xml_escape(value: &str) -> String {
         .replace('\'', "&apos;")
 }
 
+#[cfg(any(windows, test))]
 fn send_windows_toast_with<P, F>(probe: &P, is_windows: bool, transport: F) -> Result<(), String>
 where
     P: NotificationSettingProbe,
@@ -495,6 +581,7 @@ fn send_windows_toast(title: &str, body: &str, play_sound: bool) -> Result<(), S
     })
 }
 
+#[cfg(any(windows, test))]
 fn windows_toast_script(title: &str, body: &str, play_sound: bool) -> String {
     let audio = if play_sound {
         ""
@@ -529,6 +616,7 @@ fn windows_toast_script(title: &str, body: &str, play_sound: bool) -> String {
     )
 }
 
+#[cfg(any(windows, test))]
 fn toast_transport_result(success: bool, code: Option<i32>) -> Result<(), String> {
     if success {
         return Ok(());
@@ -564,11 +652,6 @@ fn run_windows_toast_transport(title: &str, body: &str, play_sound: bool) -> Res
         .status()
         .map_err(|_| "NOTIFICATION_TRANSPORT_UNAVAILABLE".to_string())?;
     toast_transport_result(status.success(), status.code())
-}
-
-#[cfg(not(target_os = "windows"))]
-fn send_windows_toast(_title: &str, _body: &str, _play_sound: bool) -> Result<(), String> {
-    send_windows_toast_with(&SystemNotificationSettingProbe, false, || Ok(()))
 }
 
 pub(crate) fn repository_from_app(app: &tauri::AppHandle) -> Option<SettingsRepository> {
@@ -609,7 +692,7 @@ pub fn start_update_check_loop(app: tauri::AppHandle) {
                 continue;
             };
             let controller =
-                app.state::<std::sync::Mutex<NotificationController<WindowsToastSink>>>();
+                app.state::<std::sync::Mutex<NotificationController<DesktopNotificationSink>>>();
             if let Ok(mut controller) = controller.lock()
                 && controller
                     .observe_update_available(&repository, &latest_version)
@@ -641,11 +724,41 @@ mod tests {
     use uuid::Uuid;
 
     use super::{
-        NOTIFICATION_REGISTRATION_SCRIPT, NotificationCapabilityStatus, NotificationController,
-        NotificationSettingProbe, ToastSink, account_marker_from_email,
-        detect_notification_capability, parse_notification_setting, send_windows_toast_with,
-        should_check_for_updates, toast_transport_result, windows_toast_script, xml_escape,
+        DesktopNotificationSink, NOTIFICATION_REGISTRATION_SCRIPT, NotificationCapabilityStatus,
+        NotificationController, NotificationSettingProbe, ToastSink, account_marker_from_email,
+        detect_linux_notification_capability, detect_notification_capability, event_copy,
+        parse_notification_setting, send_windows_toast_with, should_check_for_updates,
+        test_copy_for, toast_transport_result, windows_toast_script, xml_escape,
     };
+
+    #[test]
+    fn chinese_pricing_notification_copy_is_valid_and_platform_neutral() {
+        let settings = codexbar::storage::AppSettings {
+            language: codexbar::storage::LanguagePreference::ZhCn,
+            ..Default::default()
+        };
+        let (title, body) = event_copy(
+            &settings,
+            &codexbar::notifications::v1::V1NotificationEvent::PricingCatalogChanged {
+                source_count: 2,
+            },
+        );
+
+        assert_eq!(title, "定价目录已更新");
+        assert_eq!(body, "已更新 2 个公开定价源。");
+    }
+
+    #[test]
+    fn linux_test_notification_copy_does_not_claim_windows_transport() {
+        let settings = codexbar::storage::AppSettings {
+            language: codexbar::storage::LanguagePreference::EnUs,
+            ..Default::default()
+        };
+        let (_, body) = test_copy_for(&settings, false);
+
+        assert!(body.starts_with("Desktop notifications"));
+        assert!(!body.contains("Windows"));
+    }
 
     struct FakeNotificationSettingProbe {
         registration: Result<(), ()>,
@@ -757,6 +870,14 @@ mod tests {
             },
         );
         (temp, repository, controller, sent)
+    }
+
+    #[test]
+    fn controller_accepts_the_platform_sink_type() {
+        let _: NotificationController<DesktopNotificationSink> = NotificationController::new(
+            V1NotificationEngine::load(&AppPaths::from_local_app_data(&std::env::temp_dir())),
+            DesktopNotificationSink::Unsupported,
+        );
     }
 
     fn weekly(profile_id: ProfileId, used: f64) -> ProfileUsageState {
@@ -1052,6 +1173,22 @@ mod tests {
         assert_eq!(capability.status, NotificationCapabilityStatus::Unsupported);
         assert!(!capability.can_open_settings);
         assert!(probe.calls.lock().unwrap().is_empty());
+    }
+
+    #[test]
+    fn linux_server_probe_reports_available_without_opening_settings() {
+        let capability = detect_linux_notification_capability(|| Ok(()));
+
+        assert_eq!(capability.status, NotificationCapabilityStatus::Available);
+        assert!(!capability.can_open_settings);
+    }
+
+    #[test]
+    fn linux_server_probe_reports_unsupported_when_the_session_bus_is_unavailable() {
+        let capability = detect_linux_notification_capability(|| Err(()));
+
+        assert_eq!(capability.status, NotificationCapabilityStatus::Unsupported);
+        assert!(!capability.can_open_settings);
     }
 
     #[test]

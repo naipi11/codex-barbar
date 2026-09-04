@@ -68,6 +68,14 @@ impl FakeAppServerFactory {
         *self.next_mode.lock().unwrap() = Some(FakeServerMode::LoginFailed);
     }
 
+    pub fn cancel_next_login(&self) {
+        *self.next_mode.lock().unwrap() = Some(FakeServerMode::LoginCancelled);
+    }
+
+    pub fn crash_next_login_start(&self) {
+        *self.next_mode.lock().unwrap() = Some(FakeServerMode::LoginStartCrash);
+    }
+
     pub fn fail_next_rates(&self) {
         *self.next_mode.lock().unwrap() = Some(FakeServerMode::Crash);
     }

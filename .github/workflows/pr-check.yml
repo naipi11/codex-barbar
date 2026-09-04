@@ -23,6 +23,9 @@ concurrency:
 env:
   CARGO_TERM_COLOR: always
 
+permissions:
+  contents: read
+
 jobs:
   pr-check:
     name: Windows V1 gate
@@ -84,6 +87,10 @@ jobs:
         shell: pwsh
         run: .\scripts\assert-release-workflow.ps1
 
+      - name: Release workflow CRLF regression
+        shell: pwsh
+        run: .\scripts\assert-release-workflow.test.ps1
+
       - name: Production dependency audit
         run: pnpm --dir apps/desktop-tauri audit --prod --audit-level high
 
@@ -93,3 +100,101 @@ jobs:
 
       - name: Tauri x64 production build
         run: pnpm --dir apps/desktop-tauri run tauri:build
+
+  linux-check:
+    name: Ubuntu 24.04 Debian gate
+    runs-on: ubuntu-24.04
+    env:
+      TAURI_LINUX_AYATANA_APPINDICATOR: "1"
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Ubuntu build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            curl \
+            libwebkit2gtk-4.1-dev \
+            libgtk-3-dev \
+            libayatana-appindicator3-dev \
+            librsvg2-dev \
+            libssl-dev \
+            patchelf \
+            libfuse2 \
+            file \
+            build-essential \
+            jq \
+            dpkg-dev
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-unknown-linux-gnu
+          components: rustfmt, clippy
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10.18.1
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+          cache-dependency-path: apps/desktop-tauri/pnpm-lock.yaml
+
+      - name: Install frontend deps
+        run: pnpm --dir apps/desktop-tauri install --frozen-lockfile
+
+      - name: Rust format check
+        run: cargo fmt --all --check
+
+      - name: Shared Rust clippy
+        run: cargo clippy --manifest-path rust/Cargo.toml --all-targets -- -D warnings
+
+      - name: Frontend type check / build
+        run: pnpm --dir apps/desktop-tauri run build
+
+      - name: Tauri Rust clippy
+        run: cargo clippy --manifest-path apps/desktop-tauri/src-tauri/Cargo.toml --all-targets -- -D warnings
+
+      - name: Shared Rust tests
+        run: cargo test --manifest-path rust/Cargo.toml -- --test-threads=1
+
+      - name: Tauri Rust tests
+        run: cargo test --manifest-path apps/desktop-tauri/src-tauri/Cargo.toml
+
+      - name: Frontend tests
+        run: pnpm --dir apps/desktop-tauri test
+
+      - name: V1 boundary scan
+        shell: pwsh
+        run: ./scripts/assert-v1-boundaries.ps1
+
+      - name: Release workflow policy guard
+        shell: pwsh
+        run: ./scripts/assert-release-workflow.ps1
+
+      - name: Build Debian bundle
+        run: pnpm --dir apps/desktop-tauri run tauri:build:linux
+
+      - name: Resolve product version
+        id: version
+        shell: bash
+        run: |
+          version="$(node -e "const fs = require('fs'); const config = JSON.parse(fs.readFileSync('apps/desktop-tauri/src-tauri/tauri.conf.json', 'utf8')); process.stdout.write(config.version);")"
+          [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-((alpha|beta|rc)\.[0-9]+))?$ ]] || {
+            echo "invalid product version: $version" >&2
+            exit 1
+          }
+          printf 'version=%s\n' "$version" >> "$GITHUB_OUTPUT"
+
+      - name: Stage and verify Debian artifacts
+        run: |
+          bash scripts/linux-release-build.sh --version "${{ steps.version.outputs.version }}" --output artifacts/linux-pr
+          bash scripts/verify-linux-release-artifacts.sh --version "${{ steps.version.outputs.version }}" --assets artifacts/linux-pr

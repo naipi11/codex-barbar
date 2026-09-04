@@ -90,6 +90,9 @@ pub struct ManagedLoginStatus {
     pub verification_url: Option<String>,
     pub user_code: Option<String>,
     pub error_kind: Option<crate::core::AppErrorKind>,
+    /// True when terminal runtime cleanup failed and credential-bearing files
+    /// may require recovery even if another error remains primary.
+    pub runtime_cleanup_failed: bool,
 }
 
 /// Events emitted by the account service for the shell/UI.

@@ -49,8 +49,14 @@ export interface NotificationPreferencesDto {
   dangerRemainingPercent: number;
 }
 
+export type NotificationCapabilityStatus =
+  | "available"
+  | "appDisabled"
+  | "globalDisabled"
+  | "unsupported";
+
 export interface NotificationCapabilityDto {
-  status: "available" | "appDisabled" | "globalDisabled" | "unsupported";
+  status: NotificationCapabilityStatus;
   canOpenSettings: boolean;
 }
 
@@ -319,6 +325,7 @@ export interface ManagedLoginStateDto {
   verificationUrl: string | null;
   userCode: string | null;
   errorKind: AppErrorKind | null;
+  runtimeCleanupFailed: boolean;
 }
 
 export interface BootstrapDto {
@@ -330,6 +337,18 @@ export interface BootstrapDto {
   usageByProfile: Record<string, ProfileUsageStateDto>;
   statusSurfaceFeedback: StatusSurfaceFeedbackDto;
   codex: CodexCompatibilityDto;
+  platform: PlatformCapabilitiesDto;
+}
+
+export interface PlatformCapabilitiesDto {
+  platform: "windows" | "linux" | "other";
+  systemTray: boolean;
+  taskbarStatus: boolean;
+  floatingBall: boolean;
+  autostart: boolean;
+  /** Current desktop-session availability from the runtime notification probe. */
+  notifications: NotificationCapabilityStatus;
+  managedCredentials: boolean;
 }
 
 export interface CurrentSurfaceState {

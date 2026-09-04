@@ -4,6 +4,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
 use tokio::sync::Mutex;
+use tokio::sync::watch;
 
 use crate::accounts::model::{ManagedLoginMethod, ManagedLoginStage, ManagedLoginStatus};
 use crate::accounts::vault::{CredentialVault, ManagedCredentialBundle};
@@ -19,6 +20,9 @@ pub struct ActiveLogin {
     pub verification_url: Option<String>,
     pub user_code: Option<String>,
     pub error_kind: Option<crate::core::AppErrorKind>,
+    pub runtime_cleanup_failed: bool,
+    cancel_tx: watch::Sender<bool>,
+    accepting_cancellation: bool,
 }
 
 impl ActiveLogin {
@@ -30,6 +34,7 @@ impl ActiveLogin {
             verification_url: self.verification_url.clone(),
             user_code: self.user_code.clone(),
             error_kind: self.error_kind,
+            runtime_cleanup_failed: self.runtime_cleanup_failed,
         }
     }
 }
@@ -72,7 +77,9 @@ impl AccountOperationActor {
             verification_url: None,
             user_code: None,
             error_kind: None,
+            runtime_cleanup_failed: false,
         };
+        let (cancel_tx, _cancel_rx) = watch::channel(false);
         *slot = Some(ActiveLogin {
             operation_id: status.operation_id,
             profile_id,
@@ -81,8 +88,53 @@ impl AccountOperationActor {
             verification_url: None,
             user_code: None,
             error_kind: None,
+            runtime_cleanup_failed: false,
+            cancel_tx,
+            accepting_cancellation: true,
         });
         Ok(status)
+    }
+
+    /// Subscribe to cancellation for exactly one active login operation.
+    pub async fn subscribe_login_cancellation(
+        &self,
+        operation_id: uuid::Uuid,
+    ) -> Option<watch::Receiver<bool>> {
+        let slot = self.active_login.lock().await;
+        let active = slot.as_ref()?;
+        (active.operation_id == operation_id).then(|| active.cancel_tx.subscribe())
+    }
+
+    /// Request cancellation only while the matching login is still before
+    /// its credential-vault commit point.
+    pub async fn request_login_cancel(&self, operation_id: uuid::Uuid) -> bool {
+        let mut slot = self.active_login.lock().await;
+        let Some(active) = slot.as_mut() else {
+            return false;
+        };
+        if active.operation_id != operation_id || !active.accepting_cancellation {
+            return false;
+        }
+        active.cancel_tx.send_replace(true);
+        true
+    }
+
+    /// Close the cancellation window immediately before sealing credentials.
+    /// Returns false when a matching cancellation already won the race.
+    pub async fn begin_login_commit(&self, operation_id: uuid::Uuid) -> bool {
+        let mut slot = self.active_login.lock().await;
+        let Some(active) = slot.as_mut() else {
+            return false;
+        };
+        if active.operation_id != operation_id || !active.accepting_cancellation {
+            return false;
+        }
+        let cancelled = *active.cancel_tx.borrow();
+        if cancelled {
+            return false;
+        }
+        active.accepting_cancellation = false;
+        true
     }
 
     pub async fn update_login(
@@ -93,6 +145,26 @@ impl AccountOperationActor {
         user_code: Option<String>,
         error_kind: Option<crate::core::AppErrorKind>,
     ) -> Option<ManagedLoginStatus> {
+        self.update_login_with_cleanup_risk(
+            operation_id,
+            stage,
+            verification_url,
+            user_code,
+            error_kind,
+            false,
+        )
+        .await
+    }
+
+    pub async fn update_login_with_cleanup_risk(
+        &self,
+        operation_id: uuid::Uuid,
+        stage: ManagedLoginStage,
+        verification_url: Option<String>,
+        user_code: Option<String>,
+        error_kind: Option<crate::core::AppErrorKind>,
+        runtime_cleanup_failed: bool,
+    ) -> Option<ManagedLoginStatus> {
         let mut slot = self.active_login.lock().await;
         let active = slot.as_mut()?;
         if active.operation_id != operation_id {
@@ -102,6 +174,7 @@ impl AccountOperationActor {
         active.verification_url = verification_url;
         active.user_code = user_code;
         active.error_kind = error_kind;
+        active.runtime_cleanup_failed = runtime_cleanup_failed;
         Some(active.status())
     }
 

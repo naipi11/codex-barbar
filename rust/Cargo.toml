@@ -1,6 +1,6 @@
 [package]
 name = "codexbar"
-version = "1.0.30"
+version = "1.1.0"
 edition = "2024"
 authors = ["CodexBar Contributors"]
 description = "Shared Codex usage services for codex-barbar"
@@ -63,6 +63,9 @@ dirs = "6"
 open = "5"
 fluent-templates = "0.13"
 unic-langid = "0.9"
+
+# Linux Secret Service credential storage
+keyring = { version = "4.1", default-features = false, features = ["v1", "zbus-secret-service-keyring-store"] }
 
 # Windows-only
 [target.'cfg(windows)'.dependencies]

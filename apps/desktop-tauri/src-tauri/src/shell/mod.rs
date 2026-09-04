@@ -5,6 +5,7 @@
 //! shell is gone. The main WebView starts hidden and is shown only while the
 //! tray panel is open.
 
+#[cfg(windows)]
 pub(crate) mod dwm;
 pub mod flyout_window;
 pub(crate) mod foreground_events;

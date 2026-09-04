@@ -43,18 +43,34 @@ impl AppPaths {
 
 #[cfg(test)]
 mod tests {
-    use std::path::{Path, PathBuf};
+    #[cfg(not(windows))]
+    use std::path::Path;
+    use std::path::PathBuf;
 
     use super::AppPaths;
 
     #[test]
     fn derives_every_v1_path_from_local_app_data() {
-        let paths = AppPaths::from_local_app_data(Path::new(r"C:\Users\A\AppData\Local"));
+        #[cfg(windows)]
+        let base = PathBuf::from(r"C:\Users\A\AppData\Local");
+        #[cfg(not(windows))]
+        let base = PathBuf::from("/var/lib/local-app-data");
+
+        let paths = AppPaths::from_local_app_data(&base);
+        #[cfg(windows)]
         assert_eq!(
             paths.root,
             PathBuf::from(r"C:\Users\A\AppData\Local\codex-barbar")
         );
-        assert_eq!(paths.database, paths.root.join(r"data\codex-barbar.db"));
+        #[cfg(not(windows))]
+        assert_eq!(
+            paths.root,
+            Path::new("/var/lib/local-app-data/codex-barbar")
+        );
+        assert_eq!(
+            paths.database,
+            paths.root.join("data").join("codex-barbar.db")
+        );
         assert_eq!(paths.vault, paths.root.join("vault"));
         assert_eq!(paths.runtime, paths.root.join("runtime"));
         assert_eq!(paths.logs, paths.root.join("logs"));
@@ -67,7 +83,8 @@ mod tests {
 
     #[test]
     fn derives_identity_cache_path_from_canonical_root() {
-        let paths = AppPaths::from_local_app_data(Path::new(r"C:\Users\A\AppData\Local"));
+        let base = PathBuf::from("fixtures").join("local-app-data");
+        let paths = AppPaths::from_local_app_data(&base);
         assert_eq!(
             paths.identity_cache,
             paths.root.join("identity").join("profiles.json")
@@ -76,7 +93,8 @@ mod tests {
 
     #[test]
     fn derives_avatar_store_path_from_canonical_root() {
-        let paths = AppPaths::from_local_app_data(Path::new(r"C:\Users\A\AppData\Local"));
+        let base = PathBuf::from("fixtures").join("local-app-data");
+        let paths = AppPaths::from_local_app_data(&base);
         assert_eq!(paths.avatars, paths.root.join("avatars"));
     }
 }

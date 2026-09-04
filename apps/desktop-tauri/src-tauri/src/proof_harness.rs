@@ -338,10 +338,12 @@ pub fn is_proof_mode(app: &AppHandle) -> bool {
         .unwrap_or(false)
 }
 
+#[cfg(any(windows, test))]
 pub fn is_taskbar_status_scenario(scenario: ProofScenario) -> bool {
     matches!(scenario, ProofScenario::TaskbarStatus(_))
 }
 
+#[cfg(windows)]
 pub fn is_taskbar_status_proof(app: &AppHandle) -> bool {
     let state = app.state::<Mutex<AppState>>();
     state
@@ -682,6 +684,7 @@ pub fn synthetic_bootstrap(scenario: ProofScenario) -> crate::commands::Bootstra
         selected_profile_id: selected.to_string(),
         usage_by_profile,
         codex: crate::commands::CodexCompatibilityDto::default(),
+        platform: crate::platform_capabilities::snapshot(),
     }
 }
 

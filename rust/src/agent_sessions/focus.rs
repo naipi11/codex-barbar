@@ -3,15 +3,15 @@ use super::*;
 pub fn focus_session(session: &AgentSession) -> SessionFocusResult {
     match session.focus_target {
         AgentSessionFocusTarget::Transcript { .. } => SessionFocusResult::unsupported(
-            "This file-only session has no focusable Windows window.",
+            "This file-only session has no focusable desktop window.",
         ),
         AgentSessionFocusTarget::None => {
-            SessionFocusResult::unsupported("This session has no focus target on Windows.")
+            SessionFocusResult::unsupported("This session has no focus target on this desktop.")
         }
         AgentSessionFocusTarget::Process { pid } => {
             if !is_local_host(&session.host) {
                 return SessionFocusResult::unsupported(
-                    "Remote session focus is not supported from this Windows desktop.",
+                    "Remote session focus is not supported from this desktop.",
                 );
             }
 

@@ -20,6 +20,26 @@ describe("TaskbarStatusMeasure", () => {
     vi.restoreAllMocks();
   });
 
+  it("does not render or measure when runtime capabilities disable taskbar status", async () => {
+    const bootstrap = bootstrapWithTwoProfiles();
+    bootstrap.platform = {
+      ...bootstrap.platform,
+      platform: "linux",
+      taskbarStatus: false,
+    };
+    invokeMock.mockResolvedValue(bootstrap);
+
+    render(<TaskbarStatusMeasure />);
+
+    await waitFor(() =>
+      expect(invokeMock).toHaveBeenCalledWith("get_bootstrap_state"),
+    );
+    expect(screen.queryByTestId("taskbar-status-measurement")).toBeNull();
+    expect(
+      invokeMock.mock.calls.some(([command]) => command === "set_taskbar_status_width"),
+    ).toBe(false);
+  });
+
   it("keeps helper content intrinsic, capped, and off-screen", () => {
     const start = taskbarStatusCss.indexOf(".taskbar-status--measurement {");
     const rule = taskbarStatusCss.slice(start, taskbarStatusCss.indexOf("}", start));

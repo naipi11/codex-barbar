@@ -14,7 +14,9 @@ param(
         'rpc-timeout',
         'crash',
         'refuse-exit',
-        'login-failed'
+        'login-failed',
+        'login-cancelled',
+        'login-start-crash'
     )]
     [string] $Mode,
 
@@ -247,6 +249,9 @@ while ($true) {
     }
 
     if ($method -eq 'account/login/start') {
+        if ($Mode -eq 'login-start-crash') {
+            exit 17
+        }
         $loginType = [string]$request.params.type
         if ($loginType -eq 'chatgpt') {
             Response $id @{
@@ -259,6 +264,13 @@ while ($true) {
                     params = @{
                         loginId = 'login-browser'
                         error = 'fixture secret text'
+                    }
+                }
+            } elseif ($Mode -eq 'login-cancelled') {
+                Write-Frame @{
+                    method = 'account/login/cancelled'
+                    params = @{
+                        loginId = 'login-browser'
                     }
                 }
             } else {

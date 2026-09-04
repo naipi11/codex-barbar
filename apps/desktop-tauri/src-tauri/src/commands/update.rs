@@ -5,7 +5,7 @@ use std::sync::Mutex;
 use codexbar::update_check::{ManualUpdateChecker, ManualUpdateResult};
 
 use crate::{
-    notification_controller::{NotificationController, WindowsToastSink},
+    notification_controller::{DesktopNotificationSink, NotificationController},
     state::AppState,
 };
 
@@ -13,7 +13,7 @@ use crate::{
 pub async fn check_for_updates(
     app: tauri::AppHandle,
     state: tauri::State<'_, Mutex<AppState>>,
-    controller: tauri::State<'_, Mutex<NotificationController<WindowsToastSink>>>,
+    controller: tauri::State<'_, Mutex<NotificationController<DesktopNotificationSink>>>,
 ) -> Result<ManualUpdateResult, String> {
     let result = ManualUpdateChecker::new().check().await?;
     if let ManualUpdateResult::Available { latest_version, .. } = &result

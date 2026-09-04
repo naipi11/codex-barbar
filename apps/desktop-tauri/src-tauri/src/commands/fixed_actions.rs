@@ -10,6 +10,7 @@ pub fn open_codex_usage_page() -> Result<(), String> {
     codexbar::update_check::open_codex_usage_page()
 }
 
+#[cfg(any(windows, test))]
 fn open_windows_notification_settings_with<F>(launcher: F) -> Result<(), String>
 where
     F: FnOnce(&str) -> Result<(), String>,

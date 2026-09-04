@@ -9,6 +9,8 @@ use crate::core::ProfileId;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum VaultError {
     UnsupportedPlatform,
+    SecretServiceUnavailable,
+    SecretServiceLocked,
     ProtectFailed,
     UnprotectFailed,
     InvalidEnvelope,
@@ -25,6 +27,121 @@ impl std::fmt::Display for VaultError {
 
 impl std::error::Error for VaultError {}
 
+#[cfg(target_os = "linux")]
+const SECRET_SERVICE_SERVICE: &str = "com.naipi11.codexbarbar";
+
+/// Probe only whether the current desktop session has an initialized Secret
+/// Service store. This does not create, read, or delete a credential.
+#[cfg(target_os = "linux")]
+pub fn platform_managed_credentials_available() -> bool {
+    keyring::Entry::store_status().is_ok()
+}
+
+#[cfg(target_os = "windows")]
+pub const fn platform_managed_credentials_available() -> bool {
+    true
+}
+
+#[cfg(not(any(target_os = "windows", target_os = "linux")))]
+pub const fn platform_managed_credentials_available() -> bool {
+    false
+}
+
+#[cfg(target_os = "linux")]
+pub fn secret_service_marker(profile_id: ProfileId) -> Vec<u8> {
+    format!("codex-barbar-secret-service:v1:{profile_id}").into_bytes()
+}
+
+#[cfg(target_os = "linux")]
+fn map_secret_service_error(error: keyring::Error) -> VaultError {
+    match error {
+        keyring::Error::NoStorageAccess(_) => VaultError::SecretServiceLocked,
+        keyring::Error::Ambiguous(_) => VaultError::SecretServiceUnavailable,
+        keyring::Error::NoDefaultStore
+        | keyring::Error::NotSupportedByStore(_)
+        | keyring::Error::PlatformFailure(_)
+        | keyring::Error::NoEntry
+        | keyring::Error::BadEncoding(_)
+        | keyring::Error::BadDataFormat(_, _)
+        | keyring::Error::BadStoreFormat(_)
+        | keyring::Error::TooLong(_, _)
+        | keyring::Error::Invalid(_, _) => VaultError::SecretServiceUnavailable,
+        _ => VaultError::SecretServiceUnavailable,
+    }
+}
+
+#[cfg(target_os = "linux")]
+fn secret_service_entry(profile_id: ProfileId) -> Result<keyring::Entry, VaultError> {
+    keyring::Entry::new(SECRET_SERVICE_SERVICE, &profile_id.to_string())
+        .map_err(map_secret_service_error)
+}
+
+#[cfg(target_os = "linux")]
+fn parse_secret_service_marker(profile_id: ProfileId, marker: &[u8]) -> Result<(), VaultError> {
+    if !marker.starts_with(b"codex-barbar-secret-service:v1:") {
+        return Err(VaultError::InvalidEnvelope);
+    }
+    if marker != secret_service_marker(profile_id).as_slice() {
+        return Err(VaultError::WrongProfile);
+    }
+    Ok(())
+}
+
+#[cfg(target_os = "linux")]
+#[derive(Debug, Clone, Default)]
+pub struct LinuxSecretServiceProtector;
+
+#[cfg(target_os = "linux")]
+impl LinuxSecretServiceProtector {
+    pub fn new() -> Self {
+        Self
+    }
+}
+
+#[cfg(target_os = "linux")]
+impl CredentialProtector for LinuxSecretServiceProtector {
+    fn protect_current_user(
+        &self,
+        profile_id: ProfileId,
+        plaintext: &[u8],
+    ) -> Result<Vec<u8>, VaultError> {
+        let entry = secret_service_entry(profile_id)?;
+        entry
+            .set_secret(plaintext)
+            .map_err(map_secret_service_error)?;
+        Ok(secret_service_marker(profile_id))
+    }
+
+    fn unprotect_current_user(
+        &self,
+        profile_id: ProfileId,
+        ciphertext: &[u8],
+    ) -> Result<SensitiveBytes, VaultError> {
+        parse_secret_service_marker(profile_id, ciphertext)?;
+        let entry = secret_service_entry(profile_id)?;
+        let secret = entry.get_secret().map_err(map_secret_service_error)?;
+        Ok(SensitiveBytes::new(secret))
+    }
+
+    fn remove_current_user(&self, profile_id: ProfileId) -> Result<(), VaultError> {
+        let entry = secret_service_entry(profile_id)?;
+        match entry.delete_credential() {
+            Ok(()) | Err(keyring::Error::NoEntry) => Ok(()),
+            Err(error) => Err(map_secret_service_error(error)),
+        }
+    }
+}
+
+#[cfg(target_os = "linux")]
+pub fn platform_credential_protector() -> std::sync::Arc<dyn CredentialProtector> {
+    std::sync::Arc::new(LinuxSecretServiceProtector::new())
+}
+
+#[cfg(not(target_os = "linux"))]
+pub fn platform_credential_protector() -> std::sync::Arc<dyn CredentialProtector> {
+    std::sync::Arc::new(WindowsDpapiProtector::new())
+}
+
 /// Boundary for protecting/unprotecting one profile's credential bytes.
 pub trait CredentialProtector: Send + Sync {
     fn protect_current_user(
@@ -38,6 +155,10 @@ pub trait CredentialProtector: Send + Sync {
         profile_id: ProfileId,
         ciphertext: &[u8],
     ) -> Result<SensitiveBytes, VaultError>;
+
+    fn remove_current_user(&self, _profile_id: ProfileId) -> Result<(), VaultError> {
+        Ok(())
+    }
 }
 
 /// Current User DPAPI using only `CRYPTPROTECT_UI_FORBIDDEN`; Local Machine
@@ -52,6 +173,7 @@ impl WindowsDpapiProtector {
         Self { _private: () }
     }
 
+    #[cfg(windows)]
     fn entropy(profile_id: ProfileId) -> Vec<u8> {
         format!("codex-barbar/vault/v1/{profile_id}").into_bytes()
     }
@@ -176,6 +298,14 @@ mod tests {
     use crate::accounts::secret_bytes::SensitiveBytes;
 
     const TEST_TOKEN: &[u8] = b"sk-test-token-that-must-never-leak";
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn secret_service_marker_contains_no_credential_bytes() {
+        let marker = secret_service_marker(Uuid::nil());
+        assert!(marker.starts_with(b"codex-barbar-secret-service:v1:"));
+        assert!(!marker.windows(3).any(|part| part == b"sk-"));
+    }
 
     #[derive(Default)]
     struct FailingCurrentUserProtector {

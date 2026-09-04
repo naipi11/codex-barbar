@@ -69,7 +69,7 @@ fn dispatch_pricing_notification(
     };
     let controller = app.state::<std::sync::Mutex<
         crate::notification_controller::NotificationController<
-            crate::notification_controller::WindowsToastSink,
+            crate::notification_controller::DesktopNotificationSink,
         >,
     >>();
     let Ok(mut controller) = controller.lock() else {

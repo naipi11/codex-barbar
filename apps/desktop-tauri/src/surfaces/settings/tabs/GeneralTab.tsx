@@ -2,6 +2,7 @@ import { useMemo, useState } from "react";
 import { CommittedRangeField } from "../CommittedRangeField";
 import type {
   AppSettingsDto,
+  PlatformCapabilitiesDto,
   SettingsPatchDto,
   StatusSurfaceKind,
 } from "../../../types/bridge";
@@ -21,6 +22,15 @@ import {
 
 const REFRESH_VALUES = [0, 60, 300, 900, 1800] as const;
 const SKIN_VALUES: readonly SkinId[] = SKIN_IDS;
+const WINDOWS_CAPABILITIES: PlatformCapabilitiesDto = {
+  platform: "windows",
+  systemTray: true,
+  taskbarStatus: true,
+  floatingBall: true,
+  autostart: true,
+  notifications: "available",
+  managedCredentials: true,
+};
 
 function refreshOption(value: number): 0 | 60 | 300 | 900 | 1800 {
   return REFRESH_VALUES.includes(value as (typeof REFRESH_VALUES)[number])
@@ -59,11 +69,13 @@ export default function GeneralTab({
   settings,
   update,
   setSurfaceEnabled: _setSurfaceEnabled,
+  platform = WINDOWS_CAPABILITIES,
   copy = settingsCopy("en-US"),
 }: {
   settings: AppSettingsDto;
   update(patch: SettingsPatchDto): Promise<AppSettingsDto>;
   setSurfaceEnabled(surface: StatusSurfaceKind, enabled: boolean): Promise<AppSettingsDto>;
+  platform?: PlatformCapabilitiesDto;
   copy?: SettingsCopy;
 }) {
   const [skinId, setSkinId] = useState<SkinId>(() => readStoredSkinId());
@@ -84,6 +96,8 @@ export default function GeneralTab({
   return (
     <section aria-label={`${copy.general.title} settings`}>
       <h2>{copy.general.title}</h2>
+      {!platform.systemTray ? <p className="settings-platform-notice" role="status">{copy.trayUnavailable}</p> : null}
+      {!platform.managedCredentials ? <p className="settings-platform-notice" role="status">{copy.keyringUnavailable}</p> : null}
       <p className="settings-field">
         <label>
           <input type="checkbox" checked={settings.autostartEnabled} onChange={(event) => void update({ autostartEnabled: event.target.checked })} />

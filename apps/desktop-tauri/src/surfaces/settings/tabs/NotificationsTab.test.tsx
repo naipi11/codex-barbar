@@ -84,6 +84,32 @@ function deferred<T>() {
 }
 
 describe("NotificationsTab", () => {
+  it("uses desktop notification copy on Linux", async () => {
+    render(
+      <NotificationsTab
+        settings={settings}
+        update={vi.fn().mockResolvedValue(settings)}
+        copy={settingsCopy("en-US")}
+        platform="linux"
+        getCapability={vi.fn().mockResolvedValue({
+          status: "available",
+          canOpenSettings: false,
+        })}
+      />,
+    );
+
+    expect(
+      screen.getByRole("heading", { name: "Desktop notifications" }),
+    ).toBeInTheDocument();
+    expect(screen.queryByText("Windows notifications")).not.toBeInTheDocument();
+    expect(
+      screen.getByText("Choose the changes that deserve a desktop notification."),
+    ).toBeInTheDocument();
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "Send test notification" })).toBeEnabled(),
+    );
+  });
+
   it("patches only the notification master field", () => {
     const update = vi.fn().mockResolvedValue(settings);
     render(
@@ -221,7 +247,7 @@ describe("NotificationsTab", () => {
     await waitFor(() => expect(sendButton).toBeEnabled());
     fireEvent.click(sendButton);
     expect(await screen.findByRole("alert")).toHaveTextContent(
-      "Windows could not send the test notification. Check notification settings and try again.",
+      "The desktop could not send the test notification. Check notification settings and try again.",
     );
   });
 
@@ -473,7 +499,7 @@ describe("NotificationsTab", () => {
 
   it.each([
     ["globalDisabled", /windows notifications are turned off/i, true],
-    ["unsupported", /availability could not be checked/i, false],
+    ["unsupported", /desktop notification availability could not be checked/i, false],
   ] as const)(
     "distinguishes the %s capability state",
     async (status, message, canOpenSettings) => {

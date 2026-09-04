@@ -11,6 +11,9 @@ use super::crypto::VaultError;
 
 pub const VAULT_FORMAT: &str = "codex-barbar-vault";
 pub const VAULT_VERSION: u32 = 1;
+#[cfg(target_os = "linux")]
+pub const VAULT_PROTECTION: &str = "linux-secret-service-v1";
+#[cfg(not(target_os = "linux"))]
 pub const VAULT_PROTECTION: &str = "windows-dpapi-current-user";
 
 /// One credential file stored inside a managed profile's bundle.

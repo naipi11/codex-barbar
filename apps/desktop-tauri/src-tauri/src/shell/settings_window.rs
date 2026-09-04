@@ -58,6 +58,7 @@ pub fn open_or_focus(app: &tauri::AppHandle, tab: &str) -> Result<(), String> {
         .map_err(|e| e.to_string())?;
 
     // Keep the native caption dark while leaving its standard controls intact.
+    #[cfg(windows)]
     super::dwm::force_native_dark_caption(&win);
 
     // Manually center: Tauri's .center() is unreliable on Windows when

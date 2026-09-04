@@ -7,6 +7,7 @@ import {
 import type {
   AppSettingsDto,
   NotificationCapabilityDto,
+  PlatformCapabilitiesDto,
   SettingsPatchDto,
 } from "../../../types/bridge";
 import type { SettingsCopy } from "../settingsCopy";
@@ -50,6 +51,7 @@ export default function NotificationsTab({
   settings,
   update,
   copy,
+  platform = "windows",
   sendTest = sendTestNotification,
   getCapability = getNotificationCapability,
   openNotificationSettings = openWindowsNotificationSettings,
@@ -57,6 +59,7 @@ export default function NotificationsTab({
   settings: AppSettingsDto;
   update(patch: SettingsPatchDto): Promise<unknown>;
   copy: SettingsCopy;
+  platform?: PlatformCapabilitiesDto["platform"];
   sendTest?: () => Promise<void>;
   getCapability?: () => Promise<NotificationCapabilityDto>;
   openNotificationSettings?: () => Promise<void>;
@@ -70,6 +73,7 @@ export default function NotificationsTab({
   const capabilityRequestGeneration = useRef(0);
   const mounted = useRef(false);
   const notifications = settings.notifications;
+  const windowsCopy = platform === "windows";
 
   const refreshCapability = useCallback(() => {
     const requestGeneration = ++capabilityRequestGeneration.current;
@@ -173,7 +177,11 @@ export default function NotificationsTab({
 
       <article className="settings-status-card">
         <div className="settings-status-card__heading">
-          <h3>{copy.notifications.masterTitle}</h3>
+          <h3>
+            {windowsCopy
+              ? copy.notifications.masterTitle
+              : copy.notifications.desktopMasterTitle}
+          </h3>
           <p>{copy.notifications.masterDescription}</p>
         </div>
         <NotificationSwitch
@@ -186,7 +194,11 @@ export default function NotificationsTab({
       <article className="settings-status-card">
         <div className="settings-status-card__heading">
           <h3>{copy.notifications.eventsTitle}</h3>
-          <p>{copy.notifications.eventsDescription}</p>
+          <p>
+            {windowsCopy
+              ? copy.notifications.eventsDescription
+              : copy.notifications.desktopEventsDescription}
+          </p>
         </div>
         <NotificationSwitch
           label={copy.notifications.warning}
@@ -286,7 +298,11 @@ export default function NotificationsTab({
       <article className="settings-status-card">
         <div className="settings-status-card__heading">
           <h3>{copy.notifications.sendTest}</h3>
-          <p>{copy.notifications.testDescription}</p>
+          <p>
+            {windowsCopy
+              ? copy.notifications.testDescription
+              : copy.notifications.desktopTestDescription}
+          </p>
         </div>
         {capabilityMessage ? (
           <div className="settings-field" role="status">

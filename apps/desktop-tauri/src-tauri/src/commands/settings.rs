@@ -12,8 +12,8 @@ use super::bridge::{
 };
 use crate::{
     notification_controller::{
-        NotificationCapabilityDto, NotificationCapabilityStatus, NotificationController,
-        WindowsToastSink, notification_capability,
+        DesktopNotificationSink, NotificationCapabilityDto, NotificationCapabilityStatus,
+        NotificationController, notification_capability,
     },
     state::AppState,
 };
@@ -129,7 +129,7 @@ pub async fn update_settings(
     let patch = patch.into_patch()?;
     let (patch, requested_surfaces) = prepare_settings_update(patch)?;
     if let Some(enabled) = patch.start_at_login {
-        codexbar::platform::windows::autostart::set_enabled(enabled)
+        codexbar::platform::autostart::set_enabled(enabled)
             .map_err(|_| "AUTOSTART_UPDATE_FAILED".to_string())?;
     }
     let repository = settings_repository(&state)?;
@@ -162,7 +162,7 @@ pub async fn update_settings(
 pub fn send_test_notification(
     app: tauri::AppHandle,
     state: tauri::State<'_, Mutex<AppState>>,
-    controller: tauri::State<'_, Mutex<NotificationController<WindowsToastSink>>>,
+    controller: tauri::State<'_, Mutex<NotificationController<DesktopNotificationSink>>>,
 ) -> Result<(), String> {
     let capability = notification_capability();
     let proof_mode = crate::proof_harness::is_proof_mode(&app);

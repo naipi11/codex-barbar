@@ -8,6 +8,10 @@ export interface SettingsCopy {
   navigation: string;
   tabs: Record<SettingsTabId, string>;
   placeholder: string;
+  taskbarUnavailable: string;
+  trayUnavailable: string;
+  keyringUnavailable: string;
+  waylandFloatFallback: string;
   general: {
     title: string;
     autostart: string;
@@ -128,10 +132,12 @@ export interface SettingsCopy {
   notifications: {
     title: string;
     masterTitle: string;
+    desktopMasterTitle: string;
     masterDescription: string;
     enable: string;
     eventsTitle: string;
     eventsDescription: string;
+    desktopEventsDescription: string;
     warning: string;
     danger: string;
     weeklyReset: string;
@@ -148,6 +154,7 @@ export interface SettingsCopy {
     playSound: string;
     sendTest: string;
     testDescription: string;
+    desktopTestDescription: string;
     testSent: string;
     capabilityAppDisabled: string;
     capabilityGlobalDisabled: string;
@@ -229,6 +236,10 @@ const english: SettingsCopy = {
   title: "codex-barbar Settings", close: "Close", navigation: "Settings sections",
   tabs: { general: "General", providers: "Accounts", notifications: "Notifications", menuBar: "Taskbar & Float Ball", menu: "Panel", usageSpend: "Usage & spend", advanced: "Advanced", about: "About" },
   placeholder: "This settings section is reserved for a later release.",
+  taskbarUnavailable: "Taskbar status is unavailable on this platform.",
+  trayUnavailable: "The system tray is unavailable on this platform.",
+  keyringUnavailable: "Managed credentials require an available system keyring.",
+  waylandFloatFallback: "Your Wayland compositor may show the floating ball as a regular window when always-on-top is unavailable.",
   general: {
     title: "General", autostart: "Start at login", refreshInterval: "Refresh interval", displayMode: "Display mode", theme: "Theme", language: "Language", refreshOptions: ["Off", "1 minute", "5 minutes", "15 minutes", "30 minutes"], displayOptions: ["Remaining", "Used"], themeOptions: ["System", "Ink Green", "VS Code", "macOS", "Pink", "Blue", "Custom"], customTheme: "Custom skin", customMode: "Mode", customBg: "Background", customSurface: "Surface", customFg: "Text", customMuted: "Muted text", customAccent: "Accent", customRadius: "Corner radius", applyCustom: "Apply custom skin", resetCustom: "Reset custom skin", system: "System", simplifiedChinese: "Simplified Chinese",
   },
@@ -346,10 +357,12 @@ const english: SettingsCopy = {
   notifications: {
     title: "Notifications",
     masterTitle: "Windows notifications",
+    desktopMasterTitle: "Desktop notifications",
     masterDescription: "Opt in to quota, refresh, and release alerts. Existing activity becomes the baseline when enabled.",
     enable: "Enable notifications",
     eventsTitle: "Notify me when",
     eventsDescription: "Choose the changes that deserve a Windows toast.",
+    desktopEventsDescription: "Choose the changes that deserve a desktop notification.",
     warning: "Remaining quota enters the warning band",
     danger: "Remaining quota enters the danger band",
     weeklyReset: "Universal weekly allowance resets",
@@ -365,16 +378,17 @@ const english: SettingsCopy = {
     thresholdHelp: "Danger must be lower than warning; both values must be from 0 to 100.",
     playSound: "Play a sound with notifications",
     sendTest: "Send test notification",
-    testDescription: "Tests Windows toast delivery without changing usage, reset credits, or account state.",
+    testDescription: "Tests desktop notification delivery without changing usage, reset credits, or account state.",
+    desktopTestDescription: "Tests desktop notification delivery without changing usage, reset credits, or account state.",
     testSent: "Test notification sent.",
     capabilityAppDisabled: "Notifications for codex-barbar are turned off in Windows. Open Windows notification settings and allow notifications for codex-barbar.",
     capabilityGlobalDisabled: "Windows notifications are turned off. Open Windows notification settings to turn them on.",
-    capabilityUnsupported: "Windows notification availability could not be checked on this system.",
+    capabilityUnsupported: "Desktop notification availability could not be checked on this system.",
     openWindowsSettings: "Open Windows notification settings",
     openWindowsSettingsFailed: "Windows notification settings could not be opened. Open Settings > System > Notifications manually.",
     thresholdInvalid: "Danger must be lower than warning. Keep both values between 0 and 100.",
     saveFailed: "Notification settings could not be saved. Try again.",
-    testFailed: "Windows could not send the test notification. Check notification settings and try again.",
+    testFailed: "The desktop could not send the test notification. Check notification settings and try again.",
   },
   advanced: { title: "Advanced", executablePath: "Codex executable path", executablePlaceholder: "C:\\Program Files\\Codex\\codex.exe", validateAndSave: "Validate and save", exportDiagnostics: "Export diagnostics", compatible: (version) => `Compatible (${version}).`, notFound: "Codex executable not found.", unsupported: "Unsupported Codex executable.", exported: (path) => `Diagnostics exported to ${path}`, exportFailed: (error) => `Diagnostics export failed: ${error}`, unknownVersion: "unknown version", validationFailed: "Could not validate the Codex executable.", exportFailedFriendly: "Could not export diagnostics." },
   about: { title: "About", checkForUpdates: "Check for updates", checking: "Checking…", openReleases: "Open Releases", description: "codex-barbar – a Windows 11 tray companion for Codex usage.", version: (version) => `Version ${version}`, license: "MIT License. Windows port of CodexBar.", updateAvailable: (version) => `Update available: ${version}`, updateCurrent: "You are on the latest version.", updateUnavailable: "Release feed is unavailable right now.", updateCheckFailed: "Could not check for updates." },
@@ -386,6 +400,10 @@ const chinese: SettingsCopy = {
   title: "codex-barbar 设置", close: "关闭", navigation: "设置分类",
   tabs: { general: "通用", providers: "账户", notifications: "通知", menuBar: "任务栏与悬浮球", menu: "面板", usageSpend: "用量与费用", advanced: "高级", about: "关于" },
   placeholder: "此设置分类将在后续版本中提供。",
+  taskbarUnavailable: "此平台不支持任务栏状态。",
+  trayUnavailable: "此平台不支持系统托盘。",
+  keyringUnavailable: "托管凭据需要可用的系统密钥环。",
+  waylandFloatFallback: "若 Wayland 合成器不支持始终置顶，悬浮球可能显示为普通窗口。",
   general: {
     title: "通用", autostart: "登录时启动", refreshInterval: "刷新间隔", displayMode: "显示模式", theme: "主题", language: "语言", refreshOptions: ["关闭", "1 分钟", "5 分钟", "15 分钟", "30 分钟"], displayOptions: ["剩余", "已使用"], themeOptions: ["系统", "黑绿", "VS Code", "macOS", "粉色", "蓝色", "自定义"], customTheme: "自定义皮肤", customMode: "明暗", customBg: "背景", customSurface: "面板", customFg: "文字", customMuted: "次要文字", customAccent: "强调色", customRadius: "圆角", applyCustom: "应用自定义皮肤", resetCustom: "重置自定义皮肤", system: "系统", simplifiedChinese: "简体中文",
   },
@@ -498,10 +516,12 @@ const chinese: SettingsCopy = {
   notifications: {
     title: "通知",
     masterTitle: "Windows 通知",
+    desktopMasterTitle: "桌面通知",
     masterDescription: "选择接收额度、刷新和版本更新提醒。启用时，当前状态只用于建立基线。",
     enable: "启用通知",
     eventsTitle: "以下情况通知我",
     eventsDescription: "选择需要显示 Windows 通知的变化。",
+    desktopEventsDescription: "选择需要显示桌面通知的变化。",
     warning: "剩余额度进入预警区间",
     danger: "剩余额度进入危险区间",
     weeklyReset: "通用每周额度完成重置",
@@ -518,15 +538,16 @@ const chinese: SettingsCopy = {
     playSound: "通知时播放声音",
     sendTest: "发送测试通知",
     testDescription: "测试 Windows 通知，不会更改用量、重置额度或账户状态。",
+    desktopTestDescription: "测试桌面通知，不会更改用量、重置额度或账户状态。",
     testSent: "测试通知已发送。",
     capabilityAppDisabled: "Windows 已关闭 codex-barbar 的通知。请打开 Windows 通知设置，并允许 codex-barbar 发送通知。",
     capabilityGlobalDisabled: "Windows 通知已关闭。请打开 Windows 通知设置并启用通知。",
-    capabilityUnsupported: "无法在此系统上检查 Windows 通知是否可用。",
+    capabilityUnsupported: "无法在此系统上检查桌面通知是否可用。",
     openWindowsSettings: "打开 Windows 通知设置",
     openWindowsSettingsFailed: "无法打开 Windows 通知设置。请手动打开“设置 > 系统 > 通知”。",
     thresholdInvalid: "危险值必须低于预警值。请将两者保持在 0 到 100 之间。",
     saveFailed: "无法保存通知设置，请重试。",
-    testFailed: "Windows 无法发送测试通知。请检查通知设置后重试。",
+    testFailed: "桌面无法发送测试通知。请检查通知设置后重试。",
   },
   advanced: { title: "高级", executablePath: "Codex 可执行文件路径", executablePlaceholder: "C:\\Program Files\\Codex\\codex.exe", validateAndSave: "验证并保存", exportDiagnostics: "导出诊断信息", compatible: (version) => `兼容 (${version})。`, notFound: "未找到 Codex 可执行文件。", unsupported: "不支持此 Codex 可执行文件。", exported: (path) => `诊断信息已导出到 ${path}`, exportFailed: (error) => `导出诊断信息失败：${error}`, unknownVersion: "未知版本", validationFailed: "无法验证 Codex 可执行文件。", exportFailedFriendly: "无法导出诊断信息。" },
   about: { title: "关于", checkForUpdates: "检查更新", checking: "正在检查…", openReleases: "打开发布页", description: "codex-barbar 是适用于 Codex 用量的 Windows 11 托盘伴侣。", version: (version) => `当前版本 ${version}`, license: "MIT 许可证。CodexBar 的 Windows 移植版。", updateAvailable: (version) => `有可用更新：${version}`, updateCurrent: "当前已是最新版本。", updateUnavailable: "暂时无法获取发布信息。", updateCheckFailed: "暂时无法检查更新。" },

@@ -1,5 +1,6 @@
 use serde::Serialize;
 
+#[cfg(windows)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct ScreenRect {
     pub(crate) left: i32,
@@ -8,9 +9,12 @@ pub(crate) struct ScreenRect {
     pub(crate) bottom: i32,
 }
 
+#[cfg(windows)]
 pub(crate) const WS_CAPTION: usize = 0x00c00000;
+#[cfg(windows)]
 const FULLSCREEN_EDGE_TOLERANCE: i32 = 8;
 
+#[cfg(windows)]
 pub(crate) fn is_shell_window_class(class_name: &str) -> bool {
     matches!(
         class_name,
@@ -31,6 +35,7 @@ pub enum ForegroundClass {
     RealFullscreen,
 }
 
+#[cfg(windows)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ForegroundWindowInfo<'a> {
     pub class_name: &'a str,
@@ -41,6 +46,7 @@ pub struct ForegroundWindowInfo<'a> {
     pub matches_fullscreen: bool,
 }
 
+#[cfg(windows)]
 pub fn is_shell_transient_class(class_name: &str, title: &str) -> bool {
     if is_shell_window_class(class_name)
         || matches!(
@@ -54,6 +60,7 @@ pub fn is_shell_transient_class(class_name: &str, title: &str) -> bool {
         && matches!(title.trim(), "Start" | "开始" | "Search" | "搜索")
 }
 
+#[cfg(windows)]
 pub fn classify_foreground(window: ForegroundWindowInfo<'_>) -> ForegroundClass {
     if window.own_process || !window.visible || window.minimized {
         return ForegroundClass::Normal;
@@ -68,7 +75,7 @@ pub fn classify_foreground(window: ForegroundWindowInfo<'_>) -> ForegroundClass 
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, windows))]
 pub(crate) fn window(
     class_name: &'static str,
     title: &'static str,
@@ -83,6 +90,7 @@ pub(crate) fn window(
     }
 }
 
+#[cfg(windows)]
 pub(crate) fn supports_renderer_scan(class_name: &str) -> bool {
     matches!(
         class_name,
@@ -90,6 +98,7 @@ pub(crate) fn supports_renderer_scan(class_name: &str) -> bool {
     )
 }
 
+#[cfg(windows)]
 pub(crate) fn window_covers_monitor(
     window: ScreenRect,
     monitor: ScreenRect,
@@ -106,6 +115,7 @@ pub(crate) fn window_covers_monitor(
         && window.bottom >= monitor.bottom.saturating_sub(tolerance)
 }
 
+#[cfg(windows)]
 pub(crate) fn window_matches_fullscreen(
     window: ScreenRect,
     monitor: ScreenRect,
@@ -117,6 +127,7 @@ pub(crate) fn window_matches_fullscreen(
         || (style & WS_CAPTION == 0 && window_covers_monitor(window, work_area, tolerance))
 }
 
+#[cfg(windows)]
 pub(crate) fn child_window_matches_fullscreen(
     window: ScreenRect,
     monitor: ScreenRect,
@@ -405,12 +416,12 @@ pub(crate) fn is_fullscreen_active() -> bool {
     detect_fullscreen()
 }
 
-#[cfg(not(windows))]
+#[cfg(all(not(windows), test))]
 pub(crate) fn is_fullscreen_active() -> bool {
     false
 }
 
-#[cfg(test)]
+#[cfg(all(test, windows))]
 mod tests {
     use super::*;
 
@@ -614,5 +625,16 @@ mod tests {
         hidden.visible = false;
         hidden.matches_fullscreen = true;
         assert_eq!(classify_foreground(hidden), ForegroundClass::Normal);
+    }
+}
+
+#[cfg(all(test, not(windows)))]
+mod non_windows_tests {
+    use super::{ForegroundClass, classify_current_foreground, is_fullscreen_active};
+
+    #[test]
+    fn fullscreen_and_foreground_runtime_is_idle() {
+        assert_eq!(classify_current_foreground(), ForegroundClass::Normal);
+        assert!(!is_fullscreen_active());
     }
 }

@@ -130,7 +130,8 @@ function isLoginState(value: unknown): value is ManagedLoginStateDto {
     (candidate.verificationUrl === null ||
       typeof candidate.verificationUrl === "string") &&
     (candidate.userCode === null || typeof candidate.userCode === "string") &&
-    (candidate.errorKind === null || typeof candidate.errorKind === "string")
+    (candidate.errorKind === null || typeof candidate.errorKind === "string") &&
+    typeof candidate.runtimeCleanupFailed === "boolean"
   );
 }
 

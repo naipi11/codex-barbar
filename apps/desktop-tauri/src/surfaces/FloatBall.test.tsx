@@ -84,6 +84,27 @@ describe("FloatBall", () => {
     expect(floatBallCss).toContain("opacity: calc(0.18 + var(--float-glow) * 0.82)");
   });
 
+  it("does not render when the bootstrap disables the floating-ball surface", async () => {
+    const bootstrap = bootstrapWithTwoProfiles();
+    bootstrap.platform = {
+      platform: "other",
+      systemTray: false,
+      taskbarStatus: false,
+      floatingBall: false,
+      autostart: false,
+      notifications: "unsupported",
+      managedCredentials: false,
+    };
+    invokeMock.mockResolvedValue(bootstrap);
+
+    render(<FloatBall />);
+
+    await waitFor(() => expect(invokeMock).toHaveBeenCalledWith("get_bootstrap_state"));
+    await waitFor(() =>
+      expect(screen.queryByTestId("float-ball-shell")).not.toBeInTheDocument(),
+    );
+  });
+
   it("renders a circular percent indicator with an identity title", async () => {
     const bootstrap = bootstrapWithTwoProfiles();
     bootstrap.profiles[0]!.accountDisplayName = "Ming Zhao";

@@ -92,9 +92,39 @@ const bootstrapFixture = {
       managedLogin: false,
     },
   },
+  platform: {
+    platform: "windows" as const,
+    systemTray: true,
+    taskbarStatus: true,
+    floatingBall: true,
+    autostart: true,
+    notifications: "available" as const,
+    managedCredentials: true,
+  },
 };
 
 describe("App", () => {
+  it("does not render the unsupported taskbar route after a Linux bootstrap", async () => {
+    webviewWindowMocks.label = "taskbar-status";
+    invokeMock.mockResolvedValue({
+      ...bootstrapFixture,
+      platform: {
+        platform: "linux",
+        systemTray: true,
+        taskbarStatus: false,
+        floatingBall: true,
+        autostart: true,
+        notifications: "unsupported",
+        managedCredentials: false,
+      },
+    });
+    render(<App />);
+    await waitFor(() => expect(invokeMock).toHaveBeenCalledWith("get_bootstrap_state"));
+    await waitFor(() =>
+      expect(screen.queryByTestId("taskbar-status-content")).not.toBeInTheDocument(),
+    );
+  });
+
   it("bootstraps once without checking for updates", async () => {
     webviewWindowMocks.label = "main";
     invokeMock.mockResolvedValue(bootstrapFixture);

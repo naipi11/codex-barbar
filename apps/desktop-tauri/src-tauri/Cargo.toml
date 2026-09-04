@@ -1,9 +1,10 @@
 [package]
 name = "codex-barbar-desktop"
-version = "1.0.30"
+version = "1.1.0"
 edition = "2024"
 publish = false
-description = "Windows tray app for Codex usage and account management"
+description = "Desktop tray app for AI-provider usage and account management"
+license = "MIT"
 repository = "https://github.com/naipi11/codex-barbar"
 
 [[bin]]
@@ -27,3 +28,6 @@ uuid = { version = "1", features = ["v4"] }
 
 [target.'cfg(windows)'.dependencies]
 winreg = "0.55"
+
+[target.'cfg(target_os = "linux")'.dependencies]
+notify-rust = { version = "4.18", default-features = false, features = ["z"] }
