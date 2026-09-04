@@ -106,7 +106,10 @@ git tag -a vX.Y.Z -m "vX.Y.Z - Brief description" HEAD
 # 3. Push the tag to run/continue dual-platform release aggregation
 git push origin main --tags
 
-# 4. Inspect the draft assets; publish only with explicit authorization
+# 4. After aggregation produces all Windows + Linux assets, run release doctor
+./scripts/release-doctor.ps1 -Version X.Y.Z -AssetsDirectory ./artifacts/aggregate-release
+
+# 5. Inspect the draft assets; publish only with explicit authorization
 ```
 
 The `v*` workflow path resolves the version from the tag; the

@@ -79,3 +79,29 @@ FBA0EE40790C674FB4FAC4B532E21BCFDFC1217A302E31F47D6C38D6D7320728  README.md
 ```
 
 Ubuntu package hash, Ubuntu acceptance, tag, and release remain unclaimed.
+
+## Fix round 2 (release-doctor aggregate path)
+
+- Moved the documented `release-doctor.ps1` invocation out of the pre-tag,
+  Windows-only `artifacts/release` build block.
+- Documented it only after tagged dual-platform aggregation, with
+  `-AssetsDirectory .\\artifacts\\aggregate-release`. This matches the
+  script's required eight-file aggregate set: two payloads for Windows, one
+  Debian payload, combined `SHA256SUMS.txt`, two renamed SBOMs, and two target
+  manifests.
+- Added the same post-aggregation release-doctor order to `VERSIONING.md`.
+
+### Fix-round consistency assertion and hashes
+
+The static check requires exactly one documented release-doctor invocation in
+`docs/RELEASING.md`, requires that invocation to use
+`.\\artifacts\\aggregate-release`, rejects a release-doctor invocation against
+`.\\artifacts\\release`, and verifies that it follows the tag/aggregation
+instruction. It also checks the matching `VERSIONING.md` order.
+
+```text
+8F80A2B7E6C51D5EF795BC2E2AA47113852E5F2D6162093D1D030FEA28D754D9  docs/RELEASING.md
+98E19CC387586E9FD0844507236829CE4C36AF28CD6CC1137851D7FF33BB63FD  VERSIONING.md
+```
+
+Ubuntu package hash, Ubuntu acceptance, tag, and release remain unclaimed.

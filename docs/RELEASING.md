@@ -41,7 +41,6 @@ SmartScreen warnings are expected.
    ```powershell
    .\scripts\windows-release-build.ps1 -Ref HEAD -Version <version> -OutputDirectory .\artifacts\release
    .\scripts\verify-release-artifacts.ps1 -Version <version> -AssetsDirectory .\artifacts\release
-   .\scripts\release-doctor.ps1 -Version <version> -AssetsDirectory .\artifacts\release
    ```
 
 3. Run the installer and portable smoke tests on a clean machine (or a
@@ -68,6 +67,17 @@ SmartScreen warnings are expected.
    annotated `v<version>` tag that points to that same candidate commit, then
    push the tag to rerun/continue release aggregation. Inspect the resulting
    draft assets and request authorization before publishing.
+7. Run release doctor only after aggregation has produced the eight-file
+   Windows + Linux set in `artifacts/aggregate-release` (for example, after
+   the tagged workflow downloads and aggregates both target artifacts):
+
+   ```powershell
+   .\scripts\release-doctor.ps1 -Version <version> -AssetsDirectory .\artifacts\aggregate-release
+   ```
+
+   Do not point release doctor at the pre-aggregation Windows-only
+   `artifacts/release` directory: it correctly requires the Debian payload,
+   aggregate checksums, both renamed SBOMs, and both target manifests.
 
 The build script refuses to run on a dirty worktree or when `-Ref` does not
 resolve to HEAD. `-AllowDirty` exists only for development.
