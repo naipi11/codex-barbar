@@ -122,10 +122,36 @@ pub fn discover_codex_processes(reader: &impl ProcReader) -> Vec<LinuxProcess> {
 }
 
 fn is_codex_command(command_line: &[String]) -> bool {
-    command_line
+    let native = command_line
         .first()
         .and_then(|program| Path::new(program).file_name())
-        .is_some_and(|name| name == "codex")
+        .is_some_and(|name| name == "codex");
+    native || is_verified_npm_codex_command(command_line)
+}
+
+fn is_verified_npm_codex_command(command_line: &[String]) -> bool {
+    let Some(node) = command_line.first().map(String::as_str) else {
+        return false;
+    };
+    let Some(entry) = command_line.get(1).map(String::as_str) else {
+        return false;
+    };
+    if !is_canonical_linux_path(node) || !is_canonical_linux_path(entry) {
+        return false;
+    }
+    let Some(prefix) = node.strip_suffix("/bin/node") else {
+        return false;
+    };
+    !prefix.is_empty() && entry == format!("{prefix}/lib/node_modules/@openai/codex/bin/codex.js")
+}
+
+fn is_canonical_linux_path(path: &str) -> bool {
+    path.starts_with('/')
+        && !path.contains('\\')
+        && path
+            .split('/')
+            .skip(1)
+            .all(|component| !component.is_empty() && component != "." && component != "..")
 }
 
 #[cfg(test)]
@@ -207,6 +233,47 @@ mod tests {
                 .collect::<Vec<_>>(),
             vec![100, 101, 102]
         );
+    }
+
+    #[test]
+    fn proc_reader_discovers_the_verified_linux_npm_node_entry_shape() {
+        let reader = FixtureProcReader::from([
+            (
+                100,
+                "/opt/codex-prefix/bin/node /opt/codex-prefix/lib/node_modules/@openai/codex/bin/codex.js app-server",
+                1,
+            ),
+            (101, "/usr/bin/helper --child", 100),
+        ]);
+
+        let processes = discover_codex_processes(&reader);
+
+        assert_eq!(
+            processes
+                .iter()
+                .map(|process| process.pid)
+                .collect::<Vec<_>>(),
+            vec![100, 101]
+        );
+    }
+
+    #[test]
+    fn proc_reader_rejects_arbitrary_or_mismatched_node_scripts() {
+        let reader = FixtureProcReader::from([
+            (100, "/opt/codex-prefix/bin/node /tmp/worker.js", 1),
+            (
+                101,
+                "/opt/other/bin/node /opt/codex-prefix/lib/node_modules/@openai/codex/bin/codex.js app-server",
+                1,
+            ),
+            (
+                102,
+                "node /opt/codex-prefix/lib/node_modules/@openai/codex/bin/codex.js app-server",
+                1,
+            ),
+        ]);
+
+        assert!(discover_codex_processes(&reader).is_empty());
     }
 
     #[test]

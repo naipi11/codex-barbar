@@ -8,6 +8,7 @@ import test from "node:test";
 import { aggregateReleaseAssets } from "./aggregate-release-assets.mjs";
 
 const VERSION = "1.1.0";
+const COMMIT = "a".repeat(40);
 
 function sha256(content) {
   return createHash("sha256").update(content).digest("hex");
@@ -43,7 +44,7 @@ async function writeTargetFixture(root, { label, target, payloadNames }) {
   }));
   await writeFile(
     join(root, "artifact-manifest.json"),
-    `${JSON.stringify({ version: VERSION, target, files: [...payloads, ...supportFiles] })}\n`,
+    `${JSON.stringify({ version: VERSION, commit: COMMIT, target, files: [...payloads, ...supportFiles] })}\n`,
   );
 }
 
@@ -85,7 +86,7 @@ test("aggregates staging-shaped Windows and Linux artifact manifests", async () 
     const { windows, linux } = await createFixtures(temp);
     const output = join(temp, "aggregate");
 
-    await aggregateReleaseAssets({ version: VERSION, windows, linux, output });
+    await aggregateReleaseAssets({ version: VERSION, commit: COMMIT, windows, linux, output });
 
     const sums = await readFile(join(output, "SHA256SUMS.txt"), "utf8");
     assert.match(sums, /codex-barbar_1\.1\.0_x64-setup\.exe/);
@@ -108,7 +109,7 @@ test("rejects a target manifest with the wrong target or version", async () => {
     manifest.target = "x86_64-pc-windows-msvc";
     await writeFile(manifestPath, `${JSON.stringify(manifest)}\n`);
     await assert.rejects(
-      aggregateReleaseAssets({ version: VERSION, windows, linux, output: join(temp, "aggregate") }),
+      aggregateReleaseAssets({ version: VERSION, commit: COMMIT, windows, linux, output: join(temp, "aggregate") }),
       /linux target manifest target/i,
     );
 
@@ -116,7 +117,7 @@ test("rejects a target manifest with the wrong target or version", async () => {
     manifest.version = "1.1.1";
     await writeFile(manifestPath, `${JSON.stringify(manifest)}\n`);
     await assert.rejects(
-      aggregateReleaseAssets({ version: VERSION, windows, linux, output: join(temp, "aggregate") }),
+      aggregateReleaseAssets({ version: VERSION, commit: COMMIT, windows, linux, output: join(temp, "aggregate") }),
       /linux target manifest version/i,
     );
   } finally {
@@ -134,7 +135,7 @@ test("rejects an SBOM with a mismatched product version or payload hash", async 
     await writeFile(sbomPath, `${JSON.stringify(sbom)}\n`);
     await rewriteManifestSupportFile(linux, `codex-barbar_${VERSION}_sbom.spdx.json`);
     await assert.rejects(
-      aggregateReleaseAssets({ version: VERSION, windows, linux, output: join(temp, "aggregate") }),
+      aggregateReleaseAssets({ version: VERSION, commit: COMMIT, windows, linux, output: join(temp, "aggregate") }),
       /linux SBOM product version/i,
     );
 
@@ -143,8 +144,33 @@ test("rejects an SBOM with a mismatched product version or payload hash", async 
     await writeFile(sbomPath, `${JSON.stringify(sbom)}\n`);
     await rewriteManifestSupportFile(linux, `codex-barbar_${VERSION}_sbom.spdx.json`);
     await assert.rejects(
-      aggregateReleaseAssets({ version: VERSION, windows, linux, output: join(temp, "aggregate") }),
+      aggregateReleaseAssets({ version: VERSION, commit: COMMIT, windows, linux, output: join(temp, "aggregate") }),
       /linux SBOM does not reference payload checksum/i,
+    );
+  } finally {
+    await rm(temp, { recursive: true, force: true });
+  }
+});
+
+test("rejects missing or mismatched target manifest commits", async () => {
+  const temp = await mkdtemp(join(tmpdir(), "codex-barbar-aggregate-"));
+  try {
+    const { windows, linux } = await createFixtures(temp);
+    const manifestPath = join(linux, "artifact-manifest.json");
+    const manifest = JSON.parse(await readFile(manifestPath, "utf8"));
+    manifest.commit = "b".repeat(40);
+    await writeFile(manifestPath, `${JSON.stringify(manifest)}\n`);
+
+    await assert.rejects(
+      aggregateReleaseAssets({ version: VERSION, commit: COMMIT, windows, linux, output: join(temp, "mismatch") }),
+      /linux target manifest commit/i,
+    );
+
+    delete manifest.commit;
+    await writeFile(manifestPath, `${JSON.stringify(manifest)}\n`);
+    await assert.rejects(
+      aggregateReleaseAssets({ version: VERSION, commit: COMMIT, windows, linux, output: join(temp, "missing") }),
+      /linux target manifest commit/i,
     );
   } finally {
     await rm(temp, { recursive: true, force: true });

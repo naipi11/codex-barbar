@@ -19,8 +19,11 @@ stages, and verifies the amd64 `.deb`. Each uploads a separate Actions
 artifact group. `publish` needs both builds, downloads both groups, runs the
 high/critical Dependabot gate once with `DEPENDABOT_ALERTS_TOKEN`, validates
 and aggregates their manifests/SBOMs with
-`aggregate-release-assets.mjs`, and is the only job that can issue one draft
-`gh release create` command (on a tag or when `publish_draft` is selected).
+`aggregate-release-assets.mjs`. Both target manifests must name the exact
+workflow commit. Before publishing, the remote `v<version>` tag is fetched,
+dereferenced, and required to resolve to that same commit. `publish` is the
+only job that can issue one draft `gh release create` command (on a tag or
+when `publish_draft` is selected).
 
 The final draft contains the Windows setup EXE and portable ZIP, the Linux
 `codex-barbar_<version>_amd64.deb`, per-target SBOMs/manifests, and one

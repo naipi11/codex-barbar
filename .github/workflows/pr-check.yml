@@ -97,6 +97,8 @@ jobs:
   linux-check:
     name: Ubuntu 24.04 Debian gate
     runs-on: ubuntu-24.04
+    env:
+      TAURI_LINUX_AYATANA_APPINDICATOR: "1"
 
     steps:
       - uses: actions/checkout@v4

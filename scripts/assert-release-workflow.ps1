@@ -39,6 +39,14 @@ if (-not $prWorkflow.Contains('linux-check:') -or -not $prWorkflow.Contains('run
     throw 'PR workflow must include the ubuntu-24.04 linux-check job.'
 }
 
+$linuxReleaseJob = [regex]::Match($workflow, '(?ms)^  linux-build:\r?\n.*?(?=^  \S|\z)').Value
+$linuxPrJob = [regex]::Match($prWorkflow, '(?ms)^  linux-check:\r?\n.*?(?=^  \S|\z)').Value
+foreach ($linuxJob in @($linuxReleaseJob, $linuxPrJob)) {
+    if (-not $linuxJob.Contains('TAURI_LINUX_AYATANA_APPINDICATOR: "1"')) {
+        throw 'Every Ubuntu build job must set TAURI_LINUX_AYATANA_APPINDICATOR=1.'
+    }
+}
+
 $publishMatch = [regex]::Match($workflow, '(?ms)^  publish:\r?\n.*?(?=^  \S|\z)')
 if (-not $publishMatch.Success) {
     throw 'Release workflow has no publish job.'
@@ -65,6 +73,7 @@ foreach ($fragment in @(
     'name: linux-release',
     'path: artifacts/linux-release',
     'aggregate-release-assets.mjs --version',
+    '--commit "$EXPECTED_COMMIT"',
     '--windows artifacts/windows-release',
     '--linux artifacts/linux-release',
     '--output artifacts/aggregate-release'
@@ -74,9 +83,37 @@ foreach ($fragment in @(
     }
 }
 
+$tagGate = [regex]::Match(
+    $publish,
+    '(?ms)^      - name: Verify release tag provenance\r?\n.*?(?=^      - name:|\z)'
+)
+if (-not $tagGate.Success) {
+    throw 'Publish job must verify release tag provenance before creating a release.'
+}
+$publishCondition = "if: (github.event_name == 'workflow_dispatch' && inputs.publish_draft) || github.event_name == 'push'"
+if (-not $tagGate.Value.Contains($publishCondition)) {
+    throw 'Release tag provenance must use the same condition as draft publication.'
+}
+foreach ($fragment in @(
+    'EXPECTED_COMMIT: ${{ github.sha }}',
+    'git fetch --force --no-tags origin "refs/tags/v${VERSION}:refs/tags/v${VERSION}"',
+    'git rev-parse "refs/tags/v${VERSION}^{commit}"',
+    '[[ "$resolved" == "$EXPECTED_COMMIT" ]]'
+)) {
+    if (-not $tagGate.Value.Contains($fragment)) {
+        throw "Release tag provenance gate must contain: $fragment"
+    }
+}
+
 $releaseCreates = [regex]::Matches($workflow, 'gh release create')
 if ($releaseCreates.Count -ne 1 -or -not $publish.Contains('gh release create')) {
     throw 'Only the publish job may create exactly one GitHub release.'
+}
+if (-not $publish.Contains('gh release create "v$VERSION" --draft')) {
+    throw 'The sole GitHub release creation must remain a draft for the verified tag.'
+}
+if ($publish.IndexOf('Verify release tag provenance') -gt $publish.IndexOf('gh release create')) {
+    throw 'Release tag provenance must be verified before release creation.'
 }
 
 if ($workflow -match '(?m)^\s*\$resolved\s*=\s*"?\$\{\{ inputs\.version \}\}"?$' -or $workflow -match "(?m)^\s*resolved='\$\{\{ inputs\.version \}\}'$") {

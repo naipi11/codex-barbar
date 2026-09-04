@@ -70,7 +70,16 @@ function Write-JsonFile {
         [hashtable]$Data,
         [string]$Path
     )
-    $Data | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath $Path -Encoding utf8
+    Write-Utf8NoBom -Path $Path -Content ($Data | ConvertTo-Json -Depth 6)
+}
+
+function Write-Utf8NoBom {
+    param(
+        [string]$Path,
+        [string]$Content
+    )
+    $utf8 = New-Object System.Text.UTF8Encoding($false)
+    [System.IO.File]::WriteAllText($Path, $Content + [Environment]::NewLine, $utf8)
 }
 
 if (-not $Version) {
@@ -185,7 +194,7 @@ try {
         [pscustomobject]@{ algorithm = "SHA256"; checksumValue = $zipHash }
     ) -Force
     $sbom | Add-Member -NotePropertyName target -NotePropertyValue "x86_64-pc-windows-msvc" -Force
-    $sbom | ConvertTo-Json -Depth 12 | Set-Content -LiteralPath $sbomAsset -Encoding utf8
+    Write-Utf8NoBom -Path $sbomAsset -Content ($sbom | ConvertTo-Json -Depth 12)
 
     $sumsHash = (Get-FileHash -Algorithm SHA256 -LiteralPath $sumsAsset).Hash.ToLowerInvariant()
     $sbomHash = (Get-FileHash -Algorithm SHA256 -LiteralPath $sbomAsset).Hash.ToLowerInvariant()

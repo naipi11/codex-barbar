@@ -45,11 +45,14 @@ async function sha256File(path) {
   return createHash("sha256").update(await readFile(path)).digest("hex");
 }
 
-async function loadTarget({ label, directory, version }) {
+async function loadTarget({ label, directory, version, commit }) {
   const manifestPath = join(directory, "artifact-manifest.json");
   const manifest = await readJson(manifestPath, `${label} target manifest`);
   if (manifest.version !== version) {
     fail(`${label} target manifest version is ${manifest.version}, expected ${version}`);
+  }
+  if (manifest.commit !== commit) {
+    fail(`${label} target manifest commit is ${manifest.commit ?? "missing"}, expected ${commit}`);
   }
   if (manifest.target !== TARGETS[label]) {
     fail(`${label} target manifest target is ${manifest.target}, expected ${TARGETS[label]}`);
@@ -131,17 +134,20 @@ async function assertEmptyDirectory(path) {
  * payloads and provenance files to one directory, and writes the one checksum
  * file intended for a GitHub Release.
  */
-export async function aggregateReleaseAssets({ version, windows, linux, output }) {
+export async function aggregateReleaseAssets({ version, commit, windows, linux, output }) {
   if (typeof version !== "string" || !/^\d+\.\d+\.\d+(?:-(?:alpha|beta|rc)\.\d+)?$/.test(version)) {
     fail(`invalid version: ${version}`);
+  }
+  if (typeof commit !== "string" || !/^[a-f0-9]{40}$/.test(commit)) {
+    fail(`invalid commit: ${commit}`);
   }
   for (const [label, directory] of Object.entries({ windows, linux, output })) {
     if (typeof directory !== "string" || !directory) fail(`${label} directory is required`);
   }
 
   const [windowsTarget, linuxTarget] = await Promise.all([
-    loadTarget({ label: "windows", directory: windows, version }),
-    loadTarget({ label: "linux", directory: linux, version }),
+    loadTarget({ label: "windows", directory: windows, version, commit }),
+    loadTarget({ label: "linux", directory: linux, version, commit }),
   ]);
   await assertEmptyDirectory(output);
 
@@ -168,7 +174,7 @@ function parseCli(argv) {
   const options = {};
   for (let index = 0; index < argv.length; index += 1) {
     const flag = argv[index];
-    if (!Object.hasOwn({ "--version": true, "--windows": true, "--linux": true, "--output": true }, flag)) {
+    if (!Object.hasOwn({ "--version": true, "--commit": true, "--windows": true, "--linux": true, "--output": true }, flag)) {
       fail(`unknown argument: ${flag}`);
     }
     const value = argv[index + 1];

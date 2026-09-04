@@ -135,6 +135,8 @@ jobs:
   linux-build:
     name: Ubuntu 24.04 Debian release
     runs-on: ubuntu-24.04
+    env:
+      TAURI_LINUX_AYATANA_APPINDICATOR: "1"
     outputs:
       version: ${{ steps.version.outputs.version }}
 
@@ -299,10 +301,27 @@ jobs:
           }
 
       - name: Aggregate release assets
+        env:
+          VERSION: ${{ needs.windows-build.outputs.version }}
+          EXPECTED_COMMIT: ${{ github.sha }}
         run: >
-          node scripts/aggregate-release-assets.mjs --version ${{ needs.windows-build.outputs.version }}
+          node scripts/aggregate-release-assets.mjs --version "$VERSION" --commit "$EXPECTED_COMMIT"
           --windows artifacts/windows-release --linux artifacts/linux-release
           --output artifacts/aggregate-release
+
+      - name: Verify release tag provenance
+        if: (github.event_name == 'workflow_dispatch' && inputs.publish_draft) || github.event_name == 'push'
+        shell: bash
+        env:
+          VERSION: ${{ needs.windows-build.outputs.version }}
+          EXPECTED_COMMIT: ${{ github.sha }}
+        run: |
+          git fetch --force --no-tags origin "refs/tags/v${VERSION}:refs/tags/v${VERSION}"
+          resolved="$(git rev-parse "refs/tags/v${VERSION}^{commit}")"
+          [[ "$resolved" == "$EXPECTED_COMMIT" ]] || {
+            echo "release tag v${VERSION} resolves to ${resolved}, expected ${EXPECTED_COMMIT}" >&2
+            exit 1
+          }
 
       - name: Create draft release
         if: (github.event_name == 'workflow_dispatch' && inputs.publish_draft) || github.event_name == 'push'

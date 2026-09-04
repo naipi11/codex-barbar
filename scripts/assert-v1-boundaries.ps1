@@ -10,7 +10,7 @@ $repoRoot = Split-Path -Parent $PSScriptRoot
 Push-Location $repoRoot
 try {
   $expectedCommands = @(
-    'get_bootstrap_state','get_settings_snapshot','get_notification_capability','update_settings','apply_menu_preferences','get_usage_spend','send_test_notification','get_locale_strings',
+    'get_bootstrap_state','get_platform_capabilities','get_settings_snapshot','get_notification_capability','update_settings','apply_menu_preferences','get_usage_spend','send_test_notification','get_locale_strings',
     'select_profile','refresh_selected_profile','start_managed_login','cancel_managed_login',
     'rename_managed_profile','remove_managed_profile','save_profile_avatar','clear_profile_avatar','validate_codex_executable',
     'get_diagnostics_summary','get_status_surface_diagnostics','export_diagnostics','check_for_updates','open_release_page',
@@ -57,8 +57,8 @@ try {
   )
   $commandDiff = Compare-Object -ReferenceObject $expectedCommands -DifferenceObject $registered
   if ($commandDiff) {
-    $missing = @($commandDiff | Where-Object SideIndicator -eq '<=')
-    $extra = @($commandDiff | Where-Object SideIndicator -eq '=>')
+    $missing = @($commandDiff | Where-Object SideIndicator -eq '<=' | ForEach-Object InputObject)
+    $extra = @($commandDiff | Where-Object SideIndicator -eq '=>' | ForEach-Object InputObject)
     throw "invoke allowlist mismatch. missing=[$($missing -join ',')] extra=[$($extra -join ',')]"
   }
 
