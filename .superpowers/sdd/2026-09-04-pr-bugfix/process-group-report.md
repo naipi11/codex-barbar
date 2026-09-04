@@ -24,10 +24,30 @@ child and one that exits immediately after reporting that child. Both assert a
 distinct group and use a bounded condition wait for the complete group to
 disappear.
 
+## Follow-up lifecycle hardening
+
+The initial group-only cleanup could leave two holes: Drop had no bounded
+reaper for a subreaper-adopted zombie, and a descendant that called `setsid`
+or `setpgid` was no longer addressed by a negative-PGID signal. Linux cleanup
+now snapshots the App Server parent/child tree from procfs as identities of
+`(pid, start_time)`, then refreshes that snapshot while shutdown is pending.
+Detached descendants are signalled and reaped by their exact identity in
+addition to the original process group; a reused PID is never acted on.
+
+Drop snapshots the same bounded ownership set, sends KILL, and starts a
+250 ms named reaper thread. The thread only waits on those exact descendants,
+so Drop does not block and cannot consume an unrelated child. The added Linux
+regressions prove that (a) a shell-exited, subreaper-adopted background child
+is fully absent after Drop (not merely a zombie), and (b) a `setsid` child
+that escapes the original PGID is absent after shutdown.
+
 ## Verification
 
 - `cargo test --manifest-path rust/Cargo.toml providers::codex::app_server::process -- --test-threads=1` — passed on Windows (13 tests; Linux-only cases correctly cfg-gated).
 - `cargo test --manifest-path rust/Cargo.toml -- --test-threads=1` — passed on Windows (529 passed, 1 ignored).
 - `cargo clippy --manifest-path rust/Cargo.toml --all-targets -- -D warnings` — passed on Windows.
 - `cargo fmt --all -- --check` — passed.
+- `cargo test --manifest-path rust/Cargo.toml providers::codex::app_server::process -- --test-threads=1` — rerun after the follow-up; passed on Windows (13 tests; Linux-only cases cfg-gated).
+- `cargo test --manifest-path rust/Cargo.toml -- --test-threads=1` — rerun after the follow-up; passed on Windows (530 passed, 1 ignored).
+- `cargo clippy --manifest-path rust/Cargo.toml --all-targets -- -D warnings` — rerun after the follow-up; passed on Windows.
 - `cargo test --manifest-path rust/Cargo.toml --target x86_64-unknown-linux-gnu providers::codex::app_server::process --no-run` could not link because this Windows host lacks `x86_64-linux-gnu-gcc` (the `ring` build script fails before the crate compiles). Docker Desktop's Linux engine is also unavailable. Therefore only Ubuntu CI can execute the Linux-only regression tests; Windows verification is not presented as Linux proof.

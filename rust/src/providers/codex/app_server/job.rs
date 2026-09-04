@@ -80,6 +80,190 @@ pub(crate) fn process_group_exists(process_group: i32) -> bool {
     process_group > 0 && unsafe { kill(-process_group, 0) == 0 }
 }
 
+/// A process id paired with the kernel start-time field from `/proc/<pid>/stat`.
+/// The start time prevents a delayed cleanup worker from signalling a reused
+/// pid that no longer belongs to the App Server tree.
+#[cfg(target_os = "linux")]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub(crate) struct ProcessIdentity {
+    pid: i32,
+    start_time: u64,
+}
+
+#[cfg(target_os = "linux")]
+impl ProcessIdentity {
+    pub(crate) fn pid(self) -> i32 {
+        self.pid
+    }
+}
+
+#[cfg(target_os = "linux")]
+#[derive(Debug, Clone, Copy)]
+struct ProcessStat {
+    identity: ProcessIdentity,
+    process_group: i32,
+}
+
+#[cfg(target_os = "linux")]
+fn read_process_stat(pid: i32) -> Option<ProcessStat> {
+    let stat = std::fs::read_to_string(format!("/proc/{pid}/stat")).ok()?;
+    let fields = stat
+        .rsplit_once(')')?
+        .1
+        .split_whitespace()
+        .collect::<Vec<_>>();
+    // Fields after `comm`: state (3), ppid (4), pgrp (5), ... starttime (22).
+    let process_group = fields.get(2)?.parse().ok()?;
+    let start_time = fields.get(19)?.parse().ok()?;
+    Some(ProcessStat {
+        identity: ProcessIdentity { pid, start_time },
+        process_group,
+    })
+}
+
+#[cfg(target_os = "linux")]
+fn direct_children(pid: i32) -> Vec<i32> {
+    std::fs::read_to_string(format!("/proc/{pid}/task/{pid}/children"))
+        .ok()
+        .into_iter()
+        .flat_map(|children| {
+            children
+                .split_whitespace()
+                .map(str::to_owned)
+                .collect::<Vec<_>>()
+        })
+        .filter_map(|child| child.parse().ok())
+        .collect()
+}
+
+/// Snapshot descendants from the kernel's parent/child relation. Session or
+/// process-group changes do not change that relation, so detached descendants
+/// remain discoverable until their parent exits.
+#[cfg(target_os = "linux")]
+pub(crate) fn process_descendants(root_pid: i32) -> Vec<ProcessIdentity> {
+    let mut descendants = Vec::new();
+    let mut queue = std::collections::VecDeque::from([root_pid]);
+    let mut seen = std::collections::HashSet::from([root_pid]);
+    while let Some(parent) = queue.pop_front() {
+        for child in direct_children(parent) {
+            if !seen.insert(child) {
+                continue;
+            }
+            if let Some(stat) = read_process_stat(child) {
+                descendants.push(stat.identity);
+                queue.push_back(child);
+            }
+        }
+    }
+    descendants
+}
+
+/// Snapshot all current members of an owned process group. This covers a
+/// leader that has already exited: its non-detached background children still
+/// retain the original process group after subreaper adoption.
+#[cfg(target_os = "linux")]
+pub(crate) fn process_group_members(process_group: i32) -> Vec<ProcessIdentity> {
+    let Ok(entries) = std::fs::read_dir("/proc") else {
+        return Vec::new();
+    };
+    entries
+        .filter_map(Result::ok)
+        .filter_map(|entry| entry.file_name().to_string_lossy().parse().ok())
+        .filter_map(read_process_stat)
+        .filter(|stat| stat.process_group == process_group)
+        .map(|stat| stat.identity)
+        .collect()
+}
+
+#[cfg(target_os = "linux")]
+fn identity_is_current(identity: ProcessIdentity) -> bool {
+    read_process_stat(identity.pid).is_some_and(|stat| stat.identity == identity)
+}
+
+#[cfg(target_os = "linux")]
+pub(crate) fn extend_with_descendants(processes: &mut Vec<ProcessIdentity>) {
+    let roots = processes.clone();
+    for root in roots {
+        if identity_is_current(root) {
+            for descendant in process_descendants(root.pid) {
+                if !processes.contains(&descendant) {
+                    processes.push(descendant);
+                }
+            }
+        }
+    }
+}
+
+#[cfg(target_os = "linux")]
+pub(crate) fn signal_processes(processes: &[ProcessIdentity], signal: i32) {
+    unsafe extern "C" {
+        fn kill(pid: i32, signal: i32) -> i32;
+    }
+
+    for identity in processes {
+        if identity_is_current(*identity) {
+            let _ = unsafe { kill(identity.pid, signal) };
+        }
+    }
+}
+
+#[cfg(target_os = "linux")]
+pub(crate) fn terminate_processes(processes: &[ProcessIdentity]) {
+    signal_processes(processes, SIGTERM);
+}
+
+#[cfg(target_os = "linux")]
+pub(crate) fn kill_processes(processes: &[ProcessIdentity]) {
+    signal_processes(processes, SIGKILL);
+}
+
+#[cfg(target_os = "linux")]
+pub(crate) fn tracked_processes_exist(processes: &[ProcessIdentity]) -> bool {
+    processes.iter().copied().any(identity_is_current)
+}
+
+/// Reap only exact, already-tracked descendants. `waitpid` returns ECHILD for
+/// a still-parented child; once the leader exits, the Linux subreaper adopts
+/// it and the next bounded pass can collect it.
+#[cfg(target_os = "linux")]
+pub(crate) fn reap_tracked_processes(processes: &[ProcessIdentity]) {
+    const WNOHANG: i32 = 1;
+
+    unsafe extern "C" {
+        fn waitpid(pid: i32, status: *mut i32, options: i32) -> i32;
+    }
+
+    for identity in processes {
+        if identity_is_current(*identity) {
+            let mut status = 0;
+            let _ = unsafe { waitpid(identity.pid, &mut status, WNOHANG) };
+        }
+    }
+}
+
+/// Leave Drop non-blocking while still giving adopted descendants a bounded
+/// chance to be reaped. The worker receives only exact snapshots from this
+/// App Server's tree/group and re-validates their start times before every
+/// wait, so it cannot kill or reap an unrelated reused pid.
+#[cfg(target_os = "linux")]
+pub(crate) fn reap_tracked_processes_after_drop(processes: Vec<ProcessIdentity>) {
+    const DROP_REAP_LIMIT: std::time::Duration = std::time::Duration::from_millis(250);
+    const POLL: std::time::Duration = std::time::Duration::from_millis(10);
+
+    let _ = std::thread::Builder::new()
+        .name("codexbar-app-server-reaper".into())
+        .spawn(move || {
+            let deadline = std::time::Instant::now() + DROP_REAP_LIMIT;
+            loop {
+                reap_tracked_processes(&processes);
+                if !tracked_processes_exist(&processes) || std::time::Instant::now() >= deadline {
+                    return;
+                }
+                std::thread::sleep(POLL);
+            }
+        });
+}
+
 #[cfg(windows)]
 use windows::Win32::Foundation::{CloseHandle, HANDLE};
 #[cfg(windows)]
