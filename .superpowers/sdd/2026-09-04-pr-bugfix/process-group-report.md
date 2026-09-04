@@ -41,6 +41,24 @@ regressions prove that (a) a shell-exited, subreaper-adopted background child
 is fully absent after Drop (not merely a zombie), and (b) a `setsid` child
 that escapes the original PGID is absent after shutdown.
 
+## Follow-up ownership ledger
+
+The next review identified a pre-shutdown gap: a detached child can make its
+shell leader exit before shutdown begins, at which point neither the old
+leader's procfs children nor its old PGID is safe to rediscover. Linux now
+starts a per-App-Server ledger monitor immediately after spawn. It records
+descendants while the leader's `(pid, start_time)` identity is still valid.
+After the leader disappears, cleanup may only signal or reap ledger identities
+whose start times still match; it does not broadcast to the historical PGID.
+
+Every group signal now requires that the original leader identity still exists
+and still owns the original group. This rejects a reused leader PID or a
+changed/reused PGID. Drop itself no longer performs procfs I/O or signalling:
+it only queues a 250 ms bounded worker, and the worker performs capture,
+identity-validated KILL, and reap work. New Linux regressions release a shell
+only after its detached child is observed in the early ledger, prove that the
+leader exits before shutdown, and assert that cleanup removes the child.
+
 ## Verification
 
 - `cargo test --manifest-path rust/Cargo.toml providers::codex::app_server::process -- --test-threads=1` — passed on Windows (13 tests; Linux-only cases correctly cfg-gated).
@@ -50,4 +68,7 @@ that escapes the original PGID is absent after shutdown.
 - `cargo test --manifest-path rust/Cargo.toml providers::codex::app_server::process -- --test-threads=1` — rerun after the follow-up; passed on Windows (13 tests; Linux-only cases cfg-gated).
 - `cargo test --manifest-path rust/Cargo.toml -- --test-threads=1` — rerun after the follow-up; passed on Windows (530 passed, 1 ignored).
 - `cargo clippy --manifest-path rust/Cargo.toml --all-targets -- -D warnings` — rerun after the follow-up; passed on Windows.
+- `cargo test --manifest-path rust/Cargo.toml -- --test-threads=1` — rerun after the ownership-ledger follow-up; passed on Windows (530 passed, 1 ignored).
+- `cargo test --manifest-path rust/Cargo.toml providers::codex::app_server::process -- --test-threads=1` — rerun after the ownership-ledger follow-up; passed on Windows (13 tests; Linux-only ledger and Drop cases cfg-gated).
+- `cargo clippy --manifest-path rust/Cargo.toml --all-targets -- -D warnings` and `cargo fmt --all -- --check` — rerun after the ownership-ledger follow-up; passed on Windows.
 - `cargo test --manifest-path rust/Cargo.toml --target x86_64-unknown-linux-gnu providers::codex::app_server::process --no-run` could not link because this Windows host lacks `x86_64-linux-gnu-gcc` (the `ring` build script fails before the crate compiles). Docker Desktop's Linux engine is also unavailable. Therefore only Ubuntu CI can execute the Linux-only regression tests; Windows verification is not presented as Linux proof.

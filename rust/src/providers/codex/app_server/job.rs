@@ -43,43 +43,6 @@ pub(crate) fn enable_child_subreaper() -> bool {
     unsafe { prctl(PR_SET_CHILD_SUBREAPER, 1, 0, 0, 0) == 0 }
 }
 
-/// Reap exited members that Linux reparented to this process after their App
-/// Server leader exited. A negative `waitpid` target selects direct children
-/// in exactly one process group and therefore cannot consume another group's
-/// child.
-#[cfg(target_os = "linux")]
-pub(crate) fn reap_process_group_children(process_group: i32) {
-    const WNOHANG: i32 = 1;
-
-    unsafe extern "C" {
-        fn waitpid(pid: i32, status: *mut i32, options: i32) -> i32;
-    }
-
-    if process_group <= 0 {
-        return;
-    }
-    loop {
-        let mut status = 0;
-        let result = unsafe { waitpid(-process_group, &mut status, WNOHANG) };
-        if result <= 0 {
-            return;
-        }
-    }
-}
-
-/// Whether a Unix process group still has any member. This intentionally uses
-/// `kill(..., 0)`: after `reap_process_group_children` has run, a successful
-/// probe represents a member still awaiting termination rather than one of
-/// this supervisor's unreaped zombies.
-#[cfg(target_os = "linux")]
-pub(crate) fn process_group_exists(process_group: i32) -> bool {
-    unsafe extern "C" {
-        fn kill(pid: i32, signal: i32) -> i32;
-    }
-
-    process_group > 0 && unsafe { kill(-process_group, 0) == 0 }
-}
-
 /// A process id paired with the kernel start-time field from `/proc/<pid>/stat`.
 /// The start time prevents a delayed cleanup worker from signalling a reused
 /// pid that no longer belongs to the App Server tree.
@@ -162,36 +125,17 @@ pub(crate) fn process_descendants(root_pid: i32) -> Vec<ProcessIdentity> {
 /// leader that has already exited: its non-detached background children still
 /// retain the original process group after subreaper adoption.
 #[cfg(target_os = "linux")]
-pub(crate) fn process_group_members(process_group: i32) -> Vec<ProcessIdentity> {
-    let Ok(entries) = std::fs::read_dir("/proc") else {
-        return Vec::new();
-    };
-    entries
-        .filter_map(Result::ok)
-        .filter_map(|entry| entry.file_name().to_string_lossy().parse().ok())
-        .filter_map(read_process_stat)
-        .filter(|stat| stat.process_group == process_group)
-        .map(|stat| stat.identity)
-        .collect()
-}
-
-#[cfg(target_os = "linux")]
 fn identity_is_current(identity: ProcessIdentity) -> bool {
     read_process_stat(identity.pid).is_some_and(|stat| stat.identity == identity)
 }
 
 #[cfg(target_os = "linux")]
-pub(crate) fn extend_with_descendants(processes: &mut Vec<ProcessIdentity>) {
-    let roots = processes.clone();
-    for root in roots {
-        if identity_is_current(root) {
-            for descendant in process_descendants(root.pid) {
-                if !processes.contains(&descendant) {
-                    processes.push(descendant);
-                }
-            }
-        }
-    }
+fn leader_owns_group(
+    stat: Option<ProcessStat>,
+    leader: ProcessIdentity,
+    process_group: i32,
+) -> bool {
+    stat.is_some_and(|stat| stat.identity == leader && stat.process_group == process_group)
 }
 
 #[cfg(target_os = "linux")]
@@ -241,27 +185,139 @@ pub(crate) fn reap_tracked_processes(processes: &[ProcessIdentity]) {
     }
 }
 
-/// Leave Drop non-blocking while still giving adopted descendants a bounded
-/// chance to be reaped. The worker receives only exact snapshots from this
-/// App Server's tree/group and re-validates their start times before every
-/// wait, so it cannot kill or reap an unrelated reused pid.
+/// Per-App-Server ownership ledger. It starts tracking immediately after
+/// spawn, while the validated leader is still available in procfs. After that
+/// leader disappears, cleanup is limited to identities already recorded here;
+/// historical pids and process groups are never rediscovered or signalled.
 #[cfg(target_os = "linux")]
-pub(crate) fn reap_tracked_processes_after_drop(processes: Vec<ProcessIdentity>) {
-    const DROP_REAP_LIMIT: std::time::Duration = std::time::Duration::from_millis(250);
-    const POLL: std::time::Duration = std::time::Duration::from_millis(10);
+pub(crate) struct ProcessLedger {
+    leader: ProcessIdentity,
+    process_group: i32,
+    tracked: std::sync::Mutex<std::collections::HashSet<ProcessIdentity>>,
+    stop_monitor: std::sync::atomic::AtomicBool,
+}
 
-    let _ = std::thread::Builder::new()
-        .name("codexbar-app-server-reaper".into())
-        .spawn(move || {
-            let deadline = std::time::Instant::now() + DROP_REAP_LIMIT;
-            loop {
-                reap_tracked_processes(&processes);
-                if !tracked_processes_exist(&processes) || std::time::Instant::now() >= deadline {
-                    return;
-                }
-                std::thread::sleep(POLL);
-            }
+#[cfg(target_os = "linux")]
+impl ProcessLedger {
+    pub(crate) fn start(leader_pid: i32) -> Option<std::sync::Arc<Self>> {
+        let leader = read_process_stat(leader_pid)?.identity;
+        let ledger = std::sync::Arc::new(Self {
+            leader,
+            process_group: leader_pid,
+            tracked: std::sync::Mutex::new(std::collections::HashSet::new()),
+            stop_monitor: std::sync::atomic::AtomicBool::new(false),
         });
+        ledger.capture();
+        Self::start_monitor(&ledger);
+        Some(ledger)
+    }
+
+    fn start_monitor(ledger: &std::sync::Arc<Self>) {
+        let ledger = std::sync::Arc::clone(ledger);
+        let _ = std::thread::Builder::new()
+            .name("codexbar-app-server-tracker".into())
+            .spawn(move || {
+                const POLL: std::time::Duration = std::time::Duration::from_millis(5);
+                while !ledger
+                    .stop_monitor
+                    .load(std::sync::atomic::Ordering::Acquire)
+                {
+                    if !ledger.leader_is_current() {
+                        return;
+                    }
+                    ledger.capture();
+                    std::thread::sleep(POLL);
+                }
+            });
+    }
+
+    pub(crate) fn stop_monitoring(&self) {
+        self.stop_monitor
+            .store(true, std::sync::atomic::Ordering::Release);
+    }
+
+    pub(crate) fn capture(&self) {
+        if !self.leader_is_current() {
+            return;
+        }
+        if let Ok(mut tracked) = self.tracked.lock() {
+            for descendant in process_descendants(self.leader.pid) {
+                tracked.insert(descendant);
+            }
+        }
+    }
+
+    fn leader_is_current(&self) -> bool {
+        identity_is_current(self.leader)
+    }
+
+    fn owns_process_group(&self) -> bool {
+        leader_owns_group(
+            read_process_stat(self.leader.pid),
+            self.leader,
+            self.process_group,
+        )
+    }
+
+    fn snapshot(&self) -> Vec<ProcessIdentity> {
+        self.tracked
+            .lock()
+            .map(|tracked| tracked.iter().copied().collect())
+            .unwrap_or_default()
+    }
+
+    pub(crate) fn terminate(&self) {
+        let tracked = self.snapshot();
+        terminate_processes(&tracked);
+        if self.owns_process_group() {
+            terminate_process_group(self.process_group);
+        }
+    }
+
+    pub(crate) fn kill(&self) {
+        let tracked = self.snapshot();
+        kill_processes(&tracked);
+        if self.owns_process_group() {
+            kill_process_group(self.process_group);
+        }
+    }
+
+    pub(crate) fn reap(&self) {
+        reap_tracked_processes(&self.snapshot());
+    }
+
+    pub(crate) fn is_drained(&self) -> bool {
+        !self.owns_process_group() && !tracked_processes_exist(&self.snapshot())
+    }
+
+    /// Drop performs no procfs I/O or signalling. The worker owns every
+    /// potentially slow operation and stops at a fixed deadline.
+    pub(crate) fn spawn_drop_cleanup(self: std::sync::Arc<Self>) {
+        self.stop_monitoring();
+        let _ = std::thread::Builder::new()
+            .name("codexbar-app-server-drop-cleanup".into())
+            .spawn(move || {
+                const LIMIT: std::time::Duration = std::time::Duration::from_millis(250);
+                const POLL: std::time::Duration = std::time::Duration::from_millis(10);
+                let deadline = std::time::Instant::now() + LIMIT;
+                loop {
+                    self.capture();
+                    self.kill();
+                    self.reap();
+                    if self.is_drained() || std::time::Instant::now() >= deadline {
+                        return;
+                    }
+                    std::thread::sleep(POLL);
+                }
+            });
+    }
+
+    #[cfg(test)]
+    pub(crate) fn tracks(&self, pid: i32) -> bool {
+        self.tracked
+            .lock()
+            .is_ok_and(|tracked| tracked.iter().any(|identity| identity.pid == pid))
+    }
 }
 
 #[cfg(windows)]
@@ -357,6 +413,42 @@ mod tests {
     #[test]
     fn kill_on_close_limit_is_enabled_by_contract() {
         assert_eq!(JOB_KILL_ON_CLOSE_FLAG, 8192);
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn leader_group_ownership_rejects_reused_pid_or_changed_group() {
+        let leader = ProcessIdentity {
+            pid: 42,
+            start_time: 100,
+        };
+        assert!(leader_owns_group(
+            Some(ProcessStat {
+                identity: leader,
+                process_group: 42,
+            }),
+            leader,
+            42,
+        ));
+        assert!(!leader_owns_group(
+            Some(ProcessStat {
+                identity: ProcessIdentity {
+                    pid: 42,
+                    start_time: 101,
+                },
+                process_group: 42,
+            }),
+            leader,
+            42,
+        ));
+        assert!(!leader_owns_group(
+            Some(ProcessStat {
+                identity: leader,
+                process_group: 99,
+            }),
+            leader,
+            42,
+        ));
     }
 
     #[cfg(windows)]
