@@ -1,6 +1,6 @@
 [package]
 name = "codex-barbar-desktop"
-version = "1.0.30"
+version = "1.1.0"
 edition = "2024"
 publish = false
 description = "Desktop tray app for AI-provider usage and account management"

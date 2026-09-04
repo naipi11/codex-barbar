@@ -70,3 +70,22 @@ bash scripts/linux-release-build.sh --version 1.1.0 --output artifacts/linux-rel
 bash scripts/verify-linux-release-artifacts.sh --version 1.1.0 --assets artifacts/linux-release
 sha256sum artifacts/linux-release/codex-barbar_1.1.0_amd64.deb
 ```
+
+## Fix round 1: review corrections
+
+- The reverse-DNS Tauri `identifier` remains `com.naipi11.codexbarbar`, but the
+  Debian bundler derives the Debian control `Package` field from the active
+  `productName`. The active product name is `codex-barbar`, so staging,
+  verification, the target manifest, and the fixture now all require
+  `Package: codex-barbar` while retaining the exact
+  `codex-barbar_<version>_amd64.deb` asset name. This removes the old
+  hand-authored fixture mismatch that would have hidden a real Tauri failure.
+- Synchronized the active core Cargo manifest, desktop Cargo manifest,
+  frontend package manifest, base Tauri config, and both root Cargo.lock local
+  package entries to release version `1.1.0`. The shell regression now rejects
+  any mismatch before host-specific package tooling is required.
+- The verifier now compares target-manifest `files[0].size` to the actual
+  staged Debian archive byte size, in addition to its SHA-256 check.
+- Re-ran the Git Bash shell regression after the correction; static checks
+  passed and the `dpkg-deb` fixture segment remained correctly skipped on this
+  non-Debian host. Ubuntu package-build evidence remains unperformed as above.

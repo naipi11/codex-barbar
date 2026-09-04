@@ -23,13 +23,35 @@ grep -q 'const DESKTOP_FILE_NAME: &str = "com.naipi11.codexbarbar.desktop"' rust
 node <<'NODE'
 const fs = require('fs');
 const config = JSON.parse(fs.readFileSync('apps/desktop-tauri/src-tauri/tauri.linux.conf.json', 'utf8'));
+const baseConfig = JSON.parse(fs.readFileSync('apps/desktop-tauri/src-tauri/tauri.conf.json', 'utf8'));
+const packageJson = JSON.parse(fs.readFileSync('apps/desktop-tauri/package.json', 'utf8'));
 const bundle = config.bundle || {};
 if (!Array.isArray(bundle.targets) || bundle.targets[0] !== 'deb') throw new Error('Linux bundle target must be deb');
 if (config.identifier !== 'com.naipi11.codexbarbar') throw new Error('Linux package identifier mismatch');
+if (baseConfig.productName !== 'codex-barbar') throw new Error('Tauri Debian Package must derive from productName codex-barbar');
 if (bundle.category !== 'Utility' || bundle.license !== 'MIT') throw new Error('Linux package metadata mismatch');
 const depends = (((bundle.linux || {}).deb || {}).depends || []).join('\n');
 for (const dependency of ['libwebkit2gtk-4.1-0', 'libgtk-3-0', 'libayatana-appindicator3-1', 'libsecret-1-0']) {
   if (!depends.includes(dependency)) throw new Error(`missing runtime dependency: ${dependency}`);
+}
+const releaseVersion = '1.1.0';
+const cargoVersions = [
+  fs.readFileSync('rust/Cargo.toml', 'utf8'),
+  fs.readFileSync('apps/desktop-tauri/src-tauri/Cargo.toml', 'utf8')
+].map((text) => /^version = "([^"]+)"/m.exec(text)?.[1]);
+if (baseConfig.version !== releaseVersion || packageJson.version !== releaseVersion || cargoVersions.some((version) => version !== releaseVersion)) {
+  throw new Error(`release manifests must all use ${releaseVersion}`);
+}
+const lock = fs.readFileSync('Cargo.lock', 'utf8');
+for (const name of ['codexbar', 'codex-barbar-desktop']) {
+  if (!new RegExp(`name = "${name}"\\nversion = "${releaseVersion}"`).test(lock)) {
+    throw new Error(`Cargo.lock package version mismatch: ${name}`);
+  }
+}
+for (const script of ['scripts/linux-release-build.sh', 'scripts/verify-linux-release-artifacts.sh']) {
+  if (!fs.readFileSync(script, 'utf8').includes('Package)" == "codex-barbar"')) {
+    throw new Error(`${script} must validate Tauri's codex-barbar Debian Package field`);
+  }
 }
 NODE
 
@@ -56,7 +78,7 @@ mkdir -p "$fixture/DEBIAN" "$fixture/usr/bin" \
   "$fixture/usr/share/applications" \
   "$fixture/usr/share/icons/hicolor/1024x1024/apps"
 cat >"$fixture/DEBIAN/control" <<'CONTROL'
-Package: com.naipi11.codexbarbar
+Package: codex-barbar
 Version: 1.1.0
 Architecture: amd64
 Maintainer: codex-barbar

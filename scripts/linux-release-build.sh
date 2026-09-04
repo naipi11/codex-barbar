@@ -53,7 +53,7 @@ deb_source="$target_root/release/bundle/deb/$deb_name"
 command -v dpkg-deb >/dev/null 2>&1 || die 'dpkg-deb is required to stage a Debian release'
 command -v node >/dev/null 2>&1 || die 'node is required to write the SPDX SBOM and manifest'
 command -v sha256sum >/dev/null 2>&1 || die 'sha256sum is required to stage a Debian release'
-[[ "$(dpkg-deb --field "$deb_source" Package)" == "com.naipi11.codexbarbar" ]] || die 'Debian bundle Package field is not com.naipi11.codexbarbar'
+[[ "$(dpkg-deb --field "$deb_source" Package)" == "codex-barbar" ]] || die 'Debian bundle Package field is not codex-barbar'
 [[ "$(dpkg-deb --field "$deb_source" Version)" == "$version" ]] || die "Debian bundle Version does not match $version"
 [[ "$(dpkg-deb --field "$deb_source" Architecture)" == "amd64" ]] || die 'Debian bundle Architecture is not amd64'
 
@@ -97,7 +97,7 @@ const manifest = {
   version,
   commit,
   target: 'x86_64-unknown-linux-gnu',
-  package: 'com.naipi11.codexbarbar',
+  package: 'codex-barbar',
   files: [{ name: debName, size: fs.statSync(debPath).size, sha256: debHash }]
 };
 fs.writeFileSync(sbomPath, `${JSON.stringify(sbom, null, 2)}\n`);

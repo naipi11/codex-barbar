@@ -59,7 +59,7 @@ for name in "${expected[@]}"; do
 done
 
 deb="$assets/$deb_name"
-[[ "$(dpkg-deb --field "$deb" Package)" == "com.naipi11.codexbarbar" ]] || die 'Debian Package field mismatch'
+[[ "$(dpkg-deb --field "$deb" Package)" == "codex-barbar" ]] || die 'Debian Package field mismatch'
 [[ "$(dpkg-deb --field "$deb" Version)" == "$version" ]] || die 'Debian Version field mismatch'
 [[ "$(dpkg-deb --field "$deb" Architecture)" == "amd64" ]] || die 'Debian Architecture field mismatch'
 depends="$(dpkg-deb --field "$deb" Depends)"
@@ -90,18 +90,18 @@ expected_hash="$(awk -v name="$deb_name" '$2 == name && $1 ~ /^[0-9a-f]{64}$/ { 
 actual_hash="$(sha256sum "$deb" | awk '{print $1}')"
 [[ "$expected_hash" == "$actual_hash" ]] || die "SHA256 mismatch for $deb_name"
 
-node - "$version" "$deb_name" "$actual_hash" "$assets/$sbom_name" "$assets/artifact-manifest.json" <<'NODE'
+node - "$version" "$deb_name" "$actual_hash" "$assets/$sbom_name" "$assets/artifact-manifest.json" "$deb" <<'NODE'
 const fs = require('fs');
-const [version, debName, debHash, sbomPath, manifestPath] = process.argv.slice(2);
+const [version, debName, debHash, sbomPath, manifestPath, debPath] = process.argv.slice(2);
 const sbom = JSON.parse(fs.readFileSync(sbomPath, 'utf8'));
 if (sbom.spdxVersion !== 'SPDX-2.3' || sbom.name !== 'codex-barbar') throw new Error('invalid SPDX document');
 const root = (sbom.packages || []).find((entry) => entry.SPDXID === 'SPDXRef-Package-codex-barbar');
 if (!root || root.versionInfo !== version || root.licenseDeclared !== 'MIT' || root.licenseConcluded !== 'MIT') throw new Error('invalid SPDX root package');
 if (!root.checksums?.some((entry) => entry.algorithm === 'SHA256' && entry.checksumValue === debHash)) throw new Error('SPDX package hash mismatch');
 const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
-if (manifest.version !== version || manifest.target !== 'x86_64-unknown-linux-gnu' || manifest.package !== 'com.naipi11.codexbarbar') throw new Error('invalid target manifest');
+if (manifest.version !== version || manifest.target !== 'x86_64-unknown-linux-gnu' || manifest.package !== 'codex-barbar') throw new Error('invalid target manifest');
 const asset = (manifest.files || []).find((entry) => entry.name === debName);
-if (!asset || asset.sha256 !== debHash || !Number.isInteger(asset.size) || asset.size < 1) throw new Error('invalid target manifest asset');
+if (!asset || asset.sha256 !== debHash || asset.size !== fs.statSync(debPath).size) throw new Error('invalid target manifest asset');
 NODE
 
 printf 'Linux release artifacts verified: %s\n' "$assets"
