@@ -124,6 +124,21 @@ mod tests {
         assert_eq!(normalize_codex_sessions_dir("  "), None);
     }
 
+    #[cfg(windows)]
+    #[test]
+    fn normalizes_windows_unc_and_drive_sessions_paths() {
+        assert_eq!(
+            normalize_codex_sessions_dir(r"\\wsl.localhost\archlinux\home\kk\.codex"),
+            Some(PathBuf::from(
+                r"\\wsl.localhost\archlinux\home\kk\.codex\sessions"
+            ))
+        );
+        assert_eq!(
+            normalize_codex_sessions_dir(r"C:\Users\me\.codex\sessions"),
+            Some(PathBuf::from(r"C:\Users\me\.codex\sessions"))
+        );
+    }
+
     #[test]
     fn discovers_wsl_codex_sessions_dirs_from_distro_homes() {
         let base = std::env::temp_dir().join(format!("codexbar-wsl-roots-{}", std::process::id()));

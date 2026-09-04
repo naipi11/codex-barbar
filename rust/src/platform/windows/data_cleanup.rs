@@ -322,6 +322,12 @@ mod tests {
 
     #[test]
     fn purge_rejects_parent_relative_and_reparse_targets() {
+        let noncanonical_absolute = fake_base().join("another-app");
+        assert_eq!(
+            purger().validate_target(&noncanonical_absolute),
+            Err(PurgeError::TargetNotCanonicalRoot)
+        );
+        #[cfg(windows)]
         assert_eq!(
             purger().validate_target(Path::new(r"C:\Users\A\AppData\Local")),
             Err(PurgeError::TargetNotCanonicalRoot)

@@ -43,15 +43,30 @@ impl AppPaths {
 
 #[cfg(test)]
 mod tests {
+    #[cfg(not(windows))]
+    use std::path::Path;
     use std::path::PathBuf;
 
     use super::AppPaths;
 
     #[test]
     fn derives_every_v1_path_from_local_app_data() {
-        let base = PathBuf::from("fixtures").join("local-app-data");
+        #[cfg(windows)]
+        let base = PathBuf::from(r"C:\Users\A\AppData\Local");
+        #[cfg(not(windows))]
+        let base = PathBuf::from("/var/lib/local-app-data");
+
         let paths = AppPaths::from_local_app_data(&base);
-        assert_eq!(paths.root, base.join("codex-barbar"));
+        #[cfg(windows)]
+        assert_eq!(
+            paths.root,
+            PathBuf::from(r"C:\Users\A\AppData\Local\codex-barbar")
+        );
+        #[cfg(not(windows))]
+        assert_eq!(
+            paths.root,
+            Path::new("/var/lib/local-app-data/codex-barbar")
+        );
         assert_eq!(
             paths.database,
             paths.root.join("data").join("codex-barbar.db")

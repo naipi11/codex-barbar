@@ -18,6 +18,9 @@ modified.
 - App-path, Codex-session, data-cleanup, and start-at-login tests no longer
   encode Windows separators in fixtures. The autostart command-string tests
   remain Windows-only because their absolute-path contract is Windows-specific.
+  The portable data-cleanup test now supplies a native absolute noncanonical
+  target, while Windows UNC, drive-path, and separator coverage is retained
+  behind `cfg(windows)`.
 - Backup names used only a millisecond timestamp, permitting overwrites during
   rapid migrations. A UUID suffix makes every snapshot distinct while the
   timestamp prefix preserves chronological retention ordering.
@@ -33,6 +36,18 @@ modified.
   - passed
 - `git diff --check`
   - passed
+
+## Follow-up review correction
+
+The original data-cleanup fixture still used a Windows literal for its
+noncanonical-target assertion. It now uses a native absolute sibling target
+on every platform and keeps the literal assertion behind `cfg(windows)`. The
+app-path test similarly keeps its Windows absolute/separator assertion while
+using a native Unix expectation elsewhere, and Codex-session Windows UNC and
+drive-path checks are restored under `cfg(windows)`.
+
+Follow-up verification reran the full shared suite: 530 passed, 0 failed, 1
+ignored; shared clippy, `cargo fmt --check`, and `git diff --check` passed.
 
 `cargo check --manifest-path rust/Cargo.toml --all-targets --target
 x86_64-unknown-linux-gnu` could not complete because this host lacks
