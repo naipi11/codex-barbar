@@ -1001,12 +1001,22 @@ time.sleep(60)
             fn getpgid(pid: i32) -> i32;
         }
 
+        let script = r#"
+import os
+import time
+
+child = os.fork()
+if child == 0:
+    os.setsid()
+    print(os.getpid(), flush=True)
+    time.sleep(60)
+    os._exit(0)
+
+os.waitpid(child, 0)
+"#;
         let command = ResolvedCodexCommand::from_parts(
-            PathBuf::from("/bin/sh"),
-            vec![
-                OsString::from("-c"),
-                OsString::from("setsid sleep 60 & printf '%s\\n' \"$!\"; wait"),
-            ],
+            PathBuf::from("/usr/bin/python3"),
+            vec![OsString::from("-c"), OsString::from(script)],
             super::super::discovery::CodexInstallation::NativeExe,
         );
         let mut spec = AppServerSpawnSpec::current_cli(command);
@@ -1016,11 +1026,14 @@ time.sleep(60)
         let mut stdout = tokio::io::BufReader::new(process.stdout().expect("stdout piped"));
         let descendant = read_reported_pid(&mut stdout).await;
         drop(stdout);
+        let descendant_identity =
+            read_linux_process_identity(descendant).expect("detached descendant identity");
         assert_ne!(unsafe { getpgid(descendant) }, process_group);
+        assert_eq!(unsafe { getpgid(descendant) }, descendant);
 
         process.shutdown(Duration::from_millis(50)).await;
         assert_process_group_exits_within(process_group, Duration::from_secs(1)).await;
-        assert_pid_exits_within(descendant, Duration::from_secs(1)).await;
+        assert_process_identity_exits_within(descendant_identity, Duration::from_secs(1)).await;
     }
 
     #[cfg(target_os = "linux")]
@@ -1089,25 +1102,6 @@ time.sleep(60)
             .expect("shell must report its background descendant")
             .expect("background descendant pid must be readable");
         line.trim().to_owned()
-    }
-
-    #[cfg(target_os = "linux")]
-    async fn assert_pid_exits_within(pid: i32, limit: Duration) {
-        unsafe extern "C" {
-            fn kill(pid: i32, signal: i32) -> i32;
-        }
-
-        let deadline = tokio::time::Instant::now() + limit;
-        loop {
-            if unsafe { kill(pid, 0) } != 0 {
-                return;
-            }
-            assert!(
-                tokio::time::Instant::now() < deadline,
-                "pid {pid} survived bounded cleanup"
-            );
-            tokio::time::sleep(Duration::from_millis(10)).await;
-        }
     }
 
     #[cfg(target_os = "linux")]

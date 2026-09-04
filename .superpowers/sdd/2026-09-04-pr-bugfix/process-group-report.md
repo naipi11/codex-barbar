@@ -189,3 +189,26 @@ Post-fix Windows verification:
 This Windows host still cannot execute the Linux-only cases. The next Ubuntu
 PR run must confirm that shared clippy is clear and execute the Linux process
 regressions.
+
+## PR #33 detached-fixture follow-up
+
+Ubuntu run `33874033848` showed that the shell command `setsid sleep ... &`
+reports the wrapper PID in that environment; that PID was still in the
+supervisor process group, so the escaped-group test failed before exercising
+cleanup. The production supervisor was not implicated, and the independent
+immediate-detach regression passed in the same run.
+
+The escaped-group fixture now runs `/usr/bin/python3 -c`, forks once, and has
+the child itself call `os.setsid()` before printing its own PID and sleeping.
+The test requires both `getpgid(child) != supervisor_pgid` and
+`getpgid(child) == child`, then requires the exact `(pid, start_time)` identity
+and the supervisor process group to disappear within their existing bounds.
+The Python parent waits for the child, so shutdown still has to kill the
+leader, adopt the detached child, kill it, and reap the complete tree. The
+unused PID-only wait helper was removed; no production code changed.
+
+Post-fixture Windows verification was rerun: shared Rust 530 passed with 1
+ignored, App Server contract 17 passed, icon assets 3 passed, desktop Tauri
+Rust 264 passed, both Rust clippy commands passed with `-D warnings`, and
+format/diff checks passed. Linux execution still requires the next Ubuntu PR
+run.
