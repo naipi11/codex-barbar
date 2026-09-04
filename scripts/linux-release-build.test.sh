@@ -20,7 +20,7 @@ require_file scripts/linux-release-build.sh
 require_file scripts/verify-linux-release-artifacts.sh
 grep -q 'const DESKTOP_FILE_NAME: &str = "com.naipi11.codexbarbar.desktop"' rust/src/platform/linux/autostart.rs
 
-node <<'NODE'
+mapfile -t product_manifest < <(node <<'NODE'
 const fs = require('fs');
 const config = JSON.parse(fs.readFileSync('apps/desktop-tauri/src-tauri/tauri.linux.conf.json', 'utf8'));
 const baseConfig = JSON.parse(fs.readFileSync('apps/desktop-tauri/src-tauri/tauri.conf.json', 'utf8'));
@@ -34,7 +34,10 @@ const depends = (((bundle.linux || {}).deb || {}).depends || []).join('\n');
 for (const dependency of ['libwebkit2gtk-4.1-0', 'libgtk-3-0', 'libayatana-appindicator3-1', 'libsecret-1-0']) {
   if (!depends.includes(dependency)) throw new Error(`missing runtime dependency: ${dependency}`);
 }
-const releaseVersion = '1.1.0';
+const productName = baseConfig.productName;
+const releaseVersion = baseConfig.version;
+if (typeof productName !== 'string' || productName.length === 0) throw new Error('Tauri productName is required');
+if (!/^[0-9]+\.[0-9]+\.[0-9]+(-((alpha|beta|rc)\.[0-9]+))?$/.test(releaseVersion)) throw new Error(`invalid product version: ${releaseVersion}`);
 const cargoVersions = [
   fs.readFileSync('rust/Cargo.toml', 'utf8'),
   fs.readFileSync('apps/desktop-tauri/src-tauri/Cargo.toml', 'utf8')
@@ -49,24 +52,24 @@ for (const name of ['codexbar', 'codex-barbar-desktop']) {
   }
 }
 for (const script of ['scripts/linux-release-build.sh', 'scripts/verify-linux-release-artifacts.sh']) {
-  if (!fs.readFileSync(script, 'utf8').includes('Package)" == "codex-barbar"')) {
-    throw new Error(`${script} must validate Tauri's codex-barbar Debian Package field`);
+  if (!fs.readFileSync(script, 'utf8').includes(`Package)" == "${productName}"`)) {
+    throw new Error(`${script} must validate Tauri's ${productName} Debian Package field`);
   }
 }
-const fixtureScript = fs.readFileSync('scripts/linux-release-build.test.sh', 'utf8');
-const fixtureDesktop = fixtureScript.match(/\$fixture\/usr\/share\/applications\/([^"\n]+)/)?.[1];
-if (fixtureDesktop !== 'codex-barbar.desktop') {
-  throw new Error('dpkg-deb fixture must use Tauri generated codex-barbar.desktop');
-}
+console.log(productName);
+console.log(releaseVersion);
 NODE
+)
+product_name="${product_manifest[0]}"
+release_version="${product_manifest[1]}"
 
-grep -Eq 'codex-barbar_.*_amd64\.deb' scripts/verify-linux-release-artifacts.sh
+grep -Eq "${product_name}_.*_amd64\\.deb" scripts/verify-linux-release-artifacts.sh
 bash -n scripts/linux-release-build.sh scripts/verify-linux-release-artifacts.sh scripts/linux-release-build.test.sh
 
 tmp="$(mktemp -d)"
 trap 'rm -rf "$tmp"' EXIT
 
-if bash scripts/linux-release-build.sh --version 1.1.0 --output "$tmp/missing" >"$tmp/missing.log" 2>&1; then
+if bash scripts/linux-release-build.sh --version "$release_version" --output "$tmp/missing" >"$tmp/missing.log" 2>&1; then
   printf 'staging unexpectedly succeeded without a Debian package\n' >&2
   exit 1
 fi
@@ -82,22 +85,22 @@ fixture="$tmp/fixture"
 mkdir -p "$fixture/DEBIAN" "$fixture/usr/bin" \
   "$fixture/usr/share/applications" \
   "$fixture/usr/share/icons/hicolor/1024x1024/apps"
-cat >"$fixture/DEBIAN/control" <<'CONTROL'
-Package: codex-barbar
-Version: 1.1.0
+cat >"$fixture/DEBIAN/control" <<CONTROL
+Package: $product_name
+Version: $release_version
 Architecture: amd64
 Maintainer: codex-barbar
 Description: fixture
 Depends: libwebkit2gtk-4.1-0, libgtk-3-0, libayatana-appindicator3-1, libsecret-1-0
 CONTROL
-printf '#!/bin/sh\nexit 0\n' >"$fixture/usr/bin/codex-barbar"
-chmod 0755 "$fixture/usr/bin/codex-barbar"
-printf '[Desktop Entry]\nType=Application\nName=codex-barbar\n' >"$fixture/usr/share/applications/codex-barbar.desktop"
-printf 'fixture icon\n' >"$fixture/usr/share/icons/hicolor/1024x1024/apps/codex-barbar.png"
+printf '#!/bin/sh\nexit 0\n' >"$fixture/usr/bin/$product_name"
+chmod 0755 "$fixture/usr/bin/$product_name"
+printf '[Desktop Entry]\nType=Application\nName=%s\n' "$product_name" >"$fixture/usr/share/applications/$product_name.desktop"
+printf 'fixture icon\n' >"$fixture/usr/share/icons/hicolor/1024x1024/apps/$product_name.png"
 
 mkdir -p "$tmp/target/release/bundle/deb"
-dpkg-deb --build "$fixture" "$tmp/target/release/bundle/deb/codex-barbar_1.1.0_amd64.deb" >/dev/null
-CARGO_TARGET_DIR="$tmp/target" bash scripts/linux-release-build.sh --version 1.1.0 --output "$tmp/assets"
-bash scripts/verify-linux-release-artifacts.sh --version 1.1.0 --assets "$tmp/assets"
+dpkg-deb --build "$fixture" "$tmp/target/release/bundle/deb/${product_name}_${release_version}_amd64.deb" >/dev/null
+CARGO_TARGET_DIR="$tmp/target" bash scripts/linux-release-build.sh --version "$release_version" --output "$tmp/assets"
+bash scripts/verify-linux-release-artifacts.sh --version "$release_version" --assets "$tmp/assets"
 
 printf 'linux release script tests passed\n'

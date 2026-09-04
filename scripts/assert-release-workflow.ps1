@@ -23,6 +23,12 @@ $prWorkflow = Get-Content -Raw -Encoding utf8 -LiteralPath $prWorkflowPath
 if ($workflow -notmatch '(?ms)^permissions:\r?\n  contents: read\r?$') {
     throw 'Release workflow default permissions must be contents: read.'
 }
+if ($prWorkflow -notmatch '(?ms)^permissions:\r?\n  contents: read\r?$') {
+    throw 'PR workflow default permissions must be contents: read.'
+}
+if ([regex]::Matches($prWorkflow, '(?m)^\s+contents: write\r?$').Count -ne 0) {
+    throw 'PR workflow must not grant contents: write.'
+}
 
 foreach ($fragment in @('windows-build:', 'linux-build:', 'publish:')) {
     if (-not $workflow.Contains($fragment)) {
@@ -55,7 +61,7 @@ $publish = $publishMatch.Value
 if ($publish -notmatch '(?ms)^  publish:\r?\n.*?^    permissions:\r?\n      contents: write\r?$') {
     throw 'Publish must be the only job granted contents: write.'
 }
-if ([regex]::Matches($workflow, '(?m)^\s+contents: write$').Count -ne 1) {
+if ([regex]::Matches($workflow, '(?m)^\s+contents: write\r?$').Count -ne 1) {
     throw 'No job other than publish may be granted contents: write.'
 }
 foreach ($buildJob in @('windows-build', 'linux-build')) {
@@ -64,7 +70,7 @@ foreach ($buildJob in @('windows-build', 'linux-build')) {
         throw "$buildJob checkout must disable persisted credentials."
     }
 }
-if ($publish -notmatch '(?m)^    needs:\s*\[windows-build, linux-build\]$') {
+if ($publish -notmatch '(?m)^    needs:\s*\[windows-build, linux-build\]\r?$') {
     throw 'Publish must require both windows-build and linux-build.'
 }
 foreach ($fragment in @(
@@ -116,7 +122,7 @@ if ($publish.IndexOf('Verify release tag provenance') -gt $publish.IndexOf('gh r
     throw 'Release tag provenance must be verified before release creation.'
 }
 
-if ($workflow -match '(?m)^\s*\$resolved\s*=\s*"?\$\{\{ inputs\.version \}\}"?$' -or $workflow -match "(?m)^\s*resolved='\$\{\{ inputs\.version \}\}'$") {
+if ($workflow -match '(?m)^\s*\$resolved\s*=\s*"?\$\{\{ inputs\.version \}\}"?\r?$' -or $workflow -match "(?m)^\s*resolved='\$\{\{ inputs\.version \}\}'\r?$") {
     throw 'Workflow-dispatch version must not be interpolated into shell source.'
 }
 foreach ($fragment in @(
@@ -140,7 +146,7 @@ if (-not $gateMatch.Success) {
 }
 
 $gate = $gateMatch.Value
-if ([regex]::Matches($workflow, '(?m)^      - name: Dependabot alert gate$').Count -ne 1 -or -not $publish.Contains($gate)) {
+if ([regex]::Matches($workflow, '(?m)^      - name: Dependabot alert gate\r?$').Count -ne 1 -or -not $publish.Contains($gate)) {
     throw 'Dependabot alert gate must run exactly once in publish.'
 }
 $required = @(

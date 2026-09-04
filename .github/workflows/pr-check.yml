@@ -23,6 +23,9 @@ concurrency:
 env:
   CARGO_TERM_COLOR: always
 
+permissions:
+  contents: read
+
 jobs:
   pr-check:
     name: Windows V1 gate
@@ -83,6 +86,10 @@ jobs:
       - name: Release workflow policy guard
         shell: pwsh
         run: .\scripts\assert-release-workflow.ps1
+
+      - name: Release workflow CRLF regression
+        shell: pwsh
+        run: .\scripts\assert-release-workflow.test.ps1
 
       - name: Production dependency audit
         run: pnpm --dir apps/desktop-tauri audit --prod --audit-level high
@@ -176,7 +183,18 @@ jobs:
       - name: Build Debian bundle
         run: pnpm --dir apps/desktop-tauri run tauri:build:linux
 
+      - name: Resolve product version
+        id: version
+        shell: bash
+        run: |
+          version="$(node -e "const fs = require('fs'); const config = JSON.parse(fs.readFileSync('apps/desktop-tauri/src-tauri/tauri.conf.json', 'utf8')); process.stdout.write(config.version);")"
+          [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-((alpha|beta|rc)\.[0-9]+))?$ ]] || {
+            echo "invalid product version: $version" >&2
+            exit 1
+          }
+          printf 'version=%s\n' "$version" >> "$GITHUB_OUTPUT"
+
       - name: Stage and verify Debian artifacts
         run: |
-          bash scripts/linux-release-build.sh --version 1.1.0 --output artifacts/linux-pr
-          bash scripts/verify-linux-release-artifacts.sh --version 1.1.0 --assets artifacts/linux-pr
+          bash scripts/linux-release-build.sh --version "${{ steps.version.outputs.version }}" --output artifacts/linux-pr
+          bash scripts/verify-linux-release-artifacts.sh --version "${{ steps.version.outputs.version }}" --assets artifacts/linux-pr
