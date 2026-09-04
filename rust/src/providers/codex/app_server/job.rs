@@ -1,4 +1,4 @@
-//! Windows Job Object ownership for supervised Codex children.
+//! Platform process ownership for supervised Codex children.
 
 #[cfg(unix)]
 const SIGTERM: i32 = 15;
@@ -8,7 +8,7 @@ const SIGKILL: i32 = 9;
 /// Deliver a signal to a Unix process group. Process groups use a negative
 /// pid with `kill(2)`; errors mean the group has already exited or cannot be
 /// signalled and are intentionally handled by the caller as bounded cleanup.
-#[cfg(unix)]
+#[cfg(all(unix, not(target_os = "linux")))]
 pub(crate) fn signal_process_group(process_group: i32, signal: i32) {
     unsafe extern "C" {
         fn kill(pid: i32, signal: i32) -> i32;
@@ -19,304 +19,464 @@ pub(crate) fn signal_process_group(process_group: i32, signal: i32) {
     }
 }
 
-#[cfg(unix)]
+#[cfg(all(unix, not(target_os = "linux")))]
 pub(crate) fn terminate_process_group(process_group: i32) {
     signal_process_group(process_group, SIGTERM);
 }
 
-#[cfg(unix)]
+#[cfg(all(unix, not(target_os = "linux")))]
 pub(crate) fn kill_process_group(process_group: i32) {
     signal_process_group(process_group, SIGKILL);
 }
 
-/// Make this process the nearest reaper for orphaned descendants of its
-/// children. Linux otherwise reparents a background child to init as soon as
-/// its App Server leader exits, leaving this supervisor unable to reap it.
+/// Pending half of the Linux-only supervisor handshake.
+///
+/// `Command::pre_exec` turns the spawned process into a small, dedicated
+/// subreaper and forks the real App Server below it. The parent keeps only the
+/// socket's parent end. That descriptor is a kernel-owned capability for this
+/// exact supervisor: unlike a PID or PGID, it cannot be recycled to address an
+/// unrelated process.
 #[cfg(target_os = "linux")]
-pub(crate) fn enable_child_subreaper() -> bool {
-    const PR_SET_CHILD_SUBREAPER: i32 = 36;
-
-    unsafe extern "C" {
-        fn prctl(option: i32, arg2: usize, arg3: usize, arg4: usize, arg5: usize) -> i32;
-    }
-
-    unsafe { prctl(PR_SET_CHILD_SUBREAPER, 1, 0, 0, 0) == 0 }
-}
-
-/// A process id paired with the kernel start-time field from `/proc/<pid>/stat`.
-/// The start time prevents a delayed cleanup worker from signalling a reused
-/// pid that no longer belongs to the App Server tree.
-#[cfg(target_os = "linux")]
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub(crate) struct ProcessIdentity {
-    pid: i32,
-    start_time: u64,
+pub(crate) struct PendingLinuxSupervisor {
+    child_end: std::os::fd::OwnedFd,
+    control_end: std::os::fd::OwnedFd,
 }
 
 #[cfg(target_os = "linux")]
-impl ProcessIdentity {
-    pub(crate) fn pid(self) -> i32 {
-        self.pid
-    }
-}
+impl PendingLinuxSupervisor {
+    pub(crate) fn new() -> std::io::Result<Self> {
+        use std::os::fd::FromRawFd;
 
-#[cfg(target_os = "linux")]
-#[derive(Debug, Clone, Copy)]
-struct ProcessStat {
-    identity: ProcessIdentity,
-    process_group: i32,
-}
-
-#[cfg(target_os = "linux")]
-fn read_process_stat(pid: i32) -> Option<ProcessStat> {
-    let stat = std::fs::read_to_string(format!("/proc/{pid}/stat")).ok()?;
-    let fields = stat
-        .rsplit_once(')')?
-        .1
-        .split_whitespace()
-        .collect::<Vec<_>>();
-    // Fields after `comm`: state (3), ppid (4), pgrp (5), ... starttime (22).
-    let process_group = fields.get(2)?.parse().ok()?;
-    let start_time = fields.get(19)?.parse().ok()?;
-    Some(ProcessStat {
-        identity: ProcessIdentity { pid, start_time },
-        process_group,
-    })
-}
-
-#[cfg(target_os = "linux")]
-fn direct_children(pid: i32) -> Vec<i32> {
-    std::fs::read_to_string(format!("/proc/{pid}/task/{pid}/children"))
-        .ok()
-        .into_iter()
-        .flat_map(|children| {
-            children
-                .split_whitespace()
-                .map(str::to_owned)
-                .collect::<Vec<_>>()
+        const AF_UNIX: i32 = 1;
+        const SOCK_STREAM: i32 = 1;
+        const SOCK_CLOEXEC: i32 = 0o2_000_000;
+        const SOCK_NONBLOCK: i32 = 0o4_000;
+        let mut descriptors = [-1; 2];
+        let result = unsafe {
+            linux_ffi::socketpair(
+                AF_UNIX,
+                SOCK_STREAM | SOCK_CLOEXEC | SOCK_NONBLOCK,
+                0,
+                descriptors.as_mut_ptr(),
+            )
+        };
+        if result != 0 {
+            return Err(std::io::Error::last_os_error());
+        }
+        if let Err(error) = move_control_descriptors_above_stdio(&mut descriptors) {
+            let _ = unsafe { linux_ffi::close(descriptors[0]) };
+            let _ = unsafe { linux_ffi::close(descriptors[1]) };
+            return Err(error);
+        }
+        Ok(Self {
+            child_end: unsafe { std::os::fd::OwnedFd::from_raw_fd(descriptors[0]) },
+            control_end: unsafe { std::os::fd::OwnedFd::from_raw_fd(descriptors[1]) },
         })
-        .filter_map(|child| child.parse().ok())
-        .collect()
-}
+    }
 
-/// Snapshot descendants from the kernel's parent/child relation. Session or
-/// process-group changes do not change that relation, so detached descendants
-/// remain discoverable until their parent exits.
-#[cfg(target_os = "linux")]
-pub(crate) fn process_descendants(root_pid: i32) -> Vec<ProcessIdentity> {
-    let mut descendants = Vec::new();
-    let mut queue = std::collections::VecDeque::from([root_pid]);
-    let mut seen = std::collections::HashSet::from([root_pid]);
-    while let Some(parent) = queue.pop_front() {
-        for child in direct_children(parent) {
-            if !seen.insert(child) {
-                continue;
-            }
-            if let Some(stat) = read_process_stat(child) {
-                descendants.push(stat.identity);
-                queue.push_back(child);
-            }
+    /// Install the child-side supervisor before `execve`. The closure's
+    /// supervisor branch never returns; the forked App Server branch returns
+    /// to `Command` and immediately execs the validated program.
+    pub(crate) fn configure(&self, command: &mut tokio::process::Command) {
+        use std::os::fd::AsRawFd;
+        use std::os::unix::process::CommandExt;
+
+        let child_end = self.child_end.as_raw_fd();
+        let control_end = self.control_end.as_raw_fd();
+        unsafe {
+            command
+                .as_std_mut()
+                .pre_exec(move || linux_supervisor_pre_exec(child_end, control_end));
         }
     }
-    descendants
-}
 
-/// Snapshot all current members of an owned process group. This covers a
-/// leader that has already exited: its non-detached background children still
-/// retain the original process group after subreaper adoption.
-#[cfg(target_os = "linux")]
-fn identity_is_current(identity: ProcessIdentity) -> bool {
-    read_process_stat(identity.pid).is_some_and(|stat| stat.identity == identity)
-}
+    pub(crate) fn activate(self) -> std::io::Result<LinuxSupervisorHandle> {
+        use std::os::fd::AsRawFd;
 
-#[cfg(target_os = "linux")]
-fn leader_owns_group(
-    stat: Option<ProcessStat>,
-    leader: ProcessIdentity,
-    process_group: i32,
-) -> bool {
-    stat.is_some_and(|stat| stat.identity == leader && stat.process_group == process_group)
-}
-
-#[cfg(target_os = "linux")]
-pub(crate) fn signal_processes(processes: &[ProcessIdentity], signal: i32) {
-    unsafe extern "C" {
-        fn kill(pid: i32, signal: i32) -> i32;
+        let Self {
+            child_end,
+            control_end,
+        } = self;
+        drop(child_end);
+        write_control(control_end.as_raw_fd(), CONTROL_START)?;
+        Ok(LinuxSupervisorHandle {
+            control: Some(control_end),
+        })
     }
+}
 
-    for identity in processes {
-        if identity_is_current(*identity) {
-            let _ = unsafe { kill(identity.pid, signal) };
+/// Parent-side ownership of one exact Linux App Server supervisor.
+#[cfg(target_os = "linux")]
+pub(crate) struct LinuxSupervisorHandle {
+    control: Option<std::os::fd::OwnedFd>,
+}
+
+#[cfg(target_os = "linux")]
+impl LinuxSupervisorHandle {
+    /// Notify and disconnect without process discovery, signalling, waiting,
+    /// locking, or thread creation. Even if the supervisor is stopped in the
+    /// kernel, closing this nonblocking control socket remains bounded.
+    pub(crate) fn request_shutdown(&mut self) {
+        if let Some(control) = self.control.take() {
+            // EOF/HUP is the shutdown request. Closing cannot raise SIGPIPE
+            // and does not depend on the supervisor being scheduled.
+            drop(control);
         }
     }
 }
 
 #[cfg(target_os = "linux")]
-pub(crate) fn terminate_processes(processes: &[ProcessIdentity]) {
-    signal_processes(processes, SIGTERM);
+const CONTROL_START: u8 = 1;
+
+#[cfg(target_os = "linux")]
+fn move_control_descriptors_above_stdio(descriptors: &mut [i32; 2]) -> std::io::Result<()> {
+    const F_DUPFD_CLOEXEC: i32 = 1030;
+    for descriptor in descriptors.iter_mut() {
+        if *descriptor >= 3 {
+            continue;
+        }
+        let duplicate = unsafe { linux_ffi::fcntl(*descriptor, F_DUPFD_CLOEXEC, 3) };
+        if duplicate < 0 {
+            return Err(std::io::Error::last_os_error());
+        }
+        let _ = unsafe { linux_ffi::close(*descriptor) };
+        *descriptor = duplicate;
+    }
+    Ok(())
 }
 
 #[cfg(target_os = "linux")]
-pub(crate) fn kill_processes(processes: &[ProcessIdentity]) {
-    signal_processes(processes, SIGKILL);
+fn write_control(descriptor: i32, command: u8) -> std::io::Result<()> {
+    const MSG_NOSIGNAL: i32 = 0x4000;
+    for _ in 0..3 {
+        let result = unsafe {
+            linux_ffi::send(
+                descriptor,
+                (&command as *const u8).cast::<core::ffi::c_void>(),
+                1,
+                MSG_NOSIGNAL,
+            )
+        };
+        if result == 1 {
+            return Ok(());
+        }
+        let error = std::io::Error::last_os_error();
+        if error.kind() != std::io::ErrorKind::Interrupted {
+            return Err(error);
+        }
+    }
+    Err(std::io::Error::new(
+        std::io::ErrorKind::Interrupted,
+        "Linux supervisor control write remained interrupted",
+    ))
+}
+
+/// Runs after `fork` and therefore uses only async-signal-safe libc operations
+/// until the App Server branch reaches `execve`. The supervisor branch never
+/// touches Rust allocation, locks, or Tokio state and exits through `_exit`.
+#[cfg(target_os = "linux")]
+fn linux_supervisor_pre_exec(control_read: i32, control_write: i32) -> std::io::Result<()> {
+    const PR_SET_CHILD_SUBREAPER: i32 = 36;
+    const SIGCHLD: i32 = 17;
+    const SIG_DFL: usize = 0;
+    const SIG_ERR: usize = usize::MAX;
+
+    if unsafe { linux_ffi::setpgid(0, 0) } != 0
+        || unsafe { linux_ffi::prctl(PR_SET_CHILD_SUBREAPER, 1, 0, 0, 0) } != 0
+        || unsafe { linux_ffi::signal(SIGCHLD, SIG_DFL) } == SIG_ERR
+    {
+        return Err(std::io::Error::last_os_error());
+    }
+
+    // `_Fork` omits pthread_atfork handlers. That matters here because this
+    // closure already runs in the post-fork child of a multithreaded process.
+    let forked = unsafe { linux_ffi::fork_without_atfork() };
+    if forked < 0 {
+        return Err(std::io::Error::last_os_error());
+    }
+    if forked == 0 {
+        let _ = unsafe { linux_ffi::close(control_read) };
+        let _ = unsafe { linux_ffi::close(control_write) };
+        return Ok(());
+    }
+
+    run_linux_supervisor(control_read, control_write, forked)
 }
 
 #[cfg(target_os = "linux")]
-pub(crate) fn tracked_processes_exist(processes: &[ProcessIdentity]) -> bool {
-    processes.iter().copied().any(identity_is_current)
+fn run_linux_supervisor(control_read: i32, control_write: i32, app_server_pid: i32) -> ! {
+    let _ = unsafe { linux_ffi::close(control_write) };
+    for descriptor in 0..=2 {
+        let _ = unsafe { linux_ffi::close(descriptor) };
+    }
+    if !close_descriptors_except(control_read) || !wait_for_start(control_read, app_server_pid) {
+        shutdown_supervised_children();
+        unsafe { linux_ffi::_exit(127) }
+    }
+
+    loop {
+        if reap_exited_children() {
+            unsafe { linux_ffi::_exit(0) }
+        }
+        if control_requests_shutdown(control_read, 50) {
+            shutdown_supervised_children();
+            unsafe { linux_ffi::_exit(0) }
+        }
+    }
 }
 
-/// Reap only exact, already-tracked descendants. `waitpid` returns ECHILD for
-/// a still-parented child; once the leader exits, the Linux subreaper adopts
-/// it and the next bounded pass can collect it.
 #[cfg(target_os = "linux")]
-pub(crate) fn reap_tracked_processes(processes: &[ProcessIdentity]) {
+fn close_descriptors_except(keep: i32) -> bool {
+    let lower_closed = keep == 3 || unsafe { linux_ffi::close_range(3, keep as u32 - 1, 0) } == 0;
+    let upper_closed = unsafe { linux_ffi::close_range(keep as u32 + 1, u32::MAX, 0) } == 0;
+    lower_closed && upper_closed
+}
+
+#[cfg(target_os = "linux")]
+fn wait_for_start(control_read: i32, app_server_pid: i32) -> bool {
     const WNOHANG: i32 = 1;
-
-    unsafe extern "C" {
-        fn waitpid(pid: i32, status: *mut i32, options: i32) -> i32;
-    }
-
-    for identity in processes {
-        if identity_is_current(*identity) {
-            let mut status = 0;
-            let _ = unsafe { waitpid(identity.pid, &mut status, WNOHANG) };
+    const W_ALL: i32 = 0x4000_0000;
+    loop {
+        let mut command = 0u8;
+        let result = unsafe {
+            linux_ffi::read(
+                control_read,
+                (&mut command as *mut u8).cast::<core::ffi::c_void>(),
+                1,
+            )
+        };
+        if result == 1 {
+            return command == CONTROL_START;
+        }
+        if result == 0 {
+            return false;
+        }
+        match linux_errno() {
+            linux_ffi::EINTR => continue,
+            linux_ffi::EAGAIN => {
+                let mut status = 0;
+                let child =
+                    unsafe { linux_ffi::waitpid(app_server_pid, &mut status, WNOHANG | W_ALL) };
+                if child != 0 && !(child < 0 && linux_errno() == linux_ffi::EINTR) {
+                    // `Command::spawn` waits for its direct child on exec
+                    // failure. Exiting here when the inner exec child fails
+                    // prevents a parent/supervisor handshake deadlock.
+                    return false;
+                }
+                if poll_control(control_read, 10) < 0 && linux_errno() != linux_ffi::EINTR {
+                    return false;
+                }
+            }
+            _ => return false,
         }
     }
 }
 
-/// Per-App-Server ownership ledger. It starts tracking immediately after
-/// spawn, while the validated leader is still available in procfs. After that
-/// leader disappears, cleanup is limited to identities already recorded here;
-/// historical pids and process groups are never rediscovered or signalled.
 #[cfg(target_os = "linux")]
-pub(crate) struct ProcessLedger {
-    leader: ProcessIdentity,
-    process_group: i32,
-    tracked: std::sync::Mutex<std::collections::HashSet<ProcessIdentity>>,
-    stop_monitor: std::sync::atomic::AtomicBool,
+fn control_requests_shutdown(control_read: i32, timeout_ms: i32) -> bool {
+    let result = poll_control(control_read, timeout_ms);
+    if result == 0 || (result < 0 && linux_errno() == linux_ffi::EINTR) {
+        return false;
+    }
+    if result < 0 {
+        return true;
+    }
+
+    let mut buffer = [0u8; 16];
+    loop {
+        let read = unsafe {
+            linux_ffi::read(
+                control_read,
+                buffer.as_mut_ptr().cast::<core::ffi::c_void>(),
+                buffer.len(),
+            )
+        };
+        if read > 0 {
+            continue;
+        }
+        if read == 0 {
+            return true;
+        }
+        match linux_errno() {
+            linux_ffi::EINTR => continue,
+            linux_ffi::EAGAIN => return false,
+            _ => return true,
+        }
+    }
 }
 
 #[cfg(target_os = "linux")]
-impl ProcessLedger {
-    pub(crate) fn start(leader_pid: i32) -> Option<std::sync::Arc<Self>> {
-        let leader = read_process_stat(leader_pid)?.identity;
-        let ledger = std::sync::Arc::new(Self {
-            leader,
-            process_group: leader_pid,
-            tracked: std::sync::Mutex::new(std::collections::HashSet::new()),
-            stop_monitor: std::sync::atomic::AtomicBool::new(false),
-        });
-        ledger.capture();
-        Self::start_monitor(&ledger);
-        Some(ledger)
-    }
+fn poll_control(control_read: i32, timeout_ms: i32) -> i32 {
+    let mut descriptor = linux_ffi::PollFd {
+        fd: control_read,
+        events: linux_ffi::POLLIN | linux_ffi::POLLERR | linux_ffi::POLLHUP,
+        revents: 0,
+    };
+    unsafe { linux_ffi::poll(&mut descriptor, 1, timeout_ms) }
+}
 
-    fn start_monitor(ledger: &std::sync::Arc<Self>) {
-        let ledger = std::sync::Arc::clone(ledger);
-        let _ = std::thread::Builder::new()
-            .name("codexbar-app-server-tracker".into())
-            .spawn(move || {
-                const POLL: std::time::Duration = std::time::Duration::from_millis(5);
-                while !ledger
-                    .stop_monitor
-                    .load(std::sync::atomic::Ordering::Acquire)
-                {
-                    if !ledger.leader_is_current() {
-                        return;
-                    }
-                    ledger.capture();
-                    std::thread::sleep(POLL);
-                }
-            });
-    }
-
-    pub(crate) fn stop_monitoring(&self) {
-        self.stop_monitor
-            .store(true, std::sync::atomic::Ordering::Release);
-    }
-
-    pub(crate) fn capture(&self) {
-        if !self.leader_is_current() {
+/// Signals only direct children of this dedicated supervisor. It deliberately
+/// signals before `waitpid`: a direct child that exits during the procfs read
+/// remains a zombie, so its PID cannot be reused for an unrelated process
+/// before this loop sends the signal. Once a parent is reaped, its surviving
+/// descendants are adopted by this subreaper and become the next iteration's
+/// direct children. `setsid` and `setpgid` cannot escape that ownership.
+#[cfg(target_os = "linux")]
+fn shutdown_supervised_children() {
+    const TERM_ROUNDS: usize = 8;
+    const KILL_ROUNDS: usize = 17;
+    for _ in 0..TERM_ROUNDS {
+        signal_direct_children(SIGTERM);
+        if reap_exited_children() {
             return;
         }
-        if let Ok(mut tracked) = self.tracked.lock() {
-            for descendant in process_descendants(self.leader.pid) {
-                tracked.insert(descendant);
+        sleep_cleanup_poll();
+    }
+    for _ in 0..KILL_ROUNDS {
+        signal_direct_children(SIGKILL);
+        if reap_exited_children() {
+            return;
+        }
+        sleep_cleanup_poll();
+    }
+}
+
+#[cfg(target_os = "linux")]
+fn signal_direct_children(signal: i32) {
+    const CHILDREN_PATH: &[u8] = b"/proc/thread-self/children\0";
+    const O_RDONLY: i32 = 0;
+    const O_CLOEXEC: i32 = 0o2_000_000;
+
+    let descriptor = unsafe {
+        linux_ffi::open(
+            CHILDREN_PATH.as_ptr().cast::<core::ffi::c_char>(),
+            O_RDONLY | O_CLOEXEC,
+        )
+    };
+    if descriptor < 0 {
+        // Fail closed: without kernel-confirmed current children, never fall
+        // back to a historical PID or process-group broadcast.
+        return;
+    }
+
+    let mut buffer = [0u8; 4096];
+    let mut pid = 0i32;
+    let mut in_number = false;
+    loop {
+        let count = unsafe {
+            linux_ffi::read(
+                descriptor,
+                buffer.as_mut_ptr().cast::<core::ffi::c_void>(),
+                buffer.len(),
+            )
+        };
+        if count < 0 {
+            if linux_errno() == linux_ffi::EINTR {
+                continue;
+            }
+            break;
+        }
+        if count == 0 {
+            if in_number && pid > 0 {
+                let _ = unsafe { linux_ffi::kill(pid, signal) };
+            }
+            break;
+        }
+        for byte in &buffer[..count as usize] {
+            if byte.is_ascii_digit() {
+                in_number = true;
+                pid = pid
+                    .checked_mul(10)
+                    .and_then(|value| value.checked_add(i32::from(*byte - b'0')))
+                    .unwrap_or(0);
+            } else if in_number {
+                if pid > 0 {
+                    let _ = unsafe { linux_ffi::kill(pid, signal) };
+                }
+                pid = 0;
+                in_number = false;
             }
         }
     }
+    let _ = unsafe { linux_ffi::close(descriptor) };
+}
 
-    fn leader_is_current(&self) -> bool {
-        identity_is_current(self.leader)
-    }
-
-    fn owns_process_group(&self) -> bool {
-        leader_owns_group(
-            read_process_stat(self.leader.pid),
-            self.leader,
-            self.process_group,
-        )
-    }
-
-    fn snapshot(&self) -> Vec<ProcessIdentity> {
-        self.tracked
-            .lock()
-            .map(|tracked| tracked.iter().copied().collect())
-            .unwrap_or_default()
-    }
-
-    pub(crate) fn terminate(&self) {
-        let tracked = self.snapshot();
-        terminate_processes(&tracked);
-        if self.owns_process_group() {
-            terminate_process_group(self.process_group);
+#[cfg(target_os = "linux")]
+fn reap_exited_children() -> bool {
+    const WNOHANG: i32 = 1;
+    const W_ALL: i32 = 0x4000_0000;
+    loop {
+        let mut status = 0;
+        let result = unsafe { linux_ffi::waitpid(-1, &mut status, WNOHANG | W_ALL) };
+        if result > 0 {
+            continue;
+        }
+        if result == 0 {
+            return false;
+        }
+        match linux_errno() {
+            linux_ffi::EINTR => continue,
+            linux_ffi::ECHILD => return true,
+            _ => return false,
         }
     }
+}
 
-    pub(crate) fn kill(&self) {
-        let tracked = self.snapshot();
-        kill_processes(&tracked);
-        if self.owns_process_group() {
-            kill_process_group(self.process_group);
-        }
+#[cfg(target_os = "linux")]
+fn sleep_cleanup_poll() {
+    let _ = unsafe { linux_ffi::poll(core::ptr::null_mut(), 0, 10) };
+}
+
+#[cfg(target_os = "linux")]
+fn linux_errno() -> i32 {
+    unsafe { *linux_ffi::__errno_location() }
+}
+
+#[cfg(target_os = "linux")]
+mod linux_ffi {
+    pub(super) const EINTR: i32 = 4;
+    pub(super) const ECHILD: i32 = 10;
+    pub(super) const EAGAIN: i32 = 11;
+    pub(super) const POLLIN: i16 = 0x001;
+    pub(super) const POLLERR: i16 = 0x008;
+    pub(super) const POLLHUP: i16 = 0x010;
+
+    #[repr(C)]
+    pub(super) struct PollFd {
+        pub(super) fd: i32,
+        pub(super) events: i16,
+        pub(super) revents: i16,
     }
 
-    pub(crate) fn reap(&self) {
-        reap_tracked_processes(&self.snapshot());
-    }
-
-    pub(crate) fn is_drained(&self) -> bool {
-        !self.owns_process_group() && !tracked_processes_exist(&self.snapshot())
-    }
-
-    /// Drop performs no procfs I/O or signalling. The worker owns every
-    /// potentially slow operation and stops at a fixed deadline.
-    pub(crate) fn spawn_drop_cleanup(self: std::sync::Arc<Self>) {
-        self.stop_monitoring();
-        let _ = std::thread::Builder::new()
-            .name("codexbar-app-server-drop-cleanup".into())
-            .spawn(move || {
-                const LIMIT: std::time::Duration = std::time::Duration::from_millis(250);
-                const POLL: std::time::Duration = std::time::Duration::from_millis(10);
-                let deadline = std::time::Instant::now() + LIMIT;
-                loop {
-                    self.capture();
-                    self.kill();
-                    self.reap();
-                    if self.is_drained() || std::time::Instant::now() >= deadline {
-                        return;
-                    }
-                    std::thread::sleep(POLL);
-                }
-            });
-    }
-
-    #[cfg(test)]
-    pub(crate) fn tracks(&self, pid: i32) -> bool {
-        self.tracked
-            .lock()
-            .is_ok_and(|tracked| tracked.iter().any(|identity| identity.pid == pid))
+    unsafe extern "C" {
+        pub(super) fn __errno_location() -> *mut i32;
+        pub(super) fn close(descriptor: i32) -> i32;
+        pub(super) fn close_range(first: u32, last: u32, flags: i32) -> i32;
+        pub(super) fn fcntl(descriptor: i32, command: i32, ...) -> i32;
+        #[link_name = "_Fork"]
+        pub(super) fn fork_without_atfork() -> i32;
+        pub(super) fn kill(pid: i32, signal: i32) -> i32;
+        pub(super) fn open(path: *const core::ffi::c_char, flags: i32, ...) -> i32;
+        pub(super) fn poll(descriptors: *mut PollFd, count: usize, timeout_ms: i32) -> i32;
+        pub(super) fn prctl(option: i32, arg2: usize, arg3: usize, arg4: usize, arg5: usize)
+        -> i32;
+        pub(super) fn read(descriptor: i32, buffer: *mut core::ffi::c_void, count: usize) -> isize;
+        pub(super) fn setpgid(pid: i32, process_group: i32) -> i32;
+        pub(super) fn send(
+            socket: i32,
+            buffer: *const core::ffi::c_void,
+            count: usize,
+            flags: i32,
+        ) -> isize;
+        pub(super) fn signal(signal: i32, handler: usize) -> usize;
+        pub(super) fn socketpair(
+            domain: i32,
+            socket_type: i32,
+            protocol: i32,
+            sockets: *mut i32,
+        ) -> i32;
+        pub(super) fn waitpid(pid: i32, status: *mut i32, options: i32) -> i32;
+        pub(super) fn _exit(status: i32) -> !;
     }
 }
 
@@ -413,42 +573,6 @@ mod tests {
     #[test]
     fn kill_on_close_limit_is_enabled_by_contract() {
         assert_eq!(JOB_KILL_ON_CLOSE_FLAG, 8192);
-    }
-
-    #[cfg(target_os = "linux")]
-    #[test]
-    fn leader_group_ownership_rejects_reused_pid_or_changed_group() {
-        let leader = ProcessIdentity {
-            pid: 42,
-            start_time: 100,
-        };
-        assert!(leader_owns_group(
-            Some(ProcessStat {
-                identity: leader,
-                process_group: 42,
-            }),
-            leader,
-            42,
-        ));
-        assert!(!leader_owns_group(
-            Some(ProcessStat {
-                identity: ProcessIdentity {
-                    pid: 42,
-                    start_time: 101,
-                },
-                process_group: 42,
-            }),
-            leader,
-            42,
-        ));
-        assert!(!leader_owns_group(
-            Some(ProcessStat {
-                identity: leader,
-                process_group: 99,
-            }),
-            leader,
-            42,
-        ));
     }
 
     #[cfg(windows)]

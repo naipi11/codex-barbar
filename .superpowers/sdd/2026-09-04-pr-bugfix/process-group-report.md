@@ -72,3 +72,89 @@ leader exits before shutdown, and assert that cleanup removes the child.
 - `cargo test --manifest-path rust/Cargo.toml providers::codex::app_server::process -- --test-threads=1` — rerun after the ownership-ledger follow-up; passed on Windows (13 tests; Linux-only ledger and Drop cases cfg-gated).
 - `cargo clippy --manifest-path rust/Cargo.toml --all-targets -- -D warnings` and `cargo fmt --all -- --check` — rerun after the ownership-ledger follow-up; passed on Windows.
 - `cargo test --manifest-path rust/Cargo.toml --target x86_64-unknown-linux-gnu providers::codex::app_server::process --no-run` could not link because this Windows host lacks `x86_64-linux-gnu-gcc` (the `ring` build script fails before the crate compiles). Docker Desktop's Linux engine is also unavailable. Therefore only Ubuntu CI can execute the Linux-only regression tests; Windows verification is not presented as Linux proof.
+
+## Final dedicated-supervisor hardening
+
+The ledger design still could not close two kernel races. A child could fork,
+call `setsid`/`setpgid`, and make the shell leader exit before any polling
+thread observed it. Also, checking `/proc/<pid>/stat` and then calling
+`kill(pid, ...)` left a check/use window in which the numeric PID could cease
+to name the checked process. Faster polling and additional start-time checks
+cannot remove either race.
+
+Linux now inserts a dedicated supervisor process between Tokio and the real
+App Server without adding a dependency or changing the validated production
+command. `Command::pre_exec` gives the outer child a private process group,
+marks it as a child subreaper, resets `SIGCHLD` to the normal waitable
+disposition, then forks once. The inner child immediately returns to
+`Command` and `execve`s the original App Server with its original stdio. The
+outer child closes every unrelated descriptor and remains a single-threaded,
+allocation-free supervisor. A nonblocking `SOCK_CLOEXEC` Unix socket performs
+the spawn handshake and is the parent's exact ownership capability.
+
+When the App Server leader or another intermediate parent exits, every
+surviving orphan is adopted by this per-App-Server subreaper even if it has
+changed its session or process group. On shutdown the supervisor repeatedly
+reads only its current direct children, signals them before calling `waitpid`,
+then reaps and repeats so newly adopted descendants become the next pass's
+targets. Because a terminated direct child remains an unreaped zombie during
+the signal pass, its PID cannot be reused between discovery and signalling.
+Linux cleanup never broadcasts to a historical PID or PGID. If the current
+direct-child view is unavailable, cleanup fails closed and does not substitute
+a stale identifier.
+
+`Drop` no longer traverses procfs, locks a ledger, creates a thread, signals a
+numeric PID/PGID, or waits. It only removes and closes the supervisor control
+socket. EOF wakes the already-running supervisor. Explicit shutdown waits at
+most the requested grace period plus the existing 250 ms post-request bound;
+the supervisor itself uses 8 bounded TERM passes followed by 17 bounded KILL
+passes. A stopped supervisor therefore cannot add synchronous Drop latency.
+Windows Job Object creation, assignment, and kill-on-close behavior are
+unchanged.
+
+### Final Linux regression coverage
+
+- The process-group test reads the real inner App Server PID and proves both
+  that it is distinct from the supervisor and that it starts in the
+  supervisor's private group.
+- An invalid inner executable must return from spawn within two seconds,
+  covering the double-fork exec-error handshake rather than accepting a
+  parent/supervisor deadlock.
+- The leader-loss regression performs `setsid`, reports the exact leader and
+  child identities, and exits in the same shell command. It has no ledger
+  polling handshake. Shutdown must remove the original detached identity while
+  an independently spawned `sleep` retains the same `(pid, start_time)`.
+- The existing escaped-group regression still requires the `setsid` child and
+  original process group to disappear.
+- The Drop regression creates 128 descendants, stops the supervisor with
+  `SIGSTOP`, and requires Drop to return in under 100 ms before resuming the
+  supervisor. This proves the caller does not synchronously perform procfs,
+  signalling, or reaping even when the cleanup process cannot run.
+- Exact `/proc/<pid>/stat` identity disappearance is required after cleanup;
+  a surviving zombie does not satisfy the assertion.
+
+## Final verification (2026-09-04)
+
+- `cargo test --manifest-path rust/Cargo.toml providers::codex::app_server::process -- --test-threads=1` — Windows: 13 passed, 0 failed; Linux-only tests were cfg-gated.
+- `cargo test --manifest-path rust/Cargo.toml -- --test-threads=1` — Windows: library 530 passed, 0 failed, 1 ignored; App Server contract 17 passed; icon assets 3 passed; doc tests 0 failed.
+- `cargo clippy --manifest-path rust/Cargo.toml --all-targets -- -D warnings` — passed on Windows.
+- `cargo test --manifest-path apps/desktop-tauri/src-tauri/Cargo.toml -- --test-threads=1` — Windows: 264 passed, 0 failed.
+- `cargo clippy --manifest-path apps/desktop-tauri/src-tauri/Cargo.toml --all-targets -- -D warnings` — passed on Windows.
+- `cargo fmt --all -- --check` — passed.
+- The Linux-only `job.rs` implementation was parsed and type-checked with the
+  installed `x86_64-unknown-linux-gnu` standard library using `rustc --emit
+  metadata -D warnings`; the same isolated target slice passed
+  `clippy-driver -D warnings`. This checks the Linux FFI/types without linking
+  or claiming runtime proof.
+- `cargo test --manifest-path rust/Cargo.toml --target
+  x86_64-unknown-linux-gnu providers::codex::app_server::process --no-run` —
+  blocked before compiling `codexbar`: `ring` could not find
+  `x86_64-linux-gnu-gcc`.
+- `docker info` — unavailable: the Docker Desktop Linux engine named pipe does
+  not exist. The only registered WSL distribution is the Docker Desktop
+  utility distro, not Ubuntu.
+
+The Linux-only process, detached-child, stalled-Drop, and zombie regressions
+were therefore not executed on this Windows host. Ubuntu 24.04 CI must run the
+focused process tests (serially) and the ordinary Linux Rust gates before this
+change is treated as Ubuntu runtime proof.

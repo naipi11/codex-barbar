@@ -443,36 +443,8 @@ async fn wait_after_kill<T>(wait: impl Future<Output = T>) {
     let _ = tokio::time::timeout(POST_KILL_WAIT, wait).await;
 }
 
-/// Wait for the Linux process group to disappear while reaping any background
-/// child that was orphaned when the App Server leader exited. This is bounded:
-/// a malformed or uncooperative child cannot stall provider refresh forever.
-#[cfg(target_os = "linux")]
-async fn wait_for_process_group_exit(
-    child: &mut Child,
-    ledger: &super::job::ProcessLedger,
-    limit: Duration,
-) -> bool {
-    let deadline = tokio::time::Instant::now() + limit;
-    loop {
-        ledger.capture();
-        // Never reap the leader behind Tokio's Child handle. Once Tokio has
-        // observed it, this process is the subreaper for any orphaned members
-        // of this group and can safely collect those descendants.
-        if matches!(child.try_wait(), Ok(Some(_))) {
-            ledger.reap();
-        }
-        if ledger.is_drained() {
-            return true;
-        }
-        if tokio::time::Instant::now() >= deadline {
-            return false;
-        }
-        tokio::time::sleep(Duration::from_millis(10)).await;
-    }
-}
-
-/// A running, supervised App Server child. Dropping the Job handle kills the
-/// entire process tree via KILL_ON_JOB_CLOSE.
+/// A running App Server owned by a Windows Job Object or a dedicated Unix
+/// supervisor. Dropping it initiates whole-tree cleanup on either platform.
 pub struct SupervisedAppServerProcess {
     child: Child,
     #[cfg(windows)]
@@ -480,22 +452,22 @@ pub struct SupervisedAppServerProcess {
     #[cfg(all(unix, not(target_os = "linux")))]
     process_group: Option<i32>,
     #[cfg(target_os = "linux")]
-    ledger: std::sync::Arc<super::job::ProcessLedger>,
+    supervisor: super::job::LinuxSupervisorHandle,
 }
 
 impl SupervisedAppServerProcess {
-    /// Spawn the child with piped stdio, the fixed environment, and
-    /// CREATE_NO_WINDOW, then assign it to a kill-on-close Job Object.
+    /// Spawn with piped stdio and the fixed environment, then attach the
+    /// platform process-tree owner before returning control to the caller.
     pub fn spawn(spec: &AppServerSpawnSpec) -> Result<Self, AppError> {
         #[cfg(target_os = "linux")]
-        if !super::job::enable_child_subreaper() {
-            return Err(AppError::new(
+        let pending_supervisor = super::job::PendingLinuxSupervisor::new().map_err(|_| {
+            AppError::new(
                 AppErrorKind::StorageFailure,
                 "errors.appServerSpawnFailed",
                 RecoveryAction::Retry,
-                "APP_SERVER_SUBREAPER_FAILED",
-            ));
-        }
+                "APP_SERVER_SUPERVISOR_PIPE_FAILED",
+            )
+        })?;
 
         let mut command = Command::new(&spec.program);
         command
@@ -503,8 +475,16 @@ impl SupervisedAppServerProcess {
             .current_dir(&spec.working_directory)
             .stdin(std::process::Stdio::piped())
             .stdout(std::process::Stdio::piped())
-            .stderr(std::process::Stdio::piped())
-            .kill_on_drop(true);
+            .stderr(std::process::Stdio::piped());
+        #[cfg(target_os = "linux")]
+        {
+            // The dedicated subreaper must outlive this Tokio handle long
+            // enough to terminate and reap its descendants after Drop.
+            command.kill_on_drop(false);
+            pending_supervisor.configure(&mut command);
+        }
+        #[cfg(not(target_os = "linux"))]
+        command.kill_on_drop(true);
         // Explicit environment: clear everything, then apply only the spec.
         command.env_clear();
         for (name, value) in &spec.environment.values {
@@ -517,12 +497,12 @@ impl SupervisedAppServerProcess {
             const CREATE_NO_WINDOW_FLAG: u32 = 0x08000000;
             command.creation_flags(CREATE_NO_WINDOW_FLAG);
         }
-        #[cfg(unix)]
+        #[cfg(all(unix, not(target_os = "linux")))]
         {
             command.process_group(0);
         }
 
-        let mut child = command.spawn().map_err(|_| {
+        let child = command.spawn().map_err(|_| {
             AppError::new(
                 AppErrorKind::CodexNotFound,
                 "errors.appServerSpawnFailed",
@@ -530,6 +510,9 @@ impl SupervisedAppServerProcess {
                 "APP_SERVER_SPAWN_FAILED",
             )
         })?;
+
+        #[cfg(windows)]
+        let mut child = child;
 
         #[cfg(windows)]
         let job = {
@@ -559,22 +542,14 @@ impl SupervisedAppServerProcess {
         let process_group = child.id().and_then(|pid| i32::try_from(pid).ok());
 
         #[cfg(target_os = "linux")]
-        let ledger = match child
-            .id()
-            .and_then(|pid| i32::try_from(pid).ok())
-            .and_then(super::job::ProcessLedger::start)
-        {
-            Some(ledger) => ledger,
-            None => {
-                let _ = child.start_kill();
-                return Err(AppError::new(
-                    AppErrorKind::StorageFailure,
-                    "errors.appServerSpawnFailed",
-                    RecoveryAction::Retry,
-                    "APP_SERVER_LEDGER_FAILED",
-                ));
-            }
-        };
+        let supervisor = pending_supervisor.activate().map_err(|_| {
+            AppError::new(
+                AppErrorKind::StorageFailure,
+                "errors.appServerSpawnFailed",
+                RecoveryAction::Retry,
+                "APP_SERVER_SUPERVISOR_START_FAILED",
+            )
+        })?;
 
         Ok(Self {
             child,
@@ -583,7 +558,7 @@ impl SupervisedAppServerProcess {
             #[cfg(all(unix, not(target_os = "linux")))]
             process_group,
             #[cfg(target_os = "linux")]
-            ledger,
+            supervisor,
         })
     }
 
@@ -597,17 +572,12 @@ impl SupervisedAppServerProcess {
         self.child.stderr.take()
     }
 
-    /// Graceful shutdown: drop stdin (caller does this), wait up to `grace`,
-    /// then close the Job handle to kill the whole tree.
+    /// Graceful shutdown: close stdio, wait up to `grace`, then ask the
+    /// platform owner to terminate and reap the remaining process tree.
     pub async fn shutdown(mut self, grace: Duration) {
         let _ = self.child.stdin.take();
         let _ = self.child.stdout.take();
         let _ = self.child.stderr.take();
-        #[cfg(target_os = "linux")]
-        {
-            self.ledger.stop_monitoring();
-            self.ledger.capture();
-        }
         match tokio::time::timeout(grace, self.child.wait()).await {
             Ok(_) => {}
             Err(_) => {
@@ -634,16 +604,11 @@ impl SupervisedAppServerProcess {
         };
         #[cfg(target_os = "linux")]
         {
-            // A leader can exit normally while a shell-created background
-            // child remains in its process group. Always clean the group,
-            // rather than treating a reaped leader as tree completion.
-            self.ledger.terminate();
-            if !wait_for_process_group_exit(&mut self.child, &self.ledger, POST_KILL_WAIT).await {
-                self.ledger.kill();
-                wait_after_kill(self.child.wait()).await;
-                let _ = wait_for_process_group_exit(&mut self.child, &self.ledger, POST_KILL_WAIT)
-                    .await;
-            }
+            // If the dedicated supervisor still exists, at least one member
+            // of its private process tree is alive. The control capability is
+            // exact and cannot be redirected by PID/PGID reuse.
+            self.supervisor.request_shutdown();
+            wait_after_kill(self.child.wait()).await;
         }
         // `job` is dropped here, terminating any surviving tree members.
         #[cfg(windows)]
@@ -656,7 +621,7 @@ impl Drop for SupervisedAppServerProcess {
     fn drop(&mut self) {
         #[cfg(target_os = "linux")]
         {
-            std::sync::Arc::clone(&self.ledger).spawn_drop_cleanup();
+            self.supervisor.request_shutdown();
             return;
         }
         #[cfg(all(unix, not(target_os = "linux")))]
@@ -817,19 +782,46 @@ mod tests {
 
         let command = ResolvedCodexCommand::from_parts(
             PathBuf::from("/bin/sh"),
-            vec![OsString::from("-c"), OsString::from("sleep 60 & wait")],
+            vec![
+                OsString::from("-c"),
+                OsString::from("printf '%s\\n' \"$$\"; sleep 60 & wait"),
+            ],
             super::super::discovery::CodexInstallation::NativeExe,
         );
         let mut spec = AppServerSpawnSpec::current_cli(command);
         spec.arguments.truncate(spec.arguments.len() - 1);
-        let process = SupervisedAppServerProcess::spawn(&spec).unwrap();
+        let mut process = SupervisedAppServerProcess::spawn(&spec).unwrap();
         let pid = process.child.id().expect("child pid") as i32;
+        let mut stdout = tokio::io::BufReader::new(process.stdout().expect("stdout piped"));
+        let app_server_pid = read_reported_pid(&mut stdout).await;
+        drop(stdout);
 
         assert_eq!(unsafe { getpgid(pid) }, pid);
         assert_ne!(unsafe { getpgid(pid) }, unsafe { getpgrp() });
+        assert_ne!(app_server_pid, pid, "supervisor must be a separate process");
+        assert_eq!(unsafe { getpgid(app_server_pid) }, pid);
 
         process.shutdown(Duration::from_millis(50)).await;
         assert_process_group_exits_within(pid, Duration::from_secs(1)).await;
+    }
+
+    #[cfg(target_os = "linux")]
+    #[tokio::test]
+    async fn unix_inner_exec_failure_does_not_deadlock_the_supervisor_handshake() {
+        let command = ResolvedCodexCommand::from_parts(
+            PathBuf::from("/definitely/missing/codex"),
+            Vec::new(),
+            super::super::discovery::CodexInstallation::NativeExe,
+        );
+        let spec = AppServerSpawnSpec::current_cli(command);
+        let result = tokio::time::timeout(
+            Duration::from_secs(2),
+            tokio::task::spawn_blocking(move || SupervisedAppServerProcess::spawn(&spec)),
+        )
+        .await
+        .expect("inner exec failure must not deadlock")
+        .expect("spawn task must finish");
+        assert!(result.is_err(), "missing App Server unexpectedly launched");
     }
 
     #[cfg(target_os = "linux")]
@@ -874,41 +866,53 @@ mod tests {
 
     #[cfg(target_os = "linux")]
     #[tokio::test]
-    async fn unix_drop_reaps_an_adopted_background_descendant_after_its_shell_exits() {
+    async fn unix_drop_is_non_blocking_while_a_large_tree_supervisor_is_stalled() {
         let command = ResolvedCodexCommand::from_parts(
             PathBuf::from("/bin/sh"),
             vec![
                 OsString::from("-c"),
-                OsString::from("sleep 60 & printf '%s\\n' \"$!\"; exit 0"),
+                OsString::from(
+                    "i=0; while [ \"$i\" -lt 128 ]; do sleep 60 & i=$((i + 1)); done; printf 'ready\\n'; wait",
+                ),
             ],
             super::super::discovery::CodexInstallation::NativeExe,
         );
         let mut spec = AppServerSpawnSpec::current_cli(command);
         spec.arguments.truncate(spec.arguments.len() - 1);
         let mut process = SupervisedAppServerProcess::spawn(&spec).unwrap();
+        let supervisor = process.child.id().expect("supervisor pid") as i32;
         let mut stdout = tokio::io::BufReader::new(process.stdout().expect("stdout piped"));
-        let descendant = read_reported_pid(&mut stdout).await;
+        assert_eq!(read_reported_line(&mut stdout).await, "ready");
         drop(stdout);
-        assert_ledger_tracks(&process.ledger, descendant).await;
+
+        unsafe extern "C" {
+            fn kill(pid: i32, signal: i32) -> i32;
+        }
+        assert_eq!(unsafe { kill(supervisor, 19) }, 0, "stop supervisor");
 
         let started = std::time::Instant::now();
         drop(process);
-        // Drop must only enqueue cleanup; the 250 ms worker deadline must not
-        // become synchronous latency on the caller's task.
-        assert!(started.elapsed() < Duration::from_millis(100));
-        assert_pid_exits_within(descendant, Duration::from_secs(1)).await;
+        let elapsed = started.elapsed();
+        assert_eq!(unsafe { kill(supervisor, 18) }, 0, "resume supervisor");
+        // The supervisor was unable to perform procfs or reap work while Drop
+        // ran. Drop must only notify it and close the control channel.
+        assert!(
+            elapsed < Duration::from_millis(100),
+            "Drop took {elapsed:?}"
+        );
+        assert_process_group_exits_within(supervisor, Duration::from_secs(2)).await;
     }
 
     #[cfg(target_os = "linux")]
     #[tokio::test]
-    async fn unix_shutdown_uses_the_early_ledger_after_a_detached_leader_exits() {
-        use tokio::io::AsyncWriteExt;
-
+    async fn unix_shutdown_contains_immediate_detach_and_leaves_unrelated_process_alive() {
         let command = ResolvedCodexCommand::from_parts(
             PathBuf::from("/bin/sh"),
             vec![
                 OsString::from("-c"),
-                OsString::from("setsid sleep 60 & printf '%s\\n' \"$!\"; read; exit 0"),
+                OsString::from(
+                    "leader_start=$(awk '{ print $22 }' /proc/$$/stat); setsid sleep 60 & printf '%s %s %s\\n' \"$$\" \"$leader_start\" \"$!\"; exit 0",
+                ),
             ],
             super::super::discovery::CodexInstallation::NativeExe,
         );
@@ -916,17 +920,32 @@ mod tests {
         spec.arguments.truncate(spec.arguments.len() - 1);
         let mut process = SupervisedAppServerProcess::spawn(&spec).unwrap();
         let mut stdout = tokio::io::BufReader::new(process.stdout().expect("stdout piped"));
-        let descendant = read_reported_pid(&mut stdout).await;
+        let (leader_identity, descendant) = read_reported_identity_and_pid(&mut stdout).await;
         drop(stdout);
-        assert_ledger_tracks(&process.ledger, descendant).await;
 
-        let mut stdin = process.stdin().expect("stdin piped");
-        stdin.write_all(b"exit\n").await.expect("release shell");
-        drop(stdin);
-        wait_for_leader_exit(&mut process.child).await;
+        // No tracking handshake is permitted here: the shell exits as part of
+        // the same command that forks the detached child. This is the race the
+        // old polling ledger could not close.
+        let descendant_identity =
+            read_linux_process_identity(descendant).expect("descendant identity");
+        assert_process_identity_exits_within(leader_identity, Duration::from_secs(1)).await;
+
+        let unrelated = std::process::Command::new("/bin/sleep")
+            .arg("60")
+            .spawn()
+            .expect("spawn unrelated process");
+        let mut unrelated = ChildGuard(unrelated);
+        let unrelated_identity = read_linux_process_identity(unrelated.0.id() as i32)
+            .expect("unrelated process identity");
 
         process.shutdown(Duration::from_millis(50)).await;
-        assert_pid_exits_within(descendant, Duration::from_secs(1)).await;
+        assert_process_identity_exits_within(descendant_identity, Duration::from_secs(1)).await;
+        assert_eq!(
+            read_linux_process_identity(unrelated_identity.0),
+            Some(unrelated_identity),
+            "cleanup touched an unrelated process after its leader was gone"
+        );
+        unrelated.terminate();
     }
 
     #[cfg(target_os = "linux")]
@@ -952,7 +971,6 @@ mod tests {
         let descendant = read_reported_pid(&mut stdout).await;
         drop(stdout);
         assert_ne!(unsafe { getpgid(descendant) }, process_group);
-        assert_ledger_tracks(&process.ledger, descendant).await;
 
         process.shutdown(Duration::from_millis(50)).await;
         assert_process_group_exits_within(process_group, Duration::from_secs(1)).await;
@@ -982,6 +1000,41 @@ mod tests {
     async fn read_reported_pid(
         stdout: &mut tokio::io::BufReader<tokio::process::ChildStdout>,
     ) -> i32 {
+        read_reported_line(stdout)
+            .await
+            .parse()
+            .expect("background descendant pid")
+    }
+
+    #[cfg(target_os = "linux")]
+    async fn read_reported_identity_and_pid(
+        stdout: &mut tokio::io::BufReader<tokio::process::ChildStdout>,
+    ) -> ((i32, u64), i32) {
+        let line = read_reported_line(stdout).await;
+        let mut fields = line.split_whitespace();
+        let leader = fields
+            .next()
+            .expect("leader pid")
+            .parse()
+            .expect("numeric leader pid");
+        let leader_start = fields
+            .next()
+            .expect("leader start time")
+            .parse()
+            .expect("numeric leader start time");
+        let descendant = fields
+            .next()
+            .expect("descendant pid")
+            .parse()
+            .expect("numeric descendant pid");
+        assert!(fields.next().is_none(), "unexpected pid report: {line:?}");
+        ((leader, leader_start), descendant)
+    }
+
+    #[cfg(target_os = "linux")]
+    async fn read_reported_line(
+        stdout: &mut tokio::io::BufReader<tokio::process::ChildStdout>,
+    ) -> String {
         use tokio::io::AsyncBufReadExt;
 
         let mut line = String::new();
@@ -989,7 +1042,7 @@ mod tests {
             .await
             .expect("shell must report its background descendant")
             .expect("background descendant pid must be readable");
-        line.trim().parse().expect("background descendant pid")
+        line.trim().to_owned()
     }
 
     #[cfg(target_os = "linux")]
@@ -1012,32 +1065,46 @@ mod tests {
     }
 
     #[cfg(target_os = "linux")]
-    async fn assert_ledger_tracks(ledger: &std::sync::Arc<super::job::ProcessLedger>, pid: i32) {
-        let deadline = tokio::time::Instant::now() + Duration::from_secs(1);
+    fn read_linux_process_identity(pid: i32) -> Option<(i32, u64)> {
+        let stat = std::fs::read_to_string(format!("/proc/{pid}/stat")).ok()?;
+        let fields = stat
+            .rsplit_once(')')?
+            .1
+            .split_whitespace()
+            .collect::<Vec<_>>();
+        Some((pid, fields.get(19)?.parse().ok()?))
+    }
+
+    #[cfg(target_os = "linux")]
+    async fn assert_process_identity_exits_within(identity: (i32, u64), limit: Duration) {
+        let deadline = tokio::time::Instant::now() + limit;
         loop {
-            if ledger.tracks(pid) {
+            if read_linux_process_identity(identity.0) != Some(identity) {
                 return;
             }
             assert!(
                 tokio::time::Instant::now() < deadline,
-                "early ledger never captured detached descendant {pid}"
+                "process identity {identity:?} survived bounded cleanup"
             );
             tokio::time::sleep(Duration::from_millis(10)).await;
         }
     }
 
     #[cfg(target_os = "linux")]
-    async fn wait_for_leader_exit(child: &mut Child) {
-        let deadline = tokio::time::Instant::now() + Duration::from_secs(1);
-        loop {
-            if matches!(child.try_wait(), Ok(Some(_))) {
-                return;
-            }
-            assert!(
-                tokio::time::Instant::now() < deadline,
-                "shell leader did not exit before shutdown"
-            );
-            tokio::time::sleep(Duration::from_millis(10)).await;
+    struct ChildGuard(std::process::Child);
+
+    #[cfg(target_os = "linux")]
+    impl ChildGuard {
+        fn terminate(&mut self) {
+            let _ = self.0.kill();
+            let _ = self.0.wait();
+        }
+    }
+
+    #[cfg(target_os = "linux")]
+    impl Drop for ChildGuard {
+        fn drop(&mut self) {
+            self.terminate();
         }
     }
 
