@@ -519,6 +519,8 @@ impl CredentialVault {
         }
         #[cfg(not(windows))]
         {
+            // Backups are a ReplaceFileW recovery mechanism; POSIX rename is atomic.
+            let _ = backup_path;
             std::fs::rename(temp_path, final_path).map_err(|_| VaultError::Io)?;
         }
         Ok(())
@@ -862,7 +864,10 @@ mod tests {
             envelope.ciphertext_base64,
         )
         .unwrap();
-        assert_eq!(payload, super::crypto::secret_service_marker(Uuid::nil()));
+        assert_eq!(
+            payload,
+            crate::accounts::vault::crypto::secret_service_marker(Uuid::nil())
+        );
     }
 
     #[test]
@@ -947,8 +952,8 @@ mod tests {
         let vault =
             CredentialVault::new(dir.path().to_path_buf(), Arc::new(TestProtector::default()));
         let raw = serde_json::json!({
-            "format": super::envelope::VAULT_FORMAT,
-            "version": super::envelope::VAULT_VERSION,
+            "format": crate::accounts::vault::envelope::VAULT_FORMAT,
+            "version": crate::accounts::vault::envelope::VAULT_VERSION,
             "protection": "windows-dpapi-current-user",
             "profile_id": Uuid::nil(),
             "generation": 1,

@@ -1061,7 +1061,7 @@ fn read_validated_png(path: &Path) -> Result<Vec<u8>, AvatarError> {
     #[cfg(windows)]
     let (file, length) = open_avatar_leaf_for_read(path)?;
     #[cfg(not(windows))]
-    let (mut file, length) = {
+    let (file, length) = {
         ensure_ordinary_file_if_present(path)?;
         let metadata = fs::symlink_metadata(path).map_err(|_| AvatarError::Storage)?;
         (
@@ -1332,8 +1332,7 @@ mod tests {
 
     use super::{
         AvatarHttpClientBuilder, AvatarKind, AvatarRetryPolicy, AvatarStore, avatar_retry_policy,
-        decode_png_data_url, is_public_avatar_ip, validate_avatar_leaf_attributes,
-        validate_official_avatar_url,
+        decode_png_data_url, is_public_avatar_ip, validate_official_avatar_url,
     };
 
     fn profile_a() -> Uuid {
@@ -1668,12 +1667,12 @@ mod tests {
         std::fs::write(&outside, &bytes).unwrap();
 
         assert!(
-            validate_avatar_leaf_attributes(
+            super::validate_avatar_leaf_attributes(
                 FILE_ATTRIBUTE_NORMAL.0 | FILE_ATTRIBUTE_REPARSE_POINT.0
             )
             .is_err()
         );
-        assert!(validate_avatar_leaf_attributes(FILE_ATTRIBUTE_REPARSE_POINT.0).is_err());
+        assert!(super::validate_avatar_leaf_attributes(FILE_ATTRIBUTE_REPARSE_POINT.0).is_err());
         assert_eq!(std::fs::read(outside).unwrap(), bytes);
     }
 

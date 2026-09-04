@@ -482,7 +482,7 @@ impl SupervisedAppServerProcess {
             command.process_group(0);
         }
 
-        let mut child = command.spawn().map_err(|_| {
+        let child = command.spawn().map_err(|_| {
             AppError::new(
                 AppErrorKind::CodexNotFound,
                 "errors.appServerSpawnFailed",
@@ -490,6 +490,9 @@ impl SupervisedAppServerProcess {
                 "APP_SERVER_SPAWN_FAILED",
             )
         })?;
+
+        #[cfg(windows)]
+        let mut child = child;
 
         #[cfg(windows)]
         let job = {

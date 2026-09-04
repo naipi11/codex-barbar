@@ -207,6 +207,8 @@ impl CodexCommandResolver {
     ) -> Result<Option<ResolvedCodexCommand>, AppError> {
         #[cfg(target_os = "linux")]
         {
+            // PATHEXT is a Windows-only lookup convention; Linux probes bare commands.
+            let _ = pathext;
             for segment in std::env::split_paths(path) {
                 if segment.as_os_str().is_empty() {
                     continue;

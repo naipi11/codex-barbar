@@ -148,7 +148,8 @@ pub(crate) fn resolve_linux_npm_layout(shim: &Path) -> Result<ResolvedCodexComma
     }
 
     let node = canonical_regular_file(&prefix.join("bin/node"), &prefix)?;
-    if node.permissions().mode() & 0o111 == 0 {
+    let node_metadata = std::fs::metadata(&node).map_err(|_| wrapper_unsupported())?;
+    if node_metadata.permissions().mode() & 0o111 == 0 {
         return Err(wrapper_unsupported());
     }
 
