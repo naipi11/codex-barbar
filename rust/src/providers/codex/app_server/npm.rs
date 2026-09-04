@@ -585,6 +585,7 @@ mod tests {
         Version(&'a str),
     }
 
+    #[cfg(windows)]
     #[test]
     fn rejected_wrapper_can_resolve_verified_official_native_package() {
         let fixture = NpmFixture::official_native_with_wrapper("@echo off\r\necho wrapper\r\n");

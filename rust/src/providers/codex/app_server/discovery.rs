@@ -596,6 +596,7 @@ mod tests {
         assert_eq!(error.diagnostic_code, "CODEX_OVERRIDE_NOT_ABSOLUTE");
     }
 
+    #[cfg(windows)]
     #[test]
     fn path_search_finds_native_exe_in_declared_order() {
         let fixture = ResolverFixture::with_native_exes();
@@ -684,6 +685,7 @@ mod tests {
         Ok(None)
     }
 
+    #[cfg(windows)]
     #[test]
     fn path_wrapper_can_fall_back_to_verified_native_package() {
         let fixture = tempfile::TempDir::new().unwrap();
