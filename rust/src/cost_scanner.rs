@@ -490,16 +490,19 @@ impl CostScanner {
                 })
                 .count() as u32;
 
-            // Pi-compatible sessions are outside the Codex JSONL cache.
-            let mut seen_pi = HashSet::new();
-            crate::pi_session_cost::scan_pi_compatible_into(
-                &mut summary,
-                crate::pi_session_cost::PiMappedProvider::Codex,
-                self.pricing.as_ref(),
-                self.days,
-                cancel,
-                &mut seen_pi,
-            );
+            // An explicit Codex sessions override is an isolated scan root;
+            // do not pull in the user's unrelated Pi/OMP sessions.
+            if self.sessions_dirs_override.is_none() {
+                let mut seen_pi = HashSet::new();
+                crate::pi_session_cost::scan_pi_compatible_into(
+                    &mut summary,
+                    crate::pi_session_cost::PiMappedProvider::Codex,
+                    self.pricing.as_ref(),
+                    self.days,
+                    cancel,
+                    &mut seen_pi,
+                );
+            }
             return (summary, stats);
         }
 
@@ -528,15 +531,17 @@ impl CostScanner {
         }
 
         // OMP / pi-compatible agent sessions (upstream #2269). Dedup by entry id.
-        let mut seen_pi = HashSet::new();
-        crate::pi_session_cost::scan_pi_compatible_into(
-            &mut summary,
-            crate::pi_session_cost::PiMappedProvider::Codex,
-            self.pricing.as_ref(),
-            self.days,
-            cancel,
-            &mut seen_pi,
-        );
+        if self.sessions_dirs_override.is_none() {
+            let mut seen_pi = HashSet::new();
+            crate::pi_session_cost::scan_pi_compatible_into(
+                &mut summary,
+                crate::pi_session_cost::PiMappedProvider::Codex,
+                self.pricing.as_ref(),
+                self.days,
+                cancel,
+                &mut seen_pi,
+            );
+        }
 
         (summary, stats)
     }
