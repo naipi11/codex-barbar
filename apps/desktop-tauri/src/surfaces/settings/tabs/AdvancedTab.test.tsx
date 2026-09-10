@@ -35,7 +35,11 @@ describe("AdvancedTab", () => {
     });
     render(<AdvancedTab settings={defaultSettings} copy={settingsCopy("zh-CN")} />);
     fireEvent.click(screen.getByRole("button", { name: "验证并保存" }));
-    expect(await screen.findByText("兼容 (1.2.3)。")).toBeInTheDocument();
+    expect(
+      await screen.findByText(
+        "已检测到 1.2.3；协议兼容性会在刷新时验证。",
+      ),
+    ).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "导出诊断信息" }));
     expect(await screen.findByText("诊断信息已导出到 C:\\诊断\\report.json")).toBeInTheDocument();
   });
@@ -61,5 +65,44 @@ describe("AdvancedTab", () => {
     await waitFor(() => {
       expect(invokeMock).toHaveBeenCalledWith("export_diagnostics");
     });
+  });
+
+  it("shows a redacted environment diagnosis with account states and error codes", async () => {
+    invokeMock.mockImplementation(async (command: string) => {
+      if (command === "get_diagnostics_summary") {
+        return {
+          productName: "codex-barbar",
+          version: "1.0.34",
+          os: "windows x64",
+          codexVersion: "0.154.0",
+          resolvedPathClass: "%USERPROFILE%/codex-barbar",
+          capabilities: {
+            accountRead: true,
+            rateLimitsRead: true,
+            managedLogin: true,
+          },
+          profileKinds: { currentCli: 1 },
+          accountStatuses: { unavailable: 1 },
+          profileCount: 1,
+          refreshTimes: [],
+          errorKinds: ["protocolMismatch"],
+          errorCodes: ["APP_SERVER_REQUIRED_FIELD_MISSING"],
+          vaultStatus: "ok",
+          recoveryStatus: "ok",
+          storageStatus: "ok",
+          testedVersions: ["0.146.0"],
+          logTail: "",
+        };
+      }
+      return undefined;
+    });
+
+    render(<AdvancedTab settings={defaultSettings} copy={settingsCopy("zh-CN")} />);
+    fireEvent.click(screen.getByRole("button", { name: "检查 Codex 运行环境" }));
+
+    expect(await screen.findByText("运行环境诊断")).toBeInTheDocument();
+    expect(screen.getByText("0.154.0")).toBeInTheDocument();
+    expect(screen.getByText("unavailable: 1")).toBeInTheDocument();
+    expect(screen.getByText("APP_SERVER_REQUIRED_FIELD_MISSING")).toBeInTheDocument();
   });
 });

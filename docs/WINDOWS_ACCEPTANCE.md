@@ -50,6 +50,27 @@ Past evidence: `docs/verification/windows/` (screenshots, startup
 performance, proof matrices). New RC evidence for 1.0.0-rc.1 goes to
 `docs/release/v1-rc-report.md`.
 
+## v1.0.34 panel regression
+
+Date: 2026-09-10
+
+Passed:
+
+- Release CI run `34441665799` completed all Windows build, test, audit, and
+  artifact-verification steps successfully.
+- The tray panel keeps logical sizing at native Windows DPI and measures its
+  rendered content height so lower actions remain visible.
+- A fresh installation of v1.0.34 was manually opened and the panel was
+  confirmed to display completely.
+
+Focused automated evidence:
+
+- `corepack pnpm@10.18.1 test --run src/surfaces/TrayPanel.test.tsx`
+- `cargo test --quiet --manifest-path apps/desktop-tauri/src-tauri/Cargo.toml flyout_window`
+
+The full multi-monitor, taskbar-edge, installer-upgrade, and keyboard/CUA
+matrix remains a separate acceptance requirement.
+
 ## 1.0.0-rc.1 host evidence (2026-08-07)
 
 Host: Windows 11 x64, 1920x1080 at 100% scaling (no device identifiers

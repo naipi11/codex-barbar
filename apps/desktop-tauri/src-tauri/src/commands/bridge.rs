@@ -18,6 +18,9 @@ use codexbar::accounts::presentation::avatar_asset_uri;
 use codexbar::core::{
     AppError, AppErrorKind, AuthMode, Freshness, ProfileUsageState, RefreshStatus, UsageWindow,
 };
+use codexbar::providers::codex::app_server::{
+    CodexCommandResolver, CodexInstallation, ResolveRequest, probe_version,
+};
 use codexbar::storage::{
     AppSettings, DisplayMode, LanguagePreference, MenuPreferences, MenuPreferencesPatch,
     NotificationPreferences, NotificationPreferencesPatch, PanelDensity, PanelPreferences,
@@ -26,6 +29,40 @@ use codexbar::storage::{
 };
 
 use crate::state::AppState;
+
+// Keep executable discovery identical to the refresh factory, while exposing
+// only the redacted compatibility facts needed by the UI.
+pub(crate) fn detect_codex_compatibility() -> CodexCompatibilityDto {
+    let request = ResolveRequest {
+        override_path: None,
+        path: std::env::var_os("PATH"),
+        pathext: std::env::var_os("PATHEXT"),
+    };
+    let Ok(command) = CodexCommandResolver::new().resolve(&request) else {
+        return CodexCompatibilityDto {
+            status: "notFound",
+            ..CodexCompatibilityDto::default()
+        };
+    };
+    let version = command
+        .version()
+        .map(ToOwned::to_owned)
+        .or_else(|| probe_version(&command));
+    CodexCompatibilityDto {
+        status: if version.is_some() {
+            "compatible"
+        } else {
+            "unsupported"
+        },
+        installation: Some(match command.installation() {
+            CodexInstallation::VerifiedNpmLayout => "verifiedNpmLayout",
+            CodexInstallation::NativeExe | CodexInstallation::StoreAlias => "nativeExe",
+        }),
+        executable_path: Some(command.launch_program().to_string_lossy().into_owned()),
+        version,
+        capabilities: Default::default(),
+    }
+}
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -870,7 +907,7 @@ pub(crate) fn bootstrap_from_state(
         profiles: Vec::new(),
         selected_profile_id: String::new(),
         usage_by_profile: BTreeMap::new(),
-        codex: CodexCompatibilityDto::default(),
+        codex: detect_codex_compatibility(),
     };
 
     let Some(service) = state.account_service.as_ref() else {

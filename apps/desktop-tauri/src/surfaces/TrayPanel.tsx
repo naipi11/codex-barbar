@@ -1,6 +1,7 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import {
   dismissTrayPanel,
+  exportDiagnostics,
   getBootstrapState,
   openCodexUsagePage,
   openSettingsWindow,
@@ -153,6 +154,9 @@ function TrayDashboard({ bootstrap }: { bootstrap: BootstrapDto }) {
         showFreshness={panel.showFreshness}
         onRefresh={usage.refresh}
         onOpenSettings={openSettingsWindow}
+        onExportDiagnostics={async () => {
+          await exportDiagnostics();
+        }}
         onOpenUsage={openCodexUsagePage}
       />
 

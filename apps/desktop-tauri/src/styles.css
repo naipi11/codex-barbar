@@ -300,6 +300,44 @@ html:has(.float-ball-shell) {
   margin: 2px 0 0;
 }
 
+.settings-diagnostics {
+  display: grid;
+  gap: 6px;
+  padding: 12px;
+  margin: 0 0 10px;
+  border: 1px solid var(--app-border);
+  border-radius: 8px;
+  background: var(--app-surface);
+}
+
+.settings-diagnostics h3 {
+  margin: 0;
+  font-size: 14px;
+}
+
+.settings-diagnostics dl {
+  display: grid;
+  gap: 4px;
+  margin: 0;
+}
+
+.settings-diagnostics dl > div {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.5fr);
+  gap: 8px;
+}
+
+.settings-diagnostics dt,
+.settings-diagnostics dd {
+  min-width: 0;
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.settings-diagnostics dt {
+  color: var(--app-muted);
+}
+
 .settings-switch {
   display: flex;
   align-items: center;

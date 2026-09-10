@@ -6,13 +6,13 @@ recovery steps. None of these steps require an administrator account.
 | Error state | Meaning | What to do |
 |---|---|---|
 | Codex not found | No Codex CLI / App Server executable could be resolved | Install Codex, then use **Settings → Providers → Validate Codex executable** or restart codex-barbar |
-| Unsupported Codex version | The resolved Codex version is outside the tested matrix | See [docs/TESTED_CODEX_VERSIONS.md](docs/TESTED_CODEX_VERSIONS.md); install a tested version |
+| Unsupported Codex version | The resolved executable failed the fixed `--version` probe or the App Server wire contract | Check the diagnostic code, then update codex-barbar or Codex and retry; the tested matrix is evidence, not a hard-coded allowlist |
 | Not signed in | The current CLI has no signed-in account | Run `codex login` in a terminal, then refresh |
 | API key, no quota | The account authenticates with an API key, which exposes no quota data | Sign in with a ChatGPT/Codex account instead of an API key |
 | Authentication expired | Stored or CLI-side authentication has expired | Re-authenticate with `codex login`, then refresh |
 | Offline or timeout | Network failure, process hang, or RPC timeout | Check the network and Codex process, then refresh; codex-barbar keeps the last successful snapshot visible |
 | Rate limited | The server asked the app to back off | Wait for the reset/backoff window; refresh is retried automatically with longer intervals |
-| Protocol mismatch | The App Server wire protocol did not match the frozen schema | Update codex-barbar or Codex to a compatible combination from the tested matrix |
+| Protocol mismatch | The App Server wire protocol did not match the frozen schema | Export diagnostics, then update codex-barbar or Codex and report the redacted error code |
 | Vault failure | DPAPI or vault read/write failed | Close codex-barbar and retry; if it persists, export a diagnostic and report the issue. Credentials are never written in plaintext |
 | Storage failure | Local settings/database storage failed | Check that `%LOCALAPPDATA%\codex-barbar` is writable and not full; export diagnostics before deleting anything |
 

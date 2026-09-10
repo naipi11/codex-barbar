@@ -14,18 +14,20 @@ pub struct DiagnosticsExportDto {
 }
 
 fn diagnostics_from_state(state: &AppState) -> Diagnostics {
-    let mut diagnostics = Diagnostics::default();
-    diagnostics.vault_status = if state.account_service.is_some() {
-        "ok".to_string()
-    } else {
-        "unavailable".to_string()
+    let mut diagnostics = Diagnostics {
+        codex_version: super::bridge::detect_codex_compatibility().version,
+        vault_status: if state.account_service.is_some() {
+            "ok".to_string()
+        } else {
+            "unavailable".to_string()
+        },
+        ..Default::default()
     };
-    diagnostics.recovery_status = diagnostics.vault_status.clone();
-    diagnostics.storage_status = diagnostics.vault_status.clone();
     if let Some(service) = state.account_service.as_ref() {
         let Ok(snapshot) = service.snapshot() else {
             return diagnostics;
         };
+        let identities = service.identity_records().unwrap_or_default();
         for profile in snapshot.profiles {
             let kind_name = match profile.kind {
                 codexbar::accounts::model::ProfileKind::CurrentCli => "currentCli",
@@ -35,6 +37,17 @@ fn diagnostics_from_state(state: &AppState) -> Diagnostics {
                 .profile_kinds
                 .entry(kind_name.to_string())
                 .or_insert(0) += 1;
+            if let Some(identity) = identities.get(&profile.id) {
+                let status_name = match identity.status {
+                    codexbar::accounts::identity::AccountStatus::SignedIn => "signedIn",
+                    codexbar::accounts::identity::AccountStatus::SignedOut => "signedOut",
+                    codexbar::accounts::identity::AccountStatus::Unavailable => "unavailable",
+                };
+                *diagnostics
+                    .account_statuses
+                    .entry(status_name.to_string())
+                    .or_insert(0) += 1;
+            }
             if let Some(last) = profile.last_success_at {
                 diagnostics
                     .refresh_times
@@ -47,6 +60,9 @@ fn diagnostics_from_state(state: &AppState) -> Diagnostics {
                     diagnostics
                         .error_kinds
                         .push(super::error_kind_name(error.kind).to_string());
+                    if !error.diagnostic_code.is_empty() {
+                        diagnostics.error_codes.push(error.diagnostic_code);
+                    }
                 }
             }
         }

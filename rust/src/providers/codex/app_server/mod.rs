@@ -21,7 +21,7 @@ pub use client::{
     RPC_TIMEOUT, SHUTDOWN_TIMEOUT,
 };
 pub use discovery::{
-    CodexCommandResolver, CodexInstallation, ResolveRequest, ResolvedCodexCommand,
+    CodexCommandResolver, CodexInstallation, ResolveRequest, ResolvedCodexCommand, probe_version,
 };
 pub use model::{AccountIdentity, ParsedRateLimits, parse_profile_usage};
 pub use process::{

@@ -351,9 +351,11 @@ export interface DiagnosticsSummaryDto {
   resolvedPathClass: string;
   capabilities: DiagnosticsCapabilitiesDto;
   profileKinds: Record<string, number>;
+  accountStatuses: Record<string, number>;
   profileCount: number;
   refreshTimes: string[];
   errorKinds: string[];
+  errorCodes: string[];
   vaultStatus: string;
   recoveryStatus: string;
   storageStatus: string;

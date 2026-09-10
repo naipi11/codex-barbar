@@ -1,9 +1,20 @@
 # Tested Codex Versions
 
 codex-barbar V1 reads usage through the official Codex App Server protocol.
-The compatibility matrix below records the Codex versions used during
-acceptance testing. Versions outside the matrix are reported as
-unsupported until re-tested.
+The compatibility matrix below records native Windows acceptance evidence;
+versions outside it are unverified, not automatically rejected.
+
+## Compatibility semantics
+
+The executable check verifies that the resolved Codex command can be launched
+with the fixed `--version` probe. A detected version is not, by itself, proof
+that every App Server method is compatible; the refresh handshake remains the
+runtime compatibility check and reports a redacted protocol error when it
+fails.
+
+The matrix below is acceptance evidence, not a hard-coded version allowlist.
+When a new Codex version is verified on native Windows, add a row with the
+exact codex-barbar version, Codex version, OS build, and result.
 
 | codex-barbar | Codex version tested | Date | Notes |
 |---|---|---|---|
@@ -21,7 +32,8 @@ unsupported until re-tested.
 
 ## Boundary
 
-- `UnsupportedCodexVersion` is reported when the resolved version is outside
-  the tested matrix.
+- `UnsupportedCodexVersion` means the fixed executable probe or the runtime
+  App Server wire contract failed; being absent from this matrix alone does
+  not reject a version.
 - The App Server protocol is experimental; protocol mismatches surface as
   redacted errors with a recovery hint, never raw protocol text.

@@ -10,6 +10,7 @@ interface UsageStatusProps {
   onRefresh(): Promise<void> | void;
   onOpenSettings(): Promise<void> | void;
   onOpenUsage(): Promise<void> | void;
+  onExportDiagnostics(): Promise<void> | void;
 }
 
 function formatUpdatedAt(value: string | null, locale: string): string | null {
@@ -30,7 +31,11 @@ function errorAction(
   kind: AppErrorKind,
   action: RecoveryAction,
   copy: TrayCopy,
-): { message: string; label: string; kind: "refresh" | "settings" | "usage" | "none" } {
+): {
+  message: string;
+  label: string;
+  kind: "refresh" | "settings" | "usage" | "diagnostics" | "none";
+} {
   const kindLabel = copy.errorMessages[kind];
   switch (action) {
     case "retry":
@@ -48,7 +53,7 @@ function errorAction(
     case "installTestedCodex":
       return { message: kindLabel, label: copy.installTestedCodex, kind: "settings" };
     case "exportDiagnostics":
-      return { message: kindLabel, label: copy.exportDiagnostics, kind: "none" };
+      return { message: kindLabel, label: copy.exportDiagnostics, kind: "diagnostics" };
   }
 }
 
@@ -61,6 +66,7 @@ export default function UsageStatus({
   onRefresh,
   onOpenSettings,
   onOpenUsage,
+  onExportDiagnostics,
 }: UsageStatusProps) {
   const updated = formatUpdatedAt(state.fetchedAt, locale);
   const error = state.currentError
@@ -121,6 +127,11 @@ export default function UsageStatus({
           ) : null}
           {error.kind === "usage" ? (
             <button type="button" onClick={() => void onOpenUsage()}>
+              {error.label}
+            </button>
+          ) : null}
+          {error.kind === "diagnostics" ? (
+            <button type="button" onClick={() => void onExportDiagnostics()}>
               {error.label}
             </button>
           ) : null}

@@ -17,7 +17,10 @@ artifact-manifest.json                    Version, commit, sizes, hashes
 ```
 
 Binaries are unsigned until an Authenticode certificate is supplied;
-SmartScreen warnings are expected.
+SmartScreen warnings are expected. When repository variable
+`AUTHENTICODE_CERT_SUBJECT` is configured, the release workflow verifies both
+the NSIS installer and the executable inside the portable ZIP, and fails on an
+unsigned or unexpectedly signed binary.
 
 ## Local release build
 

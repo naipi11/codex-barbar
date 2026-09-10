@@ -135,6 +135,16 @@ jobs:
             -Version "${{ steps.version.outputs.version }}" `
             -OutputDirectory .\artifacts\release
 
+      - name: Verify Authenticode signatures
+        if: vars.AUTHENTICODE_CERT_SUBJECT != ''
+        shell: pwsh
+        run: |
+          .\scripts\verify-authenticode.ps1 `
+            -Version "${{ steps.version.outputs.version }}" `
+            -AssetsDirectory .\artifacts\release `
+            -ExpectedSubject "${{ vars.AUTHENTICODE_CERT_SUBJECT }}" `
+            -RequireSignature
+
       - name: Verify release artifacts
         shell: pwsh
         run: |
