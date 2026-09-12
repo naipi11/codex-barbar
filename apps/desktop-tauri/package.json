@@ -1,7 +1,7 @@
 {
   "name": "codex-barbar-desktop",
   "private": true,
-  "version": "1.0.34",
+  "version": "1.0.35",
   "packageManager": "pnpm@10.18.1",
   "pnpm": {
     "overrides": {

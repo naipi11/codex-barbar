@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.0.35 - 2026-09-13
+
+### Fixed
+- Add redacted Codex environment diagnostics with account-state and error-code
+  summaries for unavailable accounts.
+- Make tray recovery diagnostics export an actionable button.
+- Keep overridden cost-scan roots isolated from unrelated Pi/OMP sessions.
+- Upgrade Vitest to 4.1.11 and add optional Authenticode signature checks to
+  the Windows release workflow.
+
 ## 1.0.34 - 2026-09-10
 
 ### Fixed
