@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 1.0.36 - 2026-09-13
 
 ### Fixed
 - Show the taskbar status on every detected Windows taskbar, including
