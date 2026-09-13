@@ -19,7 +19,7 @@ export default function App() {
   if (label === "main") {
     return <TrayPanel />;
   }
-  if (label === "taskbar-status") {
+  if (label === "taskbar-status" || /^taskbar-status-\d+$/.test(label)) {
     return <TaskbarStatus />;
   }
   if (label === "taskbar-status-measure") {

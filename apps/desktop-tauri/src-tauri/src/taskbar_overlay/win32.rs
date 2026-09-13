@@ -4,6 +4,9 @@ pub type WindowHandle = isize;
 
 pub trait Win32TaskbarApi {
     fn find_window(&self, class_name: &str) -> Option<WindowHandle>;
+    fn find_windows(&self, class_name: &str) -> Vec<WindowHandle> {
+        self.find_window(class_name).into_iter().collect()
+    }
     fn find_descendant(&self, parent: WindowHandle, class_name: &str) -> Option<WindowHandle>;
     fn window_rect(&self, window: WindowHandle) -> Option<Rect>;
     fn monitor_rect(&self, window: WindowHandle) -> Option<Rect>;
@@ -11,6 +14,8 @@ pub trait Win32TaskbarApi {
     fn is_window_visible(&self, window: WindowHandle) -> bool;
     fn is_auto_hide_enabled(&self, window: WindowHandle) -> bool;
 }
+
+const TASKBAR_CLASSES: [&str; 2] = ["Shell_TrayWnd", "Shell_SecondaryTrayWnd"];
 
 pub fn class_matches(actual: &str, expected: &str) -> bool {
     actual.eq_ignore_ascii_case(expected)
@@ -39,34 +44,57 @@ pub fn edge_for_taskbar(taskbar: Rect, monitor: Rect) -> Option<TaskbarEdge> {
     }
 }
 
-pub fn discover_taskbar<A: Win32TaskbarApi>(_api: &A) -> Option<TaskbarSnapshot> {
-    let shell = _api.find_window("Shell_TrayWnd")?;
-    let auto_hide = _api.is_auto_hide_enabled(shell);
-    if !_api.is_window_visible(shell) && !auto_hide {
+fn discover_taskbar_for_window<A: Win32TaskbarApi>(
+    api: &A,
+    shell: WindowHandle,
+) -> Option<TaskbarSnapshot> {
+    let auto_hide = api.is_auto_hide_enabled(shell);
+    if !api.is_window_visible(shell) && !auto_hide {
         return None;
     }
-    let taskbar = _api.window_rect(shell)?;
-    let monitor = _api.monitor_rect(shell)?;
+    let taskbar = api.window_rect(shell)?;
+    let monitor = api.monitor_rect(shell)?;
     let edge = edge_for_taskbar(taskbar, monitor)?;
     let app_area = ["MSTaskSwWClass", "MSTaskListWClass"]
         .iter()
-        .find_map(|class| _api.find_descendant(shell, class))
-        .and_then(|window| _api.window_rect(window));
-    let notification_area = _api
+        .find_map(|class| api.find_descendant(shell, class))
+        .and_then(|window| api.window_rect(window));
+    let notification_area = api
         .find_descendant(shell, "TrayNotifyWnd")
-        .and_then(|window| _api.window_rect(window));
+        .and_then(|window| api.window_rect(window));
 
     Some(TaskbarSnapshot {
         taskbar,
         app_area,
         notification_area,
         edge,
-        dpi: _api
+        dpi: api
             .dpi_for_window(shell)
             .filter(|dpi| *dpi > 0)
             .unwrap_or(96),
         auto_hide,
     })
+}
+
+pub fn discover_taskbars<A: Win32TaskbarApi>(api: &A) -> Vec<TaskbarSnapshot> {
+    let mut shells = TASKBAR_CLASSES
+        .iter()
+        .flat_map(|class| api.find_windows(class))
+        .collect::<Vec<_>>();
+    shells.sort_unstable_by_key(|window| {
+        api.monitor_rect(*window)
+            .map(|monitor| (monitor.x, monitor.y, monitor.width, monitor.height))
+            .unwrap_or((i32::MAX, i32::MAX, 0, 0))
+    });
+    shells.dedup();
+    shells
+        .into_iter()
+        .filter_map(|shell| discover_taskbar_for_window(api, shell))
+        .collect()
+}
+
+pub fn discover_taskbar<A: Win32TaskbarApi>(api: &A) -> Option<TaskbarSnapshot> {
+    discover_taskbars(api).into_iter().next()
 }
 
 #[derive(Debug, Default, Clone, Copy)]
@@ -186,6 +214,20 @@ impl Win32TaskbarApi for NativeWin32TaskbarApi {
         let handle = unsafe { FindWindowW(class.as_ptr(), std::ptr::null()) };
         (handle != 0).then_some(handle)
     }
+    fn find_windows(&self, class_name: &str) -> Vec<WindowHandle> {
+        let class = wide(class_name);
+        let mut windows = Vec::new();
+        let mut child_after = 0;
+        loop {
+            let window = unsafe { FindWindowExW(0, child_after, class.as_ptr(), std::ptr::null()) };
+            if window == 0 {
+                break;
+            }
+            windows.push(window);
+            child_after = window;
+        }
+        windows
+    }
 
     fn find_descendant(&self, parent: WindowHandle, class_name: &str) -> Option<WindowHandle> {
         find_descendant_recursive(parent, class_name)
@@ -286,6 +328,14 @@ mod tests {
                 .iter()
                 .find(|(actual, _)| class_matches(actual, class_name))
                 .map(|(_, handle)| *handle)
+        }
+
+        fn find_windows(&self, class_name: &str) -> Vec<WindowHandle> {
+            self.windows
+                .iter()
+                .filter(|(actual, _)| class_matches(actual, class_name))
+                .map(|(_, handle)| *handle)
+                .collect()
         }
 
         fn find_descendant(&self, parent: WindowHandle, class_name: &str) -> Option<WindowHandle> {
@@ -435,6 +485,56 @@ mod tests {
         assert!(snapshot.auto_hide);
         assert_eq!(snapshot.notification_area, api.rects.get(&2).copied());
         assert_eq!(snapshot.app_area, api.rects.get(&3).copied());
+    }
+    #[test]
+    fn discovers_primary_and_secondary_taskbars_in_monitor_order() {
+        let mut api = FakeApi::default();
+        api.windows.insert("Shell_TrayWnd".into(), 1);
+        api.windows.insert("Shell_SecondaryTrayWnd".into(), 4);
+        api.rects.insert(
+            1,
+            Rect {
+                x: 0,
+                y: 1032,
+                width: 1920,
+                height: 48,
+            },
+        );
+        api.rects.insert(
+            4,
+            Rect {
+                x: 1920,
+                y: 1392,
+                width: 2560,
+                height: 48,
+            },
+        );
+        api.monitors.insert(
+            1,
+            Rect {
+                x: 0,
+                y: 0,
+                width: 1920,
+                height: 1080,
+            },
+        );
+        api.monitors.insert(
+            4,
+            Rect {
+                x: 1920,
+                y: 0,
+                width: 2560,
+                height: 1440,
+            },
+        );
+        api.visible.insert(1, true);
+        api.visible.insert(4, true);
+
+        let snapshots = discover_taskbars(&api);
+
+        assert_eq!(snapshots.len(), 2);
+        assert_eq!(snapshots[0].taskbar.x, 0);
+        assert_eq!(snapshots[1].taskbar.x, 1920);
     }
 
     #[test]

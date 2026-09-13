@@ -131,12 +131,10 @@ pub fn surface_for_window_label(label: &str) -> Option<controller::StatusSurface
     if crate::float_ball::window::should_prevent_close(label) {
         return Some(controller::StatusSurfaceKind::FloatBall);
     }
-    match label {
-        crate::taskbar_overlay::window::TASKBAR_WINDOW_LABEL => {
-            Some(controller::StatusSurfaceKind::TaskbarStatus)
-        }
-        _ => None,
+    if crate::taskbar_overlay::window::is_taskbar_window_label(label) {
+        return Some(controller::StatusSurfaceKind::TaskbarStatus);
     }
+    None
 }
 
 pub fn schedule_set_enabled(
@@ -559,6 +557,10 @@ mod tests {
     fn auxiliary_labels_map_to_permanent_disable_intents() {
         assert_eq!(
             surface_for_window_label("taskbar-status"),
+            Some(controller::StatusSurfaceKind::TaskbarStatus)
+        );
+        assert_eq!(
+            surface_for_window_label("taskbar-status-2"),
             Some(controller::StatusSurfaceKind::TaskbarStatus)
         );
         assert_eq!(

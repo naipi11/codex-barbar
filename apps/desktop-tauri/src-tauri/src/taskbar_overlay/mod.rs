@@ -26,6 +26,7 @@ fn enable_windows_with(
     })
 }
 
+#[cfg(test)]
 fn disable_windows_with(
     close_measurement: impl FnOnce() -> Result<(), String>,
     close_visible: impl FnOnce() -> Result<(), String>,
@@ -33,7 +34,7 @@ fn disable_windows_with(
     close_measurement().map_err(|_| TASKBAR_MEASUREMENT_WINDOW_CLOSE_FAILED.to_string())?;
     close_visible()
 }
-
+#[cfg(test)]
 fn apply_disabled_with(
     enabled: &mut bool,
     close_measurement: impl FnOnce() -> Result<(), String>,
@@ -147,22 +148,26 @@ fn apply_content_width_transaction(
     Err("TASKBAR_STATUS_RESIZE_FAILED".to_string())
 }
 
+struct TaskbarOverlayWindow {
+    label: String,
+    window: tauri::WebviewWindow,
+    last_slot: Option<Rect>,
+}
+
 pub struct TaskbarOverlay {
-    window: Option<tauri::WebviewWindow>,
+    windows: Vec<TaskbarOverlayWindow>,
     measurement_window: Option<tauri::WebviewWindow>,
     enabled: bool,
     logical_width: u32,
-    last_slot: Option<Rect>,
 }
 
 impl Default for TaskbarOverlay {
     fn default() -> Self {
         Self {
-            window: None,
+            windows: Vec::new(),
             measurement_window: None,
             enabled: false,
             logical_width: window::TASKBAR_SAFE_FALLBACK_LOGICAL_WIDTH,
-            last_slot: None,
         }
     }
 }
@@ -182,7 +187,7 @@ impl TaskbarOverlay {
         let mut measurement_window = None;
         let availability = enable_windows_with(
             || {
-                visible_window = Some(window::get_or_create(app, logical_width)?);
+                visible_window = Some(window::get_or_create(app, logical_width, 0)?);
                 Ok(())
             },
             || {
@@ -190,7 +195,13 @@ impl TaskbarOverlay {
                 Ok(())
             },
         )?;
-        self.window = visible_window;
+        if let Some(window) = visible_window {
+            self.windows = vec![TaskbarOverlayWindow {
+                label: window::taskbar_window_label(0),
+                window,
+                last_slot: None,
+            }];
+        }
         if let Some(measurement_window) = measurement_window {
             self.measurement_window = Some(measurement_window);
         }
@@ -220,19 +231,32 @@ impl TaskbarOverlay {
     }
 
     pub fn reposition(&mut self, app: &tauri::AppHandle) -> Result<(), String> {
-        let window = self.ensure_window(app)?;
-        let Some(snapshot) = win32::discover_native() else {
-            // Keep the last known slot visible. Hiding here made the bar blink
-            // whenever Explorer briefly failed discovery after a desktop click.
-            if let Some(slot) = self.last_slot {
-                let _ = window::position_and_show(&window, slot);
-                return Ok(());
+        let snapshots = win32::discover_taskbars(&win32::NativeWin32TaskbarApi);
+        if snapshots.is_empty() {
+            let mut first_error = None;
+            let mut has_fallback = false;
+            for entry in &self.windows {
+                if let Some(slot) = entry.last_slot {
+                    has_fallback = true;
+                    if let Err(error) = window::position_and_show(&entry.window, slot) {
+                        first_error.get_or_insert(error);
+                    }
+                }
             }
-            return Err("TASKBAR_DISCOVERY_UNAVAILABLE".to_string());
-        };
-        let slot = compute_slot(&snapshot, self.logical_width);
-        window::position_and_show(&window, slot)?;
-        self.last_slot = Some(slot);
+            if let Some(error) = first_error {
+                return Err(error);
+            }
+            return has_fallback
+                .then_some(())
+                .ok_or_else(|| "TASKBAR_DISCOVERY_UNAVAILABLE".to_string());
+        }
+
+        self.reconcile_windows(app, snapshots.len())?;
+        for (entry, snapshot) in self.windows.iter_mut().zip(snapshots) {
+            let slot = compute_slot(&snapshot, self.logical_width);
+            window::position_and_show(&entry.window, slot)?;
+            entry.last_slot = Some(slot);
+        }
         Ok(())
     }
 
@@ -257,32 +281,37 @@ impl TaskbarOverlay {
     }
 
     pub fn hide_for_fullscreen(&self) -> Result<(), String> {
-        if let Some(window) = self.window.as_ref() {
-            crate::shell::dwm::hide_window(window)
-                .map_err(|_| "TASKBAR_STATUS_FULLSCREEN_HIDE_FAILED".to_string())?;
+        let mut first_error = None;
+        for entry in &self.windows {
+            if let Err(error) = crate::shell::dwm::hide_window(&entry.window)
+                .map_err(|_| "TASKBAR_STATUS_FULLSCREEN_HIDE_FAILED".to_string())
+            {
+                first_error.get_or_insert(error);
+            }
         }
-        Ok(())
+        first_error.map_or(Ok(()), Err)
     }
 
     pub fn restore_after_shell(&mut self, app: &tauri::AppHandle) -> Result<(), String> {
         if !self.enabled {
             return Ok(());
         }
-        let window = self.ensure_window(app)?;
-        let _ = window::show_noactivate(&window);
         self.reposition(app)?;
-        window::reassert_topmost(&window)
+        self.reassert_topmost()
     }
 
     pub fn reassert_topmost(&self) -> Result<(), String> {
         if !self.enabled {
             return Ok(());
         }
-        if let Some(window) = self.window.as_ref() {
-            let _ = window::show_noactivate(window);
-            window::reassert_topmost(window)?;
+        let mut first_error = None;
+        for entry in &self.windows {
+            let _ = window::show_noactivate(&entry.window);
+            if let Err(error) = window::reassert_topmost(&entry.window) {
+                first_error.get_or_insert(error);
+            }
         }
-        Ok(())
+        first_error.map_or(Ok(()), Err)
     }
 
     pub fn observe_lifecycle(
@@ -294,9 +323,9 @@ impl TaskbarOverlay {
             SurfaceBounds, SurfaceLabel, SurfaceLifecycleSnapshot, TopmostResult,
         };
         let observation = self
-            .window
-            .as_ref()
-            .and_then(|window| window::observe(window).ok());
+            .windows
+            .iter()
+            .find_map(|entry| window::observe(&entry.window).ok());
         SurfaceLifecycleSnapshot {
             surface: SurfaceLabel::TaskbarStatus,
             desired_visible: self.enabled
@@ -325,8 +354,7 @@ impl TaskbarOverlay {
     }
 
     pub fn handle_window_destroyed(&mut self) {
-        self.window = None;
-        self.last_slot = None;
+        self.windows.clear();
     }
 
     pub fn handle_measurement_window_destroyed(&mut self) {
@@ -346,23 +374,53 @@ impl TaskbarOverlay {
 
     fn cleanup_disabled_window(&mut self, app: &tauri::AppHandle) -> Result<(), String> {
         let measurement_window = &mut self.measurement_window;
-        let visible_window = &mut self.window;
-        apply_disabled_with(
-            &mut self.enabled,
-            || {
-                let outcome = close_cached_or_labeled(
-                    app,
-                    measurement_window,
-                    window::TASKBAR_MEASUREMENT_WINDOW_LABEL,
-                )?;
-                require_measurement_destroyed(outcome).map_err(str::to_string)
-            },
-            || {
-                close_cached_or_labeled(app, visible_window, window::TASKBAR_WINDOW_LABEL)
-                    .map(|_| ())
-            },
-        )?;
-        self.last_slot = None;
+        let mut first_error = None;
+        if let Err(error) = close_cached_or_labeled(
+            app,
+            measurement_window,
+            window::TASKBAR_MEASUREMENT_WINDOW_LABEL,
+        )
+        .and_then(|outcome| require_measurement_destroyed(outcome).map_err(str::to_string))
+        {
+            first_error = Some(error);
+        }
+        if first_error.is_none() {
+            for entry in &mut self.windows {
+                let mut cached = Some(entry.window.clone());
+                if let Err(error) =
+                    close_cached_or_labeled(app, &mut cached, &entry.label).map(|_| ())
+                {
+                    first_error = Some(error);
+                    break;
+                }
+            }
+        }
+        if let Some(error) = first_error {
+            self.enabled = true;
+            return Err(error);
+        }
+        self.enabled = false;
+        self.windows.clear();
+        Ok(())
+    }
+
+    fn reconcile_windows(&mut self, app: &tauri::AppHandle, count: usize) -> Result<(), String> {
+        while self.windows.len() < count {
+            let index = self.windows.len();
+            let window = window::get_or_create(app, self.logical_width, index)?;
+            self.windows.push(TaskbarOverlayWindow {
+                label: window::taskbar_window_label(index),
+                window,
+                last_slot: None,
+            });
+        }
+        while self.windows.len() > count {
+            let index = self.windows.len() - 1;
+            let label = self.windows[index].label.clone();
+            let mut cached = Some(self.windows[index].window.clone());
+            close_cached_or_labeled(app, &mut cached, &label)?;
+            self.windows.pop();
+        }
         Ok(())
     }
 
@@ -370,12 +428,6 @@ impl TaskbarOverlay {
         let measurement = window::get_or_create_measurement(app)?;
         self.measurement_window = Some(measurement);
         Ok(())
-    }
-
-    fn ensure_window(&mut self, app: &tauri::AppHandle) -> Result<tauri::WebviewWindow, String> {
-        let window = window::get_or_create(app, self.logical_width)?;
-        self.window = Some(window.clone());
-        Ok(window)
     }
 }
 
@@ -409,15 +461,28 @@ impl TaskbarWidthOperations for OverlayWidthOperations<'_> {
     }
 
     fn resize(&mut self, width: u32) -> Result<(), String> {
-        let Some(window) = self.overlay.window.as_ref() else {
-            return Ok(());
-        };
-        window
-            .set_size(LogicalSize::new(
-                f64::from(width),
-                f64::from(window::TASKBAR_LOGICAL_HEIGHT),
-            ))
-            .map_err(|_| "TASKBAR_STATUS_RESIZE_FAILED".to_string())
+        let previous_width = self.overlay.logical_width;
+        for index in 0..self.overlay.windows.len() {
+            if self.overlay.windows[index]
+                .window
+                .set_size(LogicalSize::new(
+                    f64::from(width),
+                    f64::from(window::TASKBAR_LOGICAL_HEIGHT),
+                ))
+                .is_err()
+            {
+                for rollback_index in 0..index {
+                    let _ = self.overlay.windows[rollback_index]
+                        .window
+                        .set_size(LogicalSize::new(
+                            f64::from(previous_width),
+                            f64::from(window::TASKBAR_LOGICAL_HEIGHT),
+                        ));
+                }
+                return Err("TASKBAR_STATUS_RESIZE_FAILED".to_string());
+            }
+        }
+        Ok(())
     }
 
     fn reposition(&mut self) -> Result<(), String> {
@@ -425,7 +490,9 @@ impl TaskbarWidthOperations for OverlayWidthOperations<'_> {
     }
 
     fn invalidate_slot(&mut self) {
-        self.overlay.last_slot = None;
+        for entry in &mut self.overlay.windows {
+            entry.last_slot = None;
+        }
     }
 }
 
@@ -435,13 +502,13 @@ mod tests {
     use std::collections::VecDeque;
 
     #[test]
-    fn overlay_starts_at_the_safe_fallback_width() {
+    fn overlay_starts_without_cached_windows_and_uses_safe_fallback_width() {
         let overlay = TaskbarOverlay::default();
+        assert!(overlay.windows.is_empty());
         assert_eq!(
             overlay.logical_width,
             window::TASKBAR_SAFE_FALLBACK_LOGICAL_WIDTH
         );
-        assert_eq!(overlay.last_slot, None);
     }
 
     #[test]

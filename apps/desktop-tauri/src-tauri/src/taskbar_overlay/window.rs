@@ -3,6 +3,7 @@ use tauri::{Manager, WebviewUrl};
 use super::positioning::Rect;
 
 pub const TASKBAR_WINDOW_LABEL: &str = "taskbar-status";
+pub const TASKBAR_WINDOW_LABEL_PREFIX: &str = "taskbar-status-";
 pub const TASKBAR_FRONTEND_ROUTE: &str = "index.html?window=taskbar-status";
 pub const TASKBAR_MEASUREMENT_WINDOW_LABEL: &str = "taskbar-status-measure";
 pub const TASKBAR_MEASUREMENT_FRONTEND_ROUTE: &str = "index.html?window=taskbar-status-measure";
@@ -12,18 +13,35 @@ pub const TASKBAR_MAX_LOGICAL_WIDTH: u32 = 318;
 pub const TASKBAR_SAFE_FALLBACK_LOGICAL_WIDTH: u32 = 318;
 pub const TASKBAR_LOGICAL_HEIGHT: u32 = 40;
 
+pub fn taskbar_window_label(index: usize) -> String {
+    if index == 0 {
+        TASKBAR_WINDOW_LABEL.to_string()
+    } else {
+        format!("{TASKBAR_WINDOW_LABEL_PREFIX}{index}")
+    }
+}
+
+pub fn is_taskbar_window_label(label: &str) -> bool {
+    label == TASKBAR_WINDOW_LABEL
+        || label
+            .strip_prefix(TASKBAR_WINDOW_LABEL_PREFIX)
+            .is_some_and(|suffix| !suffix.is_empty() && suffix.chars().all(|c| c.is_ascii_digit()))
+}
+
 pub fn get_or_create(
     app: &tauri::AppHandle,
     logical_width: u32,
+    index: usize,
 ) -> Result<tauri::WebviewWindow, String> {
-    if let Some(window) = app.get_webview_window(TASKBAR_WINDOW_LABEL) {
+    let label = taskbar_window_label(index);
+    if let Some(window) = app.get_webview_window(&label) {
         crate::shell::dwm::apply_no_activate_tool_window(&window)?;
         return Ok(window);
     }
 
     let window = tauri::WebviewWindowBuilder::new(
         app,
-        TASKBAR_WINDOW_LABEL,
+        &label,
         WebviewUrl::App(TASKBAR_FRONTEND_ROUTE.into()),
     )
     .title("codex-barbar taskbar status")
@@ -110,6 +128,16 @@ mod tests {
     fn overlay_label_and_frontend_route_are_stable() {
         assert_eq!(TASKBAR_WINDOW_LABEL, "taskbar-status");
         assert_eq!(TASKBAR_FRONTEND_ROUTE, "index.html?window=taskbar-status");
+    }
+
+    #[test]
+    fn secondary_taskbar_labels_are_stable_and_strict() {
+        assert_eq!(taskbar_window_label(0), "taskbar-status");
+        assert_eq!(taskbar_window_label(1), "taskbar-status-1");
+        assert!(is_taskbar_window_label("taskbar-status"));
+        assert!(is_taskbar_window_label("taskbar-status-2"));
+        assert!(!is_taskbar_window_label("taskbar-status-measure"));
+        assert!(!is_taskbar_window_label("taskbar-status-abc"));
     }
 
     #[test]

@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+- Show the taskbar status on every detected Windows taskbar, including
+  secondary monitors, and keep each overlay synchronized through shell and
+  display changes.
+
 ## 1.0.35 - 2026-09-13
 
 ### Fixed

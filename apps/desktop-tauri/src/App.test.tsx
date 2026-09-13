@@ -136,17 +136,18 @@ describe("App", () => {
     ).toBeInTheDocument();
   });
 
-  it("routes auxiliary status windows to their compact surfaces", async () => {
+  it("routes primary and secondary taskbar status windows to the compact surface", async () => {
     invokeMock.mockResolvedValue(bootstrapFixture);
 
-    webviewWindowMocks.label = "taskbar-status";
-    const taskbar = render(<App />);
-    expect(await taskbar.findByTestId("taskbar-status-content")).toBeInTheDocument();
-    expect(
-      await taskbar.findByRole("button", { name: /打开完整面板/ }),
-    ).toBeInTheDocument();
-    taskbar.unmount();
-
+    for (const label of ["taskbar-status", "taskbar-status-1", "taskbar-status-2"]) {
+      webviewWindowMocks.label = label;
+      const taskbar = render(<App />);
+      expect(await taskbar.findByTestId("taskbar-status-content")).toBeInTheDocument();
+      expect(
+        await taskbar.findByRole("button", { name: /打开完整面板/ }),
+      ).toBeInTheDocument();
+      taskbar.unmount();
+    }
     webviewWindowMocks.label = "float-ball";
     const floatBall = render(<App />);
     expect(
