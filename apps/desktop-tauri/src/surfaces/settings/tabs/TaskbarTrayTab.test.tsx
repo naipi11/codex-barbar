@@ -27,7 +27,7 @@ describe("TaskbarTrayTab", () => {
 
     expect(screen.getByRole("heading", { name: "Taskbar & Float Ball" })).toBeInTheDocument();
     expect(screen.getByRole("group", { name: "Taskbar status" })).toBeInTheDocument();
-    expect(screen.getByRole("group", { name: "Floating status ball" })).toBeInTheDocument();
+    expect(screen.getByRole("checkbox", { name: "Show status on secondary monitors" })).toBeChecked();
     expect(screen.getByRole("slider", { name: "Transparency" })).toHaveAttribute("max", "100");
     expect(screen.getByRole("slider", { name: "Floating status ball transparency" })).toHaveAttribute("max", "100");
     expect(screen.getByRole("slider", { name: "Floating status ball glow" })).toHaveAttribute("max", "100");
@@ -59,9 +59,15 @@ describe("TaskbarTrayTab", () => {
     const setSurfaceEnabled = vi.fn().mockResolvedValue(defaultAppSettings);
     render(<TaskbarTrayTab settings={saved} update={update} setSurfaceEnabled={setSurfaceEnabled} />);
 
+    fireEvent.click(screen.getByRole("checkbox", { name: "Show status on secondary monitors" }));
+    await waitFor(() =>
+      expect(update).toHaveBeenLastCalledWith({
+        taskbarPresentation: { showSecondaryTaskbarStatus: false },
+      }),
+    );
+
     fireEvent.change(screen.getByRole("combobox", { name: "Density" }), { target: { value: "standard" } });
-    expect(update).toHaveBeenLastCalledWith({ taskbarPresentation: { density: "standard" } });
-    await waitFor(() => expect(screen.getByRole("combobox", { name: "Density" })).toBeEnabled());
+    await waitFor(() => expect(update).toHaveBeenLastCalledWith({ taskbarPresentation: { density: "standard" } }));
 
     fireEvent.click(screen.getByRole("checkbox", { name: "Show floating status ball" }));
     expect(setSurfaceEnabled).toHaveBeenCalledWith("floatBall", false);
@@ -69,7 +75,7 @@ describe("TaskbarTrayTab", () => {
     const transparency = screen.getByRole("slider", { name: "Transparency" });
     fireEvent.input(transparency, { target: { value: "20" } });
     fireEvent.input(transparency, { target: { value: "70" } });
-    expect(update).toHaveBeenCalledTimes(1);
+    expect(update).toHaveBeenCalledTimes(2);
     fireEvent.pointerUp(transparency);
     await waitFor(() => expect(update).toHaveBeenLastCalledWith({ taskbarTransparencyPercent: 70 }));
 

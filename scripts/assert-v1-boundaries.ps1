@@ -16,7 +16,7 @@ try {
     'get_diagnostics_summary','get_status_surface_diagnostics','export_diagnostics','check_for_updates','open_release_page',
     'open_codex_usage_page','open_windows_notification_settings','open_settings_window','close_settings_window','dismiss_tray_panel',
     'set_flyout_interacting','set_flyout_size','get_current_surface_state','open_tray_panel','quit_app',
-    'set_status_surface_enabled','set_float_ball_expanded','set_taskbar_status_width'
+    'set_status_surface_enabled','set_float_ball_expanded','set_taskbar_status_width','set_taskbar_status_dragging','start_taskbar_status_dragging'
   ) | Sort-Object
 
   $activeFiles = @(

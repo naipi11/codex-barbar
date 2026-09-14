@@ -27,6 +27,9 @@ pub fn is_taskbar_window_label(label: &str) -> bool {
             .strip_prefix(TASKBAR_WINDOW_LABEL_PREFIX)
             .is_some_and(|suffix| !suffix.is_empty() && suffix.chars().all(|c| c.is_ascii_digit()))
 }
+pub fn geometry_key(label: &str) -> String {
+    format!("taskbar-status-position-v3-{label}")
+}
 
 pub fn get_or_create(
     app: &tauri::AppHandle,
@@ -35,7 +38,8 @@ pub fn get_or_create(
 ) -> Result<tauri::WebviewWindow, String> {
     let label = taskbar_window_label(index);
     if let Some(window) = app.get_webview_window(&label) {
-        crate::shell::dwm::apply_no_activate_tool_window(&window)?;
+        let _ = window.set_ignore_cursor_events(false);
+        crate::shell::dwm::apply_taskbar_tool_window(&window)?;
         return Ok(window);
     }
 
@@ -56,14 +60,14 @@ pub fn get_or_create(
     .background_color(tauri::window::Color(0, 0, 0, 0))
     .skip_taskbar(true)
     .always_on_top(true)
-    .focusable(false)
+    .focusable(true)
     .focused(false)
     .theme(Some(tauri::Theme::Dark))
     .visible(false)
     .build()
     .map_err(|_| "TASKBAR_WINDOW_CREATE_FAILED".to_string())?;
-
-    crate::shell::dwm::apply_no_activate_tool_window(&window)?;
+    let _ = window.set_ignore_cursor_events(false);
+    crate::shell::dwm::apply_taskbar_tool_window(&window)?;
     Ok(window)
 }
 
@@ -103,6 +107,7 @@ pub fn is_measurement_window_label(label: &str) -> bool {
 }
 
 pub fn position_and_show(window: &tauri::WebviewWindow, slot: Rect) -> Result<(), String> {
+    crate::shell::dwm::apply_taskbar_tool_window(window)?;
     crate::shell::dwm::set_no_activate_bounds(window, slot.x, slot.y, slot.width, slot.height, true)
 }
 

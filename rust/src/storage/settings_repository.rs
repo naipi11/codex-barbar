@@ -114,6 +114,7 @@ pub struct TaskbarTrayPreferences {
     pub show_weekly_label: bool,
     pub show_weekly_percent: bool,
     pub show_reset_date: bool,
+    pub show_secondary_taskbar_status: bool,
     pub density: TaskbarDensity,
     pub tray_icon_mode: TrayIconMode,
     pub tooltip_account: bool,
@@ -131,6 +132,7 @@ impl Default for TaskbarTrayPreferences {
             show_weekly_label: true,
             show_weekly_percent: true,
             show_reset_date: true,
+            show_secondary_taskbar_status: true,
             density: TaskbarDensity::Compact,
             tray_icon_mode: TrayIconMode::Dynamic,
             tooltip_account: true,
@@ -151,6 +153,7 @@ pub struct TaskbarPresentationPreferences {
     pub show_weekly_label: bool,
     pub show_weekly_percent: bool,
     pub show_reset_date: bool,
+    pub show_secondary_taskbar_status: bool,
     pub density: TaskbarDensity,
     pub hide_status_surfaces_in_fullscreen: bool,
 }
@@ -164,6 +167,7 @@ impl Default for TaskbarPresentationPreferences {
             show_weekly_label: legacy.show_weekly_label,
             show_weekly_percent: legacy.show_weekly_percent,
             show_reset_date: legacy.show_reset_date,
+            show_secondary_taskbar_status: legacy.show_secondary_taskbar_status,
             density: legacy.density,
             hide_status_surfaces_in_fullscreen: legacy.hide_status_surfaces_in_fullscreen,
         }
@@ -193,6 +197,7 @@ pub struct TaskbarTrayPreferencesPatch {
     pub show_weekly_label: Option<bool>,
     pub show_weekly_percent: Option<bool>,
     pub show_reset_date: Option<bool>,
+    pub show_secondary_taskbar_status: Option<bool>,
     pub density: Option<TaskbarDensity>,
     pub tray_icon_mode: Option<TrayIconMode>,
     pub tooltip_account: Option<bool>,
@@ -549,6 +554,9 @@ impl TaskbarTrayPreferencesPatch {
         if let Some(value) = self.show_reset_date {
             preferences.show_reset_date = value;
         }
+        if let Some(value) = self.show_secondary_taskbar_status {
+            preferences.show_secondary_taskbar_status = value;
+        }
         if let Some(value) = self.density {
             preferences.density = value;
         }
@@ -587,6 +595,9 @@ impl TaskbarTrayPreferencesPatch {
         }
         if let Some(value) = self.show_reset_date {
             preferences.show_reset_date = value;
+        }
+        if let Some(value) = self.show_secondary_taskbar_status {
+            preferences.show_secondary_taskbar_status = value;
         }
         if let Some(value) = self.density {
             preferences.density = value;
@@ -689,6 +700,7 @@ impl AppSettings {
             show_weekly_label: self.taskbar_presentation.show_weekly_label,
             show_weekly_percent: self.taskbar_presentation.show_weekly_percent,
             show_reset_date: self.taskbar_presentation.show_reset_date,
+            show_secondary_taskbar_status: self.taskbar_presentation.show_secondary_taskbar_status,
             density: self.taskbar_presentation.density,
             hide_status_surfaces_in_fullscreen: self
                 .taskbar_presentation

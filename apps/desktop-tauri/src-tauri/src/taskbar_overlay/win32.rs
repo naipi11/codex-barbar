@@ -87,10 +87,49 @@ pub fn discover_taskbars<A: Win32TaskbarApi>(api: &A) -> Vec<TaskbarSnapshot> {
             .unwrap_or((i32::MAX, i32::MAX, 0, 0))
     });
     shells.dedup();
-    shells
+    let mut snapshots = shells
         .into_iter()
         .filter_map(|shell| discover_taskbar_for_window(api, shell))
-        .collect()
+        .collect::<Vec<_>>();
+
+    let Some((reference_area, reference_dpi)) = snapshots
+        .iter()
+        .find_map(|snapshot| snapshot.notification_area.map(|area| (area, snapshot.dpi)))
+    else {
+        return snapshots;
+    };
+    for snapshot in &mut snapshots {
+        if snapshot.notification_area.is_some()
+            || !matches!(
+                snapshot.edge,
+                super::positioning::TaskbarEdge::Bottom | super::positioning::TaskbarEdge::Top
+            )
+        {
+            continue;
+        }
+        let width = scale_length(reference_area.width, reference_dpi, snapshot.dpi)
+            .min(snapshot.taskbar.width.max(1));
+        let right = snapshot
+            .taskbar
+            .x
+            .saturating_add(snapshot.taskbar.width.max(1));
+        snapshot.notification_area = Some(Rect {
+            x: right.saturating_sub(width),
+            y: snapshot.taskbar.y,
+            width,
+            height: snapshot.taskbar.height.max(1),
+        });
+    }
+    snapshots
+}
+
+fn scale_length(value: i32, source_dpi: u32, target_dpi: u32) -> i32 {
+    let source_dpi = i64::from(source_dpi.max(1));
+    let scaled = i64::from(value.max(1))
+        .saturating_mul(i64::from(target_dpi.max(1)))
+        .saturating_add(source_dpi / 2)
+        / source_dpi;
+    scaled.clamp(1, i64::from(i32::MAX)) as i32
 }
 
 pub fn discover_taskbar<A: Win32TaskbarApi>(api: &A) -> Option<TaskbarSnapshot> {
@@ -491,6 +530,7 @@ mod tests {
         let mut api = FakeApi::default();
         api.windows.insert("Shell_TrayWnd".into(), 1);
         api.windows.insert("Shell_SecondaryTrayWnd".into(), 4);
+        api.descendants.insert((1, "TrayNotifyWnd".into()), 2);
         api.rects.insert(
             1,
             Rect {
@@ -506,6 +546,15 @@ mod tests {
                 x: 1920,
                 y: 1392,
                 width: 2560,
+                height: 48,
+            },
+        );
+        api.rects.insert(
+            2,
+            Rect {
+                x: 1760,
+                y: 1032,
+                width: 160,
                 height: 48,
             },
         );
@@ -535,6 +584,15 @@ mod tests {
         assert_eq!(snapshots.len(), 2);
         assert_eq!(snapshots[0].taskbar.x, 0);
         assert_eq!(snapshots[1].taskbar.x, 1920);
+        assert_eq!(
+            snapshots[1].notification_area,
+            Some(Rect {
+                x: 4320,
+                y: 1392,
+                width: 160,
+                height: 48,
+            })
+        );
     }
 
     #[test]

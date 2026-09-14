@@ -128,6 +128,7 @@ pub async fn update_settings(
 ) -> Result<AppSettingsDto, String> {
     let patch = patch.into_patch()?;
     let (patch, requested_surfaces) = prepare_settings_update(patch)?;
+    let taskbar_presentation_changed = patch.taskbar_tray.is_some();
     if let Some(enabled) = patch.start_at_login {
         codexbar::platform::windows::autostart::set_enabled(enabled)
             .map_err(|_| "AUTOSTART_UPDATE_FAILED".to_string())?;
@@ -147,6 +148,9 @@ pub async fn update_settings(
             surface,
             enabled,
         )?;
+    }
+    if taskbar_presentation_changed {
+        crate::status_surfaces::apply_status_surface_settings_non_fatal(&app, &settings);
     }
     let dto = AppSettingsDto::from_settings(&settings);
     if app.emit(crate::events::SETTINGS_CHANGED, &dto).is_err() {
@@ -424,6 +428,7 @@ mod tests {
                     show_weekly_label: Some(false),
                     show_weekly_percent: Some(true),
                     show_reset_date: Some(false),
+                    show_secondary_taskbar_status: None,
                     density: Some("standard".to_string()),
                     hide_status_surfaces_in_fullscreen: Some(false),
                 },
@@ -453,6 +458,7 @@ mod tests {
                 show_weekly_label: Some(false),
                 show_weekly_percent: Some(true),
                 show_reset_date: Some(false),
+                show_secondary_taskbar_status: None,
                 density: Some(TaskbarDensity::Standard),
                 tray_icon_mode: None,
                 tooltip_account: None,

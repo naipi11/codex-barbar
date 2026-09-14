@@ -26,6 +26,7 @@ export const defaultSettings: AppSettingsDto = {
     showWeeklyLabel: true,
     showWeeklyPercent: true,
     showResetDate: true,
+    showSecondaryTaskbarStatus: true,
     density: "compact",
     hideStatusSurfacesInFullscreen: true,
   },

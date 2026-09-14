@@ -2,9 +2,10 @@ pub mod positioning;
 pub mod win32;
 pub mod window;
 
+use crate::geometry_store;
 use crate::status_surfaces::window_lifecycle::{CloseOutcome, close_cached_or_labeled};
-use positioning::{Rect, compute_slot};
-use tauri::LogicalSize;
+use positioning::{Rect, compute_slot, custom_slot};
+use tauri::{LogicalSize, PhysicalPosition, WebviewWindow};
 
 const TASKBAR_MEASUREMENT_WINDOW_CLOSE_FAILED: &str = "TASKBAR_MEASUREMENT_WINDOW_CLOSE_FAILED";
 
@@ -147,17 +148,31 @@ fn apply_content_width_transaction(
     }
     Err("TASKBAR_STATUS_RESIZE_FAILED".to_string())
 }
+fn load_custom_position(label: &str) -> Option<PhysicalPosition<i32>> {
+    geometry_store::load_entry(&window::geometry_key(label))
+        .map(|geometry| PhysicalPosition::new(geometry.x, geometry.y))
+}
+
+fn taskbar_window_index(label: &str) -> Option<usize> {
+    label
+        .strip_prefix("taskbar-status")
+        .and_then(|suffix| suffix.strip_prefix('-').unwrap_or(suffix).parse().ok())
+        .or_else(|| (label == "taskbar-status").then_some(0))
+}
 
 struct TaskbarOverlayWindow {
     label: String,
-    window: tauri::WebviewWindow,
+    window: WebviewWindow,
     last_slot: Option<Rect>,
+    custom_position: Option<PhysicalPosition<i32>>,
+    dragging: bool,
 }
 
 pub struct TaskbarOverlay {
     windows: Vec<TaskbarOverlayWindow>,
     measurement_window: Option<tauri::WebviewWindow>,
     enabled: bool,
+    secondary_enabled: bool,
     logical_width: u32,
 }
 
@@ -167,6 +182,7 @@ impl Default for TaskbarOverlay {
             windows: Vec::new(),
             measurement_window: None,
             enabled: false,
+            secondary_enabled: true,
             logical_width: window::TASKBAR_SAFE_FALLBACK_LOGICAL_WIDTH,
         }
     }
@@ -174,14 +190,22 @@ impl Default for TaskbarOverlay {
 
 impl TaskbarOverlay {
     pub fn apply_enabled(&mut self, app: &tauri::AppHandle, enabled: bool) -> Result<(), String> {
+        self.apply_enabled_with_secondary(app, enabled, self.secondary_enabled)
+    }
+
+    pub fn apply_enabled_with_secondary(
+        &mut self,
+        app: &tauri::AppHandle,
+        enabled: bool,
+        secondary_enabled: bool,
+    ) -> Result<(), String> {
+        self.secondary_enabled = secondary_enabled;
         let previous_enabled = self.enabled;
         if !enabled {
             return self.cleanup_disabled_window(app);
         }
         self.enabled = true;
-
         self.logical_width = enable_logical_width(previous_enabled, self.logical_width);
-
         let logical_width = self.logical_width;
         let mut visible_window = None;
         let mut measurement_window = None;
@@ -196,11 +220,24 @@ impl TaskbarOverlay {
             },
         )?;
         if let Some(window) = visible_window {
-            self.windows = vec![TaskbarOverlayWindow {
-                label: window::taskbar_window_label(0),
-                window,
-                last_slot: None,
-            }];
+            let label = window::taskbar_window_label(0);
+            if let Some(entry) = self.windows.iter_mut().find(|entry| entry.label == label) {
+                entry.custom_position = load_custom_position(&label);
+                entry.dragging = false;
+                entry.last_slot = None;
+                entry.window = window;
+            } else {
+                self.windows.insert(
+                    0,
+                    TaskbarOverlayWindow {
+                        custom_position: load_custom_position(&label),
+                        dragging: false,
+                        label,
+                        window,
+                        last_slot: None,
+                    },
+                );
+            }
         }
         if let Some(measurement_window) = measurement_window {
             self.measurement_window = Some(measurement_window);
@@ -236,6 +273,9 @@ impl TaskbarOverlay {
             let mut first_error = None;
             let mut has_fallback = false;
             for entry in &self.windows {
+                if entry.dragging {
+                    continue;
+                }
                 if let Some(slot) = entry.last_slot {
                     has_fallback = true;
                     if let Err(error) = window::position_and_show(&entry.window, slot) {
@@ -251,9 +291,20 @@ impl TaskbarOverlay {
                 .ok_or_else(|| "TASKBAR_DISCOVERY_UNAVAILABLE".to_string());
         }
 
-        self.reconcile_windows(app, snapshots.len())?;
+        let visible_count = if self.secondary_enabled {
+            snapshots.len()
+        } else {
+            1
+        };
+        self.reconcile_windows(app, visible_count)?;
         for (entry, snapshot) in self.windows.iter_mut().zip(snapshots) {
-            let slot = compute_slot(&snapshot, self.logical_width);
+            if entry.dragging {
+                continue;
+            }
+            let default_slot = compute_slot(&snapshot, self.logical_width);
+            let slot = entry.custom_position.map_or(default_slot, |position| {
+                custom_slot(&snapshot, default_slot, position.x, position.y)
+            });
             window::position_and_show(&entry.window, slot)?;
             entry.last_slot = Some(slot);
         }
@@ -306,6 +357,9 @@ impl TaskbarOverlay {
         }
         let mut first_error = None;
         for entry in &self.windows {
+            if entry.dragging {
+                continue;
+            }
             let _ = window::show_noactivate(&entry.window);
             if let Err(error) = window::reassert_topmost(&entry.window) {
                 first_error.get_or_insert(error);
@@ -355,6 +409,51 @@ impl TaskbarOverlay {
 
     pub fn handle_window_destroyed(&mut self) {
         self.windows.clear();
+    }
+    pub fn set_dragging(&mut self, window: &WebviewWindow, dragging: bool) -> Result<(), String> {
+        let label = window.label().to_string();
+        let index = self
+            .windows
+            .iter()
+            .position(|entry| entry.label == label)
+            .ok_or_else(|| "TASKBAR_STATUS_WINDOW_UNAVAILABLE".to_string())?;
+        if dragging {
+            self.windows[index].dragging = true;
+            let _ = window.set_focus();
+            return Ok(());
+        }
+        if !self.windows[index].dragging {
+            return Ok(());
+        }
+        let mut position = window
+            .outer_position()
+            .map_err(|_| "TASKBAR_STATUS_POSITION_UNAVAILABLE".to_string())?;
+        if let Some(snapshot) = taskbar_window_index(&label).and_then(|index| {
+            win32::discover_taskbars(&win32::NativeWin32TaskbarApi)
+                .get(index)
+                .copied()
+        }) {
+            let default_slot = compute_slot(&snapshot, self.logical_width);
+            let slot = custom_slot(&snapshot, default_slot, position.x, position.y);
+            if slot.x != position.x || slot.y != position.y {
+                window
+                    .set_position(PhysicalPosition::new(slot.x, slot.y))
+                    .map_err(|_| "TASKBAR_STATUS_POSITION_UNAVAILABLE".to_string())?;
+                position = PhysicalPosition::new(slot.x, slot.y);
+            }
+        }
+        self.windows[index].dragging = false;
+        self.windows[index].custom_position = Some(position);
+        geometry_store::save_entry(
+            &window::geometry_key(&label),
+            crate::geometry_store::StoredGeometry {
+                x: position.x,
+                y: position.y,
+                width: None,
+                height: None,
+            },
+        );
+        Ok(())
     }
 
     pub fn handle_measurement_window_destroyed(&mut self) {
@@ -409,6 +508,8 @@ impl TaskbarOverlay {
             let index = self.windows.len();
             let window = window::get_or_create(app, self.logical_width, index)?;
             self.windows.push(TaskbarOverlayWindow {
+                custom_position: load_custom_position(&window::taskbar_window_label(index)),
+                dragging: false,
                 label: window::taskbar_window_label(index),
                 window,
                 last_slot: None,

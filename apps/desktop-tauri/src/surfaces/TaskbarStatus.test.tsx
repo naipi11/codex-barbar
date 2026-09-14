@@ -29,6 +29,19 @@ const eventHarness = vi.hoisted(() => {
     },
   };
 });
+const windowHarness = vi.hoisted(() => ({
+  label: "taskbar-status",
+  outerPosition: vi.fn().mockResolvedValue({ x: 100, y: 200 }),
+  scaleFactor: vi.fn().mockResolvedValue(2),
+  setPosition: vi.fn().mockResolvedValue(undefined),
+  setIgnoreCursorEvents: vi.fn().mockResolvedValue(undefined),
+  setFocus: vi.fn().mockResolvedValue(undefined),
+  startDragging: vi.fn().mockResolvedValue(undefined),
+}));
+
+vi.mock("@tauri-apps/api/window", () => ({
+  getCurrentWindow: () => windowHarness,
+}));
 
 vi.mock("@tauri-apps/api/event", () => ({
   listen: (eventName: string, callback: EventCallback) =>
@@ -44,10 +57,22 @@ function deferred<T>() {
   });
   return { promise, resolve, reject };
 }
-
 describe("TaskbarStatus", () => {
   beforeEach(() => {
     invokeMock.mockReset();
+    windowHarness.label = "taskbar-status";
+    windowHarness.outerPosition.mockReset();
+    windowHarness.outerPosition.mockResolvedValue({ x: 100, y: 200 });
+    windowHarness.scaleFactor.mockReset();
+    windowHarness.scaleFactor.mockResolvedValue(2);
+    windowHarness.setPosition.mockReset();
+    windowHarness.setPosition.mockResolvedValue(undefined);
+    windowHarness.setIgnoreCursorEvents.mockReset();
+    windowHarness.setIgnoreCursorEvents.mockResolvedValue(undefined);
+    windowHarness.setFocus.mockReset();
+    windowHarness.setFocus.mockResolvedValue(undefined);
+    windowHarness.startDragging.mockReset();
+    windowHarness.startDragging.mockResolvedValue(undefined);
     eventHarness.listeners.clear();
     window.history.replaceState({}, "", "/");
   });
@@ -138,6 +163,7 @@ describe("TaskbarStatus", () => {
       showWeeklyLabel: false,
       showWeeklyPercent: true,
       showResetDate: false,
+      showSecondaryTaskbarStatus: true,
       density: "standard",
       hideStatusSurfacesInFullscreen: true,
     };
@@ -327,12 +353,52 @@ describe("TaskbarStatus", () => {
       });
     });
 
+
     await waitFor(() =>
       expect(visible.style.getPropertyValue("--surface-bg-alpha")).toBe("0.2"),
     );
     expect(
       invokeMock.mock.calls.some(([command]) => command === "set_taskbar_status_width"),
     ).toBe(false);
+  });
+  it("starts native window dragging after movement and suppresses the click", async () => {
+    invokeMock.mockResolvedValue(bootstrapWithTwoProfiles());
+    render(<TaskbarStatus />);
+    const button = await screen.findByRole("button", { name: /打开完整面板/ });
+
+    fireEvent.pointerDown(button, { pointerId: 7, clientX: 10, clientY: 10 });
+    fireEvent.pointerMove(button, { pointerId: 7, clientX: 20, clientY: 10 });
+    await waitFor(() => expect(windowHarness.startDragging).toHaveBeenCalledTimes(1));
+    fireEvent.pointerUp(button, { pointerId: 7, clientX: 20, clientY: 10 });
+    fireEvent.click(button);
+    await waitFor(() =>
+      expect(invokeMock).toHaveBeenCalledWith("set_taskbar_status_dragging", {
+        dragging: true,
+      }),
+    );
+    await waitFor(() =>
+      expect(invokeMock).toHaveBeenCalledWith("set_taskbar_status_dragging", {
+        dragging: false,
+      }),
+    );
+    expect(invokeMock).not.toHaveBeenCalledWith("open_tray_panel");
+  });
+  it("uses native dragging on secondary taskbar windows too", async () => {
+    windowHarness.label = "taskbar-status-1";
+    invokeMock.mockResolvedValue(bootstrapWithTwoProfiles());
+    render(<TaskbarStatus />);
+    const button = await screen.findByRole("button", { name: /打开完整面板/ });
+
+    fireEvent.pointerDown(button, { pointerId: 8, clientX: 10, clientY: 10 });
+    fireEvent.pointerMove(button, { pointerId: 8, clientX: 20, clientY: 10 });
+    await waitFor(() =>
+      expect(invokeMock).toHaveBeenCalledWith("start_taskbar_status_dragging"),
+    );
+    await waitFor(() =>
+      expect(windowHarness.setPosition).toHaveBeenCalledWith(
+        expect.objectContaining({ x: 120, y: 200 }),
+      ),
+    );
   });
 
   it("opens the tray panel only from the main button", async () => {

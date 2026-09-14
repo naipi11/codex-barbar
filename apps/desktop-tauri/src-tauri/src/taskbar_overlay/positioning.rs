@@ -40,22 +40,19 @@ fn clamp_axis(value: i32, start: i32, end: i32) -> i32 {
     value.clamp(start.min(end), start.max(end))
 }
 
-fn preferred_axis_bounds(snapshot: &TaskbarSnapshot, horizontal: bool, desired: i32) -> (i32, i32) {
+fn preferred_axis_bounds(snapshot: &TaskbarSnapshot, horizontal: bool) -> (i32, i32) {
     let taskbar = snapshot.taskbar;
     let (taskbar_start, taskbar_end) = axis_bounds(taskbar, horizontal);
+    let Some(notification_area) = snapshot.notification_area else {
+        // If no taskbar exposes a notification area, use the complete taskbar
+        // rather than stopping after the app-list area.
+        return (taskbar_start, taskbar_end);
+    };
     let app_end = snapshot
         .app_area
         .map(|area| axis_bounds(area, horizontal).1)
         .unwrap_or(taskbar_start);
-    let notification_start = snapshot
-        .notification_area
-        .map(|area| axis_bounds(area, horizontal).0)
-        .unwrap_or_else(|| {
-            let fallback_end = app_end
-                .saturating_add(desired)
-                .saturating_add(MAIN_AXIS_MARGIN * 2);
-            fallback_end.min(taskbar_end)
-        });
+    let notification_start = axis_bounds(notification_area, horizontal).0;
     let start = clamp_axis(app_end, taskbar_start, taskbar_end);
     let end = clamp_axis(notification_start, taskbar_start, taskbar_end);
     if end >= start {
@@ -98,7 +95,7 @@ pub fn compute_slot(snapshot: &TaskbarSnapshot, logical_width: u32) -> Rect {
     let cross = physical_length(TASKBAR_LOGICAL_HEIGHT, snapshot.dpi);
 
     if horizontal {
-        let (axis_start, axis_end) = preferred_axis_bounds(snapshot, true, desired);
+        let (axis_start, axis_end) = preferred_axis_bounds(snapshot, true);
         let (x, width) = place_on_axis(axis_start, axis_end, desired, minimum);
         let height = cross.min(taskbar.height.max(1));
         let y = taskbar
@@ -111,7 +108,7 @@ pub fn compute_slot(snapshot: &TaskbarSnapshot, logical_width: u32) -> Rect {
             height,
         }
     } else {
-        let (axis_start, axis_end) = preferred_axis_bounds(snapshot, false, desired);
+        let (axis_start, axis_end) = preferred_axis_bounds(snapshot, false);
         let (y, height) = place_on_axis(axis_start, axis_end, desired, minimum);
         let width = cross.min(taskbar.width.max(1));
         let x = taskbar.x.saturating_add((taskbar.width.max(1) - width) / 2);
@@ -121,6 +118,29 @@ pub fn compute_slot(snapshot: &TaskbarSnapshot, logical_width: u32) -> Rect {
             width,
             height,
         }
+    }
+}
+pub fn custom_slot(snapshot: &TaskbarSnapshot, default: Rect, x: i32, y: i32) -> Rect {
+    let horizontal = matches!(snapshot.edge, TaskbarEdge::Bottom | TaskbarEdge::Top);
+    let (taskbar_start, taskbar_end) = axis_bounds(snapshot.taskbar, horizontal);
+    let (requested, length) = if horizontal {
+        (x, default.width)
+    } else {
+        (y, default.height)
+    };
+    // A user drag is intentional. Keep it inside this taskbar, while the
+    // computed default remains outside the notification area.
+    let axis = if taskbar_end.saturating_sub(taskbar_start) >= length {
+        requested.clamp(taskbar_start, taskbar_end.saturating_sub(length))
+    } else if horizontal {
+        default.x
+    } else {
+        default.y
+    };
+    if horizontal {
+        Rect { x: axis, ..default }
+    } else {
+        Rect { y: axis, ..default }
     }
 }
 
@@ -180,7 +200,38 @@ mod tests {
         assert!(slot.x + slot.width <= 1760);
         assert_eq!(slot.y, 1036);
     }
+    #[test]
+    fn custom_position_clamps_inside_taskbar_bounds() {
+        let taskbar = Rect {
+            x: 0,
+            y: 1032,
+            width: 1920,
+            height: 48,
+        };
+        let snapshot = snapshot(
+            taskbar,
+            Some(Rect {
+                x: 0,
+                y: 1032,
+                width: 1200,
+                height: 48,
+            }),
+            Some(Rect {
+                x: 1760,
+                y: 1032,
+                width: 160,
+                height: 48,
+            }),
+            TaskbarEdge::Bottom,
+            96,
+        );
+        let default = compute_slot(&snapshot, 260);
 
+        assert_eq!(custom_slot(&snapshot, default, -100, default.y).x, 0);
+        assert_eq!(custom_slot(&snapshot, default, 1000, default.y).x, 1000);
+        assert_eq!(custom_slot(&snapshot, default, 1400, default.y).x, 1400);
+        assert_eq!(custom_slot(&snapshot, default, 1700, default.y).x, 1660);
+    }
     #[test]
     fn top_taskbar_keeps_slot_inside_the_top_taskbar() {
         let taskbar = Rect {
@@ -379,7 +430,7 @@ mod tests {
             260,
         );
 
-        assert_eq!(slot.x, -712);
+        assert_eq!(slot.x, -268);
         assert_eq!(slot.y, 1036);
         assert!(taskbar.contains(&slot));
     }

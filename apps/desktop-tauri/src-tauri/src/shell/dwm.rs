@@ -68,6 +68,10 @@ struct MonitorInfo {
 #[cfg(windows)]
 #[link(name = "user32")]
 unsafe extern "system" {
+    fn SetForegroundWindow(hwnd: isize) -> i32;
+    fn GetCursorPos(point: *mut WinPoint) -> i32;
+    fn ReleaseCapture() -> i32;
+    fn SendMessageW(hwnd: isize, msg: u32, wparam: usize, lparam: isize) -> isize;
     fn GetAncestor(hwnd: isize, flags: u32) -> isize;
     fn SetWindowLongPtrW(hwnd: isize, index: i32, new: isize) -> isize;
     fn GetWindowLongPtrW(hwnd: isize, index: i32) -> isize;
@@ -357,19 +361,45 @@ fn root_hwnd(win: &tauri::WebviewWindow) -> Result<isize, &'static str> {
 }
 
 #[cfg(windows)]
-pub fn apply_no_activate_tool_window(win: &tauri::WebviewWindow) -> Result<(), String> {
+pub fn start_taskbar_drag(win: &tauri::WebviewWindow) -> Result<(), String> {
+    let hwnd = root_hwnd(win).map_err(str::to_string)?;
+    const WM_NCLBUTTONDOWN: u32 = 0x00A1;
+    const HTCAPTION: usize = 2;
+    let mut point = WinPoint::default();
+    if unsafe { GetCursorPos(&mut point) } == 0 {
+        return Err("CURSOR_POSITION_UNAVAILABLE".to_string());
+    }
+    let lparam = ((point.y as u32) << 16 | (point.x as u32 & 0xFFFF)) as isize;
+    unsafe {
+        SetForegroundWindow(hwnd);
+        ReleaseCapture();
+        SendMessageW(hwnd, WM_NCLBUTTONDOWN, HTCAPTION, lparam);
+    }
+    Ok(())
+}
+
+#[cfg(windows)]
+fn apply_tool_window_style(win: &tauri::WebviewWindow, no_activate: bool) -> Result<(), String> {
     let hwnd = root_hwnd(win).map_err(str::to_string)?;
     const GWL_EXSTYLE: i32 = -20;
     const WS_EX_TOOLWINDOW: isize = 0x0000_0080;
     const WS_EX_LAYERED: isize = 0x0008_0000;
     const WS_EX_NOACTIVATE: isize = 0x0800_0000;
-    const REQUIRED: isize = WS_EX_TOOLWINDOW | WS_EX_LAYERED | WS_EX_NOACTIVATE;
     let current = unsafe { GetWindowLongPtrW(hwnd, GWL_EXSTYLE) };
+    let required = WS_EX_TOOLWINDOW | WS_EX_LAYERED;
+    let style = if no_activate {
+        current | required | WS_EX_NOACTIVATE
+    } else {
+        (current | required) & !WS_EX_NOACTIVATE
+    };
     unsafe {
-        SetWindowLongPtrW(hwnd, GWL_EXSTYLE, current | REQUIRED);
+        SetWindowLongPtrW(hwnd, GWL_EXSTYLE, style);
     }
     let observed = unsafe { GetWindowLongPtrW(hwnd, GWL_EXSTYLE) };
-    if observed & REQUIRED != REQUIRED {
+    if observed & required != required
+        || (no_activate && observed & WS_EX_NOACTIVATE == 0)
+        || (!no_activate && observed & WS_EX_NOACTIVATE != 0)
+    {
         return Err("OVERLAY_STYLE_FAILED".to_string());
     }
 
@@ -394,6 +424,16 @@ pub fn apply_no_activate_tool_window(win: &tauri::WebviewWindow) -> Result<(), S
     } else {
         Ok(())
     }
+}
+
+#[cfg(windows)]
+pub fn apply_no_activate_tool_window(win: &tauri::WebviewWindow) -> Result<(), String> {
+    apply_tool_window_style(win, true)
+}
+
+#[cfg(windows)]
+pub fn apply_taskbar_tool_window(win: &tauri::WebviewWindow) -> Result<(), String> {
+    apply_tool_window_style(win, false)
 }
 
 #[cfg(windows)]
@@ -585,9 +625,13 @@ pub fn force_dark_caption(_win: &tauri::WebviewWindow) {}
 
 #[cfg(not(windows))]
 pub fn force_native_dark_caption(_win: &tauri::WebviewWindow) {}
-
 #[cfg(not(windows))]
 pub fn apply_no_activate_tool_window(_win: &tauri::WebviewWindow) -> Result<(), String> {
+    Ok(())
+}
+
+#[cfg(not(windows))]
+pub fn apply_taskbar_tool_window(_win: &tauri::WebviewWindow) -> Result<(), String> {
     Ok(())
 }
 

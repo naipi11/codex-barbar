@@ -41,6 +41,7 @@ export interface SettingsCopy {
     showWeeklyLabel: string;
     showWeeklyPercent: string;
     showResetDate: string;
+    showSecondaryTaskbarStatus: string;
     keepOneVisible: string;
     density: string;
     densityOptions: readonly [string, string];
@@ -252,6 +253,7 @@ const english: SettingsCopy = {
     showWeeklyLabel: "Show weekly label",
     showWeeklyPercent: "Show remaining percentage",
     showResetDate: "Show reset date",
+    showSecondaryTaskbarStatus: "Show status on secondary monitors",
     keepOneVisible: "Keep at least one taskbar item visible while taskbar status is on.",
     density: "Density",
     densityOptions: ["Compact", "Standard"],
@@ -409,6 +411,7 @@ const chinese: SettingsCopy = {
     showWeeklyLabel: "显示每周标签",
     showWeeklyPercent: "显示剩余百分比",
     showResetDate: "显示重置日期",
+    showSecondaryTaskbarStatus: "在副屏显示状态栏",
     keepOneVisible: "任务栏状态开启时，请至少保留一个可见项目。",
     density: "密度",
     densityOptions: ["紧凑", "标准"],

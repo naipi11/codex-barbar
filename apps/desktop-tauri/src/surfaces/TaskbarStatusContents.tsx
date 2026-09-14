@@ -10,6 +10,10 @@ export interface TaskbarStatusContentsProps {
   presentation: TaskbarStatusPresentation;
   closeFailed?: boolean;
   onOpen?(): void;
+  onPointerDown?: React.PointerEventHandler<HTMLButtonElement>;
+  onPointerMove?: React.PointerEventHandler<HTMLButtonElement>;
+  onPointerUp?: React.PointerEventHandler<HTMLButtonElement>;
+  onPointerCancel?: React.PointerEventHandler<HTMLButtonElement>;
   measurementRef?: React.Ref<HTMLDivElement>;
 }
 
@@ -18,6 +22,10 @@ export function TaskbarStatusContents({
   presentation,
   closeFailed = false,
   onOpen,
+  onPointerDown,
+  onPointerMove,
+  onPointerUp,
+  onPointerCancel,
   measurementRef,
 }: TaskbarStatusContentsProps): JSX.Element {
   const visible = mode === "visible";
@@ -62,6 +70,10 @@ export function TaskbarStatusContents({
         title={displayName}
         tabIndex={visible ? undefined : -1}
         onClick={visible && onOpen ? () => onOpen() : undefined}
+        onPointerDown={visible ? onPointerDown : undefined}
+        onPointerMove={visible ? onPointerMove : undefined}
+        onPointerUp={visible ? onPointerUp : undefined}
+        onPointerCancel={visible ? onPointerCancel : undefined}
       >
         {showIcon ? (
           <span className="taskbar-status__avatar" aria-hidden="true">

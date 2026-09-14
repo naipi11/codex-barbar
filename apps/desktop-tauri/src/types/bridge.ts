@@ -60,6 +60,7 @@ export interface TaskbarPresentationPreferencesDto {
   showWeeklyLabel: boolean;
   showWeeklyPercent: boolean;
   showResetDate: boolean;
+  showSecondaryTaskbarStatus: boolean;
   density: "compact" | "standard";
   hideStatusSurfacesInFullscreen: boolean;
 }

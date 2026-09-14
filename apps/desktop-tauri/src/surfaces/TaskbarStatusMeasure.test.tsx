@@ -145,6 +145,7 @@ describe("TaskbarStatusMeasure", () => {
       showWeeklyLabel: false,
       showWeeklyPercent: true,
       showResetDate: false,
+      showSecondaryTaskbarStatus: true,
     };
     invokeMock.mockResolvedValue(bootstrap);
 
@@ -202,10 +203,22 @@ describe("TaskbarStatusMeasure", () => {
     ).toHaveLength(1);
   });
 
+  it("keeps taskbar status text free of decorative shadows", () => {
+    expect(taskbarStatusCss).not.toMatch(/text-shadow\s*:/);
+    expect(taskbarStatusCss).not.toMatch(/box-shadow\s*:/);
+    expect(taskbarStatusCss).not.toMatch(/backdrop-filter\s*:/);
+  });
+  it("removes native button chrome from the taskbar surface", () => {
+    const rule = taskbarStatusCss.match(
+      /\.taskbar-status__main,\s*\.taskbar-status__close\s*\{[^}]*\}/,
+    )?.[0] ?? "";
+    expect(rule).toContain("appearance: none");
+    expect(rule).toContain("background: transparent");
+  });
+
   it("disables close-error animation when reduced motion is requested", () => {
     expect(taskbarStatusCss).toMatch(
       /@media\s*\(prefers-reduced-motion:\s*reduce\)[\s\S]*?\.taskbar-status__close\[data-error="true"\]\s*\{\s*animation:\s*none;?\s*\}/,
     );
   });
 });
-

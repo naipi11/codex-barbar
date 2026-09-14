@@ -261,10 +261,11 @@ pub fn apply_status_surface_settings(
         .lock()
         .map_err(|_| "STATUS_SURFACE_STATE_UNAVAILABLE".to_string())?;
     let mut first_error = None;
-    if let Err(error) = state
-        .taskbar
-        .apply_enabled(app, settings.taskbar_status_enabled)
-    {
+    if let Err(error) = state.taskbar.apply_enabled_with_secondary(
+        app,
+        settings.taskbar_status_enabled,
+        settings.taskbar_presentation.show_secondary_taskbar_status,
+    ) {
         first_error = Some(error);
     }
     if let Err(error) = state
@@ -468,6 +469,17 @@ pub fn set_taskbar_status_width(
             .taskbar
             .set_content_width(app, crate::taskbar_overlay::clamp_logical_width(width))
     })
+}
+pub fn set_taskbar_status_dragging(
+    app: &tauri::AppHandle,
+    window: &tauri::WebviewWindow,
+    dragging: bool,
+) -> Result<(), String> {
+    let state = app.state::<Mutex<StatusSurfaceState>>();
+    let mut state = state
+        .lock()
+        .map_err(|_| "STATUS_SURFACE_STATE_UNAVAILABLE".to_string())?;
+    state.taskbar.set_dragging(window, dragging)
 }
 
 pub fn schedule_taskbar_reposition(app: tauri::AppHandle) {

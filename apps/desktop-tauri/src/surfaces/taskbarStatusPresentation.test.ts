@@ -159,6 +159,7 @@ describe("buildTaskbarStatusPresentation", () => {
       showWeeklyLabel: false,
       showWeeklyPercent: false,
       showResetDate: false,
+      showSecondaryTaskbarStatus: true,
       density: "standard",
       hideStatusSurfacesInFullscreen: true,
     };

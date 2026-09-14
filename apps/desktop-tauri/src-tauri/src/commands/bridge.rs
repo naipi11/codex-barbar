@@ -220,6 +220,7 @@ pub struct TaskbarPresentationPreferencesDto {
     pub show_weekly_label: bool,
     pub show_weekly_percent: bool,
     pub show_reset_date: bool,
+    pub show_secondary_taskbar_status: bool,
     pub density: &'static str,
     pub hide_status_surfaces_in_fullscreen: bool,
 }
@@ -232,6 +233,7 @@ impl TaskbarPresentationPreferencesDto {
             show_weekly_label: preferences.show_weekly_label,
             show_weekly_percent: preferences.show_weekly_percent,
             show_reset_date: preferences.show_reset_date,
+            show_secondary_taskbar_status: preferences.show_secondary_taskbar_status,
             density: match preferences.density {
                 TaskbarDensity::Compact => "compact",
                 TaskbarDensity::Standard => "standard",
@@ -364,6 +366,7 @@ pub struct TaskbarPresentationPreferencesPatchDto {
     pub show_weekly_label: Option<bool>,
     pub show_weekly_percent: Option<bool>,
     pub show_reset_date: Option<bool>,
+    pub show_secondary_taskbar_status: Option<bool>,
     pub density: Option<String>,
     pub hide_status_surfaces_in_fullscreen: Option<bool>,
 }
@@ -526,6 +529,7 @@ impl TaskbarPresentationPreferencesPatchDto {
             show_weekly_label: self.show_weekly_label,
             show_weekly_percent: self.show_weekly_percent,
             show_reset_date: self.show_reset_date,
+            show_secondary_taskbar_status: self.show_secondary_taskbar_status,
             density,
             tray_icon_mode: None,
             tooltip_account: None,
@@ -1134,7 +1138,7 @@ mod tests {
     #[test]
     fn taskbar_presentation_patch_maps_only_supported_wire_values() {
         let patch: SettingsPatchDto = serde_json::from_str(
-            r#"{"taskbarPresentation":{"density":"standard","showWeeklyPercent":false}}"#,
+            r#"{"taskbarPresentation":{"density":"standard","showWeeklyPercent":false,"showSecondaryTaskbarStatus":false}}"#,
         )
         .unwrap();
         let mapped = patch.into_patch().unwrap().taskbar_tray.unwrap();
@@ -1142,6 +1146,7 @@ mod tests {
         assert_eq!(mapped.density, Some(TaskbarDensity::Standard));
         assert_eq!(mapped.tray_icon_mode, None);
         assert_eq!(mapped.show_weekly_percent, Some(false));
+        assert_eq!(mapped.show_secondary_taskbar_status, Some(false));
 
         let invalid_density: SettingsPatchDto =
             serde_json::from_str(r#"{"taskbarPresentation":{"density":"wide"}}"#).unwrap();

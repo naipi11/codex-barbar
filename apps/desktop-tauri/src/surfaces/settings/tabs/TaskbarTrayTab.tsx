@@ -80,6 +80,7 @@ export default function TaskbarTrayTab({ settings, update, setSurfaceEnabled, co
           <legend>{copy.taskbarPresentation.taskbarLegend}</legend>
           <p className="settings-preference-group__description">{copy.taskbarPresentation.taskbarDescription}</p>
           <label className="settings-switch settings-switch--primary"><input type="checkbox" checked={draft.enabled} disabled={isSavingPreferences || (!draft.enabled && visibleTaskbarItems === 0)} aria-describedby="taskbar-visible-item-help" onChange={(event) => setTaskbarEnabled(event.target.checked)} />{copy.taskbarPresentation.taskbarEnabled}</label>
+          <label className="settings-switch"><input type="checkbox" checked={draft.presentation.showSecondaryTaskbarStatus} disabled={isSavingPreferences || !draft.enabled} onChange={(event) => patchTaskbarPresentation("showSecondaryTaskbarStatus", event.target.checked)} />{copy.taskbarPresentation.showSecondaryTaskbarStatus}</label>
           <div className="settings-preference-grid">
             {taskbarItems.map(([field, label]) => {
               const checked = draft.presentation[field];

@@ -32,6 +32,8 @@ export const commands = {
   setStatusSurfaceEnabled: "set_status_surface_enabled",
   setFloatBallExpanded: "set_float_ball_expanded",
   setTaskbarStatusWidth: "set_taskbar_status_width",
+  setTaskbarStatusDragging: "set_taskbar_status_dragging",
+  startTaskbarStatusDragging: "start_taskbar_status_dragging",
   getLocaleStrings: "get_locale_strings",
   selectProfile: "select_profile",
   refreshSelectedProfile: "refresh_selected_profile",
@@ -123,7 +125,11 @@ export const setFloatBallExpanded = (expanded: boolean) =>
 
 export const setTaskbarStatusWidth = (width: number) =>
   invoke<void>(commands.setTaskbarStatusWidth, { width });
+export const setTaskbarStatusDragging = (dragging: boolean) =>
+  invoke<void>(commands.setTaskbarStatusDragging, { dragging });
 
+export const startTaskbarStatusDragging = () =>
+  invoke<void>(commands.startTaskbarStatusDragging);
 export const getLocaleStrings = (language?: AppSettingsDto["language"]) =>
   language === undefined
     ? invoke<Record<string, string>>(commands.getLocaleStrings)

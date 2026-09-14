@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.1.0 - 2026-09-14
+
+### Added
+- Added a Settings switch to show or hide taskbar status overlays on secondary monitors.
+
+### Fixed
+- Restored reliable primary-monitor taskbar dragging.
+- Added a dedicated native/manual fallback path for dragging taskbar status overlays on secondary monitors.
+- Preserved taskbar placement while shell and monitor reconfiguration events are being processed.
+
 ## 1.0.36 - 2026-09-13
 
 ### Fixed

@@ -23,6 +23,22 @@ pub async fn set_taskbar_status_width(
 ) -> Result<(), String> {
     crate::status_surfaces::set_taskbar_status_width(&app, window.label(), width)
 }
+#[tauri::command]
+pub async fn set_taskbar_status_dragging(
+    window: tauri::WebviewWindow,
+    app: tauri::AppHandle,
+    dragging: bool,
+) -> Result<(), String> {
+    crate::status_surfaces::set_taskbar_status_dragging(&app, &window, dragging)
+}
+#[tauri::command]
+pub fn start_taskbar_status_dragging(
+    window: tauri::WebviewWindow,
+    app: tauri::AppHandle,
+) -> Result<(), String> {
+    crate::status_surfaces::set_taskbar_status_dragging(&app, &window, true)?;
+    crate::shell::dwm::start_taskbar_drag(&window)
+}
 
 #[cfg(test)]
 mod tests {
