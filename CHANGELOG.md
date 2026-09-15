@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+- Keep hidden taskbar status windows visible during periodic topmost
+  reconciliation after a native drag leaves stale drag state.
+
 ## 1.1.0 - 2026-09-14
 
 ### Added

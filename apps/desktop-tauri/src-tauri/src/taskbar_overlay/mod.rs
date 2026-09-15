@@ -357,9 +357,9 @@ impl TaskbarOverlay {
         }
         let mut first_error = None;
         for entry in &self.windows {
-            if entry.dragging {
-                continue;
-            }
+            // A failed native drag can leave the logical dragging flag set
+            // after Windows has already hidden the overlay. Visibility
+            // reconciliation must still be able to show that window again.
             let _ = window::show_noactivate(&entry.window);
             if let Err(error) = window::reassert_topmost(&entry.window) {
                 first_error.get_or_insert(error);
