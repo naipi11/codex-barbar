@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 1.1.1 - 2026-09-15
 
 ### Fixed
 - Keep hidden taskbar status windows visible during periodic topmost
