@@ -169,6 +169,32 @@ function withRefreshStatus(
   };
 }
 
+function fetchedAtMs(state: ProfileUsageStateDto): number {
+  if (!state.fetchedAt) return Number.NEGATIVE_INFINITY;
+  const timestamp = Date.parse(state.fetchedAt);
+  return Number.isFinite(timestamp) ? timestamp : Number.NEGATIVE_INFINITY;
+}
+
+function isAtLeastAsFresh(
+  candidate: ProfileUsageStateDto,
+  current: ProfileUsageStateDto | undefined,
+): boolean {
+  return !current || fetchedAtMs(candidate) >= fetchedAtMs(current);
+}
+
+function mergeCachedStates(
+  bootstrapCache: Record<string, ProfileUsageStateDto>,
+  liveCache: Record<string, ProfileUsageStateDto>,
+): Record<string, ProfileUsageStateDto> {
+  for (const [profileId, current] of Object.entries(liveCache)) {
+    const bootstrapState = bootstrapCache[profileId];
+    if (bootstrapState && isAtLeastAsFresh(current, bootstrapState)) {
+      bootstrapCache[profileId] = current;
+    }
+  }
+  return bootstrapCache;
+}
+
 export function useProfileUsage(bootstrap: BootstrapDto): UseProfileUsageResult {
   const initialCache = cacheFromBootstrap(bootstrap);
   const initialSelectedProfileId =
@@ -210,6 +236,8 @@ export function useProfileUsage(bootstrap: BootstrapDto): UseProfileUsageResult 
       } catch {
         return;
       }
+      const current = cacheRef.current[next.profileId];
+      if (!isAtLeastAsFresh(next, current)) return;
       cacheRef.current[next.profileId] = next;
       if (next.profileId === selectedRef.current) {
         setState(next);
@@ -227,7 +255,10 @@ export function useProfileUsage(bootstrap: BootstrapDto): UseProfileUsageResult 
     if (bootstrapKeyRef.current === nextKey) return;
     bootstrapKeyRef.current = nextKey;
 
-    const nextCache = cacheFromBootstrap(bootstrap);
+    const nextCache = mergeCachedStates(
+      cacheFromBootstrap(bootstrap),
+      cacheRef.current,
+    );
     cacheRef.current = nextCache;
     profilesRef.current = bootstrap.profiles;
     setProfiles(bootstrap.profiles);

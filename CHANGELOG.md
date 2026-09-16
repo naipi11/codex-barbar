@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+- Keep every taskbar status window on the newest profile usage snapshot
+  when refresh events arrive out of order or bootstrap races with updates.
+
 ## 1.1.1 - 2026-09-15
 
 ### Fixed

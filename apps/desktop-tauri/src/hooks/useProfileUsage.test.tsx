@@ -213,6 +213,50 @@ describe("useProfileUsage", () => {
     expect(result.current.state.freshness).toBe("fresh");
   });
 
+  it("keeps every surface on the newest usage snapshot", async () => {
+    const bootstrap = bootstrapWithTwoProfiles();
+    const older = profileUsageFixture("personal", 17, {
+      fetchedAt: "2026-09-16T07:00:00Z",
+    });
+    const newer = profileUsageFixture("personal", 31, {
+      fetchedAt: "2026-09-16T07:01:00Z",
+    });
+    bootstrap.usageByProfile.personal = older;
+
+    const primary = renderHook(
+      ({ value }) => useProfileUsage(value),
+      { initialProps: { value: bootstrap } },
+    );
+    const secondary = renderHook(() => useProfileUsage(bootstrap));
+    await waitFor(() =>
+      expect(eventHarness.listeners.get(events.profileUsageStateChanged)?.size).toBe(2),
+    );
+    const listeners = Array.from(
+      eventHarness.listeners.get(events.profileUsageStateChanged) ?? [],
+    );
+
+    act(() => {
+      listeners[0]!({ payload: newer });
+      listeners[0]!({ payload: older });
+      listeners[1]!({ payload: older });
+      listeners[1]!({ payload: newer });
+    });
+
+    expect(primary.result.current.state.primary?.remainingPercent).toBe(31);
+    expect(secondary.result.current.state.primary?.remainingPercent).toBe(31);
+    primary.rerender({
+      value: {
+        ...bootstrap,
+        usageByProfile: { ...bootstrap.usageByProfile, personal: older },
+      },
+    });
+    await waitFor(() =>
+      expect(primary.result.current.state.primary?.remainingPercent).toBe(31),
+    );
+
+  });
+
+
   it("reconciles account, selected-profile, refresh, and login events", async () => {
     const bootstrap = bootstrapWithTwoProfiles();
     const updatedAccounts: AccountsSnapshotDto = {
