@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 1.1.2 - 2026-09-16
 
 ### Fixed
 - Keep every taskbar status window on the newest profile usage snapshot
