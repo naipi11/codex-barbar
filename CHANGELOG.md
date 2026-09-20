@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.1.3 - 2026-09-20
+
+### Fixed
+- Emit the weekly allowance reset notification only once when out-of-order usage snapshots arrive.
+
 ## 1.1.2 - 2026-09-16
 
 ### Fixed

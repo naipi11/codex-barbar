@@ -48,6 +48,9 @@ struct ProfileNotificationState {
     /// SHA-256 hex of the normalized account email; never raw identity.
     account_marker_hash: Option<String>,
     weekly_reset_at: Option<DateTime<Utc>>,
+    /// Latest usage snapshot already considered by the notification engine.
+    /// Older events can arrive after a newer refresh completed.
+    last_usage_fetched_at: Option<DateTime<Utc>>,
     armed_band: Option<QuotaBand>,
     known_reset_credits: Option<u64>,
     consecutive_refresh_failures: u8,
@@ -102,6 +105,11 @@ impl V1NotificationEngine {
         reset_credits: Option<u64>,
     ) -> Vec<V1NotificationEvent> {
         self.prepare_profile_for_account(profile_id, account_marker);
+        let Some(snapshot) = state.snapshot.as_ref() else {
+            self.persist();
+            return Vec::new();
+        };
+        let fetched_at = snapshot.fetched_at;
         let Some(window) = universal_weekly_window(state) else {
             self.persist();
             return Vec::new();
@@ -109,6 +117,13 @@ impl V1NotificationEngine {
         let remaining_percent = rounded_percent(window.remaining_percent);
         let current_band = band_for(remaining_percent, preferences);
         let profile = self.state.profiles.entry(profile_id).or_default();
+        if profile
+            .last_usage_fetched_at
+            .is_some_and(|previous| fetched_at < previous)
+        {
+            return Vec::new();
+        }
+        profile.last_usage_fetched_at = Some(fetched_at);
         let first_observation = profile.armed_band.is_none();
         let new_cycle = matches!(
             (profile.weekly_reset_at, window.resets_at),
@@ -120,7 +135,6 @@ impl V1NotificationEngine {
         profile.weekly_reset_at = window.resets_at;
         profile.armed_band = Some(current_band);
         profile.known_reset_credits = reset_credits;
-
         let mut events = Vec::new();
         if preferences.enabled && !first_observation {
             if new_cycle && preferences.weekly_reset_enabled {
@@ -451,6 +465,37 @@ mod tests {
             vec![V1NotificationEvent::Warning {
                 remaining_percent: 60
             }]
+        );
+    }
+
+    #[test]
+    fn stale_usage_after_a_new_cycle_does_not_replay_reset_notification() {
+        let (_temp, paths) = state_path();
+        let mut engine = V1NotificationEngine::load(&paths);
+        let id = Uuid::new_v4();
+        let reset_a = DateTime::from_timestamp(1_752_000_000, 0).unwrap();
+        let reset_b = DateTime::from_timestamp(1_752_604_800, 0).unwrap();
+
+        assert!(
+            engine
+                .observe_usage(&enabled(), id, &weekly(20.0, reset_a), None)
+                .is_empty()
+        );
+        assert_eq!(
+            engine.observe_usage(&enabled(), id, &weekly(20.0, reset_b), None),
+            vec![V1NotificationEvent::WeeklyReset]
+        );
+        assert!(
+            engine
+                .observe_usage(&enabled(), id, &weekly(20.0, reset_a), None)
+                .is_empty(),
+            "an out-of-order pre-reset snapshot must not replay the reset toast"
+        );
+        assert!(
+            engine
+                .observe_usage(&enabled(), id, &weekly(20.0, reset_b), None)
+                .is_empty(),
+            "the same post-reset snapshot must remain deduplicated"
         );
     }
 

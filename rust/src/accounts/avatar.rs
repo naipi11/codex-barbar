@@ -1330,10 +1330,11 @@ mod tests {
     use tempfile::tempdir;
     use uuid::Uuid;
 
+    #[cfg(windows)]
+    use super::validate_avatar_leaf_attributes;
     use super::{
         AvatarHttpClientBuilder, AvatarKind, AvatarRetryPolicy, AvatarStore, avatar_retry_policy,
-        decode_png_data_url, is_public_avatar_ip, validate_avatar_leaf_attributes,
-        validate_official_avatar_url,
+        decode_png_data_url, is_public_avatar_ip, validate_official_avatar_url,
     };
 
     fn profile_a() -> Uuid {
