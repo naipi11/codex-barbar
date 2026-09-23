@@ -17,7 +17,7 @@ export default function TaskbarStatusMeasure() {
     <TaskbarStatusContents
       mode="measurement"
       presentation={presentation}
-      measurementRef={measurementRef}
+      contentRef={measurementRef}
     />
   );
 }

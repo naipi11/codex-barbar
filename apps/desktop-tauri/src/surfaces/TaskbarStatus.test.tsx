@@ -368,7 +368,9 @@ describe("TaskbarStatus", () => {
 
     fireEvent.pointerDown(button, { pointerId: 7, clientX: 10, clientY: 10 });
     fireEvent.pointerMove(button, { pointerId: 7, clientX: 20, clientY: 10 });
-    await waitFor(() => expect(windowHarness.startDragging).toHaveBeenCalledTimes(1));
+    await waitFor(() =>
+      expect(invokeMock).toHaveBeenCalledWith("start_taskbar_status_dragging"),
+    );
     fireEvent.pointerUp(button, { pointerId: 7, clientX: 20, clientY: 10 });
     fireEvent.click(button);
     await waitFor(() =>
@@ -382,23 +384,51 @@ describe("TaskbarStatus", () => {
       }),
     );
     expect(invokeMock).not.toHaveBeenCalledWith("open_tray_panel");
+    expect(windowHarness.setPosition).not.toHaveBeenCalled();
   });
-  it("uses native dragging on secondary taskbar windows too", async () => {
+  it("finishes a secondary native drag even when pointerup is consumed by Windows", async () => {
     windowHarness.label = "taskbar-status-1";
     invokeMock.mockResolvedValue(bootstrapWithTwoProfiles());
     render(<TaskbarStatus />);
     const button = await screen.findByRole("button", { name: /打开完整面板/ });
+    const nativeDrag = deferred<void>();
+    invokeMock.mockImplementation(async (command: string) =>
+      command === "start_taskbar_status_dragging" ? nativeDrag.promise : undefined,
+    );
 
     fireEvent.pointerDown(button, { pointerId: 8, clientX: 10, clientY: 10 });
     fireEvent.pointerMove(button, { pointerId: 8, clientX: 20, clientY: 10 });
     await waitFor(() =>
       expect(invokeMock).toHaveBeenCalledWith("start_taskbar_status_dragging"),
     );
+    expect(invokeMock).not.toHaveBeenCalledWith("set_taskbar_status_dragging", {
+      dragging: false,
+    });
+    nativeDrag.resolve();
     await waitFor(() =>
-      expect(windowHarness.setPosition).toHaveBeenCalledWith(
-        expect.objectContaining({ x: 120, y: 200 }),
-      ),
+      expect(invokeMock).toHaveBeenCalledWith("set_taskbar_status_dragging", {
+        dragging: false,
+      }),
     );
+    expect(windowHarness.setPosition).not.toHaveBeenCalled();
+  });
+
+  it("releases the reconciliation guard when native dragging fails", async () => {
+    invokeMock.mockResolvedValue(bootstrapWithTwoProfiles());
+    render(<TaskbarStatus />);
+    const button = await screen.findByRole("button", { name: /打开完整面板/ });
+    invokeMock.mockImplementation(async (command: string) => {
+      if (command === "start_taskbar_status_dragging") throw new Error("native drag failed");
+    });
+
+    fireEvent.pointerDown(button, { pointerId: 9, clientX: 10, clientY: 10 });
+    fireEvent.pointerMove(button, { pointerId: 9, clientX: 20, clientY: 10 });
+    await waitFor(() =>
+      expect(invokeMock).toHaveBeenCalledWith("set_taskbar_status_dragging", {
+        dragging: false,
+      }),
+    );
+    expect(windowHarness.setPosition).not.toHaveBeenCalled();
   });
 
   it("opens the tray panel only from the main button", async () => {

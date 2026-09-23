@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.1.4 - 2026-09-24
+
+### Fixed
+- Recognize actual weekly allowance cycle transitions instead of treating reset-time corrections as resets; preserve notification deduplication across restarts.
+- Keep taskbar quota and reset-date text separate at constrained sizes and mixed DPI, and restore complete window bounds after native dragging without competing manual movement.
+
 ## 1.1.3 - 2026-09-20
 
 ### Fixed

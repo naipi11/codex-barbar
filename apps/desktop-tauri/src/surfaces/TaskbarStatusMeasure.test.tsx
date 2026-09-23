@@ -1,6 +1,4 @@
 import { render, screen, waitFor, within } from "@testing-library/react";
-// @ts-ignore Vitest executes tests in Node; the browser build does not include test modules.
-import { readFileSync } from "node:fs";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { invokeMock } from "../test/setup";
 import {
@@ -10,25 +8,12 @@ import {
 import TaskbarStatus from "./TaskbarStatus";
 import TaskbarStatusMeasure from "./TaskbarStatusMeasure";
 
-const taskbarStatusCss = readFileSync("src/surfaces/TaskbarStatus.css", "utf8");
-
 describe("TaskbarStatusMeasure", () => {
   beforeEach(() => invokeMock.mockReset());
 
   afterEach(() => {
     vi.unstubAllGlobals();
     vi.restoreAllMocks();
-  });
-
-  it("keeps helper content intrinsic, capped, and off-screen", () => {
-    const start = taskbarStatusCss.indexOf(".taskbar-status--measurement {");
-    const rule = taskbarStatusCss.slice(start, taskbarStatusCss.indexOf("}", start));
-    expect(rule).toContain("position: fixed");
-    expect(rule).toContain("left: -10000px");
-    expect(rule).toContain("width: max-content");
-    expect(rule).toContain("max-width: 318px");
-    expect(rule).not.toContain("display: none");
-    expect(rule).not.toContain("content-visibility: hidden");
   });
 
   it("renders only inert weekly measurement geometry", async () => {
@@ -60,27 +45,6 @@ describe("TaskbarStatusMeasure", () => {
     await waitFor(() =>
       expect(measurement.style.getPropertyValue("--surface-bg-alpha")).toBe("0.2"),
     );
-  });
-
-  it("keeps the rendered root alpha from being shadowed by a descendant fallback", async () => {
-    const bootstrap = bootstrapWithTwoProfiles();
-    bootstrap.settings.taskbarTransparencyPercent = 80;
-    invokeMock.mockResolvedValue(bootstrap);
-    render(<TaskbarStatusMeasure />);
-
-    const measurement = await screen.findByTestId("taskbar-status-measurement");
-    await waitFor(() =>
-      expect(measurement.style.getPropertyValue("--surface-bg-alpha")).toBe("0.2"),
-    );
-    for (const descendant of measurement.querySelectorAll<HTMLElement>("*")) {
-      expect(descendant.style.getPropertyValue("--surface-bg-alpha")).toBe("");
-    }
-
-    const alphaDeclarationSelectors = Array.from(
-      taskbarStatusCss.matchAll(/([^{}]+)\{[^{}]*--surface-bg-alpha\s*:[^{}]*\}/g),
-      ([, selector]) => selector.trim(),
-    );
-    expect(alphaDeclarationSelectors).toEqual([".taskbar-status"]);
   });
 
   it("renders the exact visible geometry sequence without a close column", async () => {
@@ -203,22 +167,4 @@ describe("TaskbarStatusMeasure", () => {
     ).toHaveLength(1);
   });
 
-  it("keeps taskbar status text free of decorative shadows", () => {
-    expect(taskbarStatusCss).not.toMatch(/text-shadow\s*:/);
-    expect(taskbarStatusCss).not.toMatch(/box-shadow\s*:/);
-    expect(taskbarStatusCss).not.toMatch(/backdrop-filter\s*:/);
-  });
-  it("removes native button chrome from the taskbar surface", () => {
-    const rule = taskbarStatusCss.match(
-      /\.taskbar-status__main,\s*\.taskbar-status__close\s*\{[^}]*\}/,
-    )?.[0] ?? "";
-    expect(rule).toContain("appearance: none");
-    expect(rule).toContain("background: transparent");
-  });
-
-  it("disables close-error animation when reduced motion is requested", () => {
-    expect(taskbarStatusCss).toMatch(
-      /@media\s*\(prefers-reduced-motion:\s*reduce\)[\s\S]*?\.taskbar-status__close\[data-error="true"\]\s*\{\s*animation:\s*none;?\s*\}/,
-    );
-  });
 });

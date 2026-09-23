@@ -1,6 +1,6 @@
 use std::{collections::BTreeMap, fs, path::PathBuf};
 
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, Duration, Utc};
 use serde::{Deserialize, Serialize};
 
 use crate::{
@@ -48,6 +48,9 @@ struct ProfileNotificationState {
     /// SHA-256 hex of the normalized account email; never raw identity.
     account_marker_hash: Option<String>,
     weekly_reset_at: Option<DateTime<Utc>>,
+    /// Last snapshot known to lie inside the tracked weekly cycle. Unlike the
+    /// reset timestamp, this evidence is not moved by deadline corrections.
+    weekly_cycle_observed_at: Option<DateTime<Utc>>,
     /// Latest usage snapshot already considered by the notification engine.
     /// Older events can arrive after a newer refresh completed.
     last_usage_fetched_at: Option<DateTime<Utc>>,
@@ -55,6 +58,49 @@ struct ProfileNotificationState {
     known_reset_credits: Option<u64>,
     consecutive_refresh_failures: u8,
     refresh_failure_notified: bool,
+}
+
+impl ProfileNotificationState {
+    fn observe_weekly_cycle(
+        &mut self,
+        reset_at: Option<DateTime<Utc>>,
+        fetched_at: DateTime<Utc>,
+    ) -> bool {
+        let duration = Duration::minutes(WEEKLY_WINDOW_MINUTES as i64);
+        // Upgrade existing runtime state without replaying an already observed
+        // cycle. Old versions did not retain a separate valid-cycle anchor.
+        if self.weekly_cycle_observed_at.is_none() {
+            self.weekly_cycle_observed_at = self.last_usage_fetched_at.filter(|observed| {
+                self.weekly_reset_at.is_some_and(|reset| {
+                    reset
+                        .checked_sub_signed(duration)
+                        .is_some_and(|start| start <= *observed && *observed < reset)
+                })
+            });
+        }
+        let Some(reset) = reset_at else {
+            return false;
+        };
+        let Some(start) = reset.checked_sub_signed(duration) else {
+            return false;
+        };
+        // Missing, expired, or not-yet-started windows are not evidence of a
+        // reset, even when a newly fetched response carries those timestamps.
+        if fetched_at < start || fetched_at >= reset {
+            return false;
+        }
+        let new_cycle = self.weekly_cycle_observed_at.is_some_and(|observed| {
+            start > observed
+                && self
+                    .weekly_reset_at
+                    .is_some_and(|previous| previous <= fetched_at)
+        });
+        // A correction whose interval still contains the prior observation is
+        // the same cycle. Persist its new observation, not a toast cooldown.
+        self.weekly_reset_at = Some(reset);
+        self.weekly_cycle_observed_at = Some(fetched_at);
+        new_cycle
+    }
 }
 
 /// Pure V1 notification decision engine with small, non-secret persisted state.
@@ -123,16 +169,12 @@ impl V1NotificationEngine {
         {
             return Vec::new();
         }
+        let new_cycle = profile.observe_weekly_cycle(window.resets_at, fetched_at);
         profile.last_usage_fetched_at = Some(fetched_at);
         let first_observation = profile.armed_band.is_none();
-        let new_cycle = matches!(
-            (profile.weekly_reset_at, window.resets_at),
-            (Some(previous), Some(current)) if previous != current
-        );
         let previous_band = profile.armed_band;
         let previous_credits = profile.known_reset_credits;
 
-        profile.weekly_reset_at = window.resets_at;
         profile.armed_band = Some(current_band);
         profile.known_reset_credits = reset_credits;
         let mut events = Vec::new();
@@ -326,7 +368,7 @@ fn band_for(remaining_percent: u8, preferences: &NotificationPreferences) -> Quo
 
 #[cfg(test)]
 mod tests {
-    use chrono::{DateTime, Utc};
+    use chrono::{DateTime, Duration, Utc};
     use tempfile::tempdir;
     use uuid::Uuid;
 
@@ -365,7 +407,7 @@ mod tests {
                     UsageWindow::normalized("model-weekly", None, 100.0, Some(10_080), None, None)
                         .0,
                 ],
-                fetched_at: reset,
+                fetched_at: reset - Duration::hours(1),
                 source: UsageSource::AppServer,
                 protocol_anomaly: false,
                 reset_credits: None,
@@ -375,6 +417,18 @@ mod tests {
             freshness: Freshness::Fresh,
             manual_cooldown_until: None,
         }
+    }
+
+    fn weekly_at(
+        used: f64,
+        reset: Option<DateTime<Utc>>,
+        fetched_at: DateTime<Utc>,
+    ) -> ProfileUsageState {
+        let mut state = weekly(used, reset.unwrap_or(fetched_at));
+        let snapshot = state.snapshot.as_mut().unwrap();
+        snapshot.fetched_at = fetched_at;
+        snapshot.secondary.as_mut().unwrap().resets_at = reset;
+        state
     }
 
     fn state_path() -> (tempfile::TempDir, AppPaths) {
@@ -496,6 +550,317 @@ mod tests {
                 .observe_usage(&enabled(), id, &weekly(20.0, reset_b), None)
                 .is_empty(),
             "the same post-reset snapshot must remain deduplicated"
+        );
+    }
+
+    #[test]
+    fn fresh_reset_corrections_preserve_warning_and_credit_transitions() {
+        let (_temp, paths) = state_path();
+        let mut engine = V1NotificationEngine::load(&paths);
+        let id = Uuid::new_v4();
+        let reset = DateTime::from_timestamp(1_752_000_000, 0).unwrap();
+        assert!(
+            engine
+                .observe_usage(&enabled(), id, &weekly(20.0, reset), Some(1))
+                .is_empty()
+        );
+        assert_eq!(
+            engine.observe_usage(
+                &enabled(),
+                id,
+                &weekly_at(
+                    40.0,
+                    Some(reset + Duration::seconds(30)),
+                    reset - Duration::minutes(30)
+                ),
+                Some(2),
+            ),
+            vec![
+                V1NotificationEvent::Warning {
+                    remaining_percent: 60
+                },
+                V1NotificationEvent::ResetCreditsIncreased { available_count: 2 },
+            ]
+        );
+        assert!(
+            engine
+                .observe_usage(
+                    &enabled(),
+                    id,
+                    &weekly_at(
+                        40.0,
+                        Some(reset - Duration::seconds(30)),
+                        reset - Duration::minutes(20)
+                    ),
+                    Some(2),
+                )
+                .is_empty()
+        );
+        assert!(
+            engine
+                .observe_usage(
+                    &enabled(),
+                    id,
+                    &weekly_at(
+                        40.0,
+                        Some(reset + Duration::seconds(10)),
+                        reset - Duration::minutes(10)
+                    ),
+                    Some(2),
+                )
+                .is_empty()
+        );
+    }
+
+    #[test]
+    fn corrections_across_a_deadline_are_not_weekly_rollovers() {
+        let (_temp, paths) = state_path();
+        let mut engine = V1NotificationEngine::load(&paths);
+        let id = Uuid::new_v4();
+        let reset = DateTime::from_timestamp(1_752_000_000, 0).unwrap();
+        assert!(
+            engine
+                .observe_usage(&enabled(), id, &weekly(20.0, reset), None)
+                .is_empty()
+        );
+        assert!(
+            engine
+                .observe_usage(
+                    &enabled(),
+                    id,
+                    &weekly_at(
+                        20.0,
+                        Some(reset + Duration::seconds(10)),
+                        reset + Duration::seconds(5)
+                    ),
+                    None,
+                )
+                .is_empty()
+        );
+        assert_eq!(
+            engine.observe_usage(
+                &enabled(),
+                id,
+                &weekly_at(
+                    20.0,
+                    Some(reset + Duration::weeks(1) + Duration::seconds(10)),
+                    reset + Duration::minutes(1)
+                ),
+                None,
+            ),
+            vec![V1NotificationEvent::WeeklyReset]
+        );
+        // A correction can move the inferred start past the first observation
+        // in the new cycle; its upcoming deadline has not elapsed again.
+        assert!(
+            engine
+                .observe_usage(
+                    &enabled(),
+                    id,
+                    &weekly_at(
+                        20.0,
+                        Some(reset + Duration::weeks(1) + Duration::minutes(2)),
+                        reset + Duration::minutes(3)
+                    ),
+                    None,
+                )
+                .is_empty()
+        );
+    }
+
+    #[test]
+    fn reset_dedupe_survives_restart_unknown_and_fresh_backward_windows() {
+        let (_temp, paths) = state_path();
+        let mut engine = V1NotificationEngine::load(&paths);
+        let id = Uuid::new_v4();
+        let reset = DateTime::from_timestamp(1_752_000_000, 0).unwrap();
+        let next = reset + Duration::weeks(1);
+        assert!(
+            engine
+                .observe_usage(&enabled(), id, &weekly(20.0, reset), None)
+                .is_empty()
+        );
+        assert_eq!(
+            engine.observe_usage(
+                &enabled(),
+                id,
+                &weekly_at(20.0, Some(next), reset + Duration::minutes(1)),
+                None
+            ),
+            vec![V1NotificationEvent::WeeklyReset]
+        );
+        let mut reloaded = V1NotificationEngine::load(&paths);
+        assert!(
+            reloaded
+                .observe_usage(
+                    &enabled(),
+                    id,
+                    &weekly_at(20.0, Some(reset), reset + Duration::minutes(2)),
+                    None,
+                )
+                .is_empty()
+        );
+        assert!(
+            reloaded
+                .observe_usage(
+                    &enabled(),
+                    id,
+                    &weekly_at(20.0, None, reset + Duration::minutes(3)),
+                    None,
+                )
+                .is_empty()
+        );
+        assert!(
+            reloaded
+                .observe_usage(
+                    &enabled(),
+                    id,
+                    &weekly_at(
+                        20.0,
+                        Some(next + Duration::seconds(30)),
+                        reset + Duration::minutes(4)
+                    ),
+                    None,
+                )
+                .is_empty()
+        );
+        assert_eq!(
+            reloaded.observe_usage(
+                &enabled(),
+                id,
+                &weekly_at(
+                    20.0,
+                    Some(next + Duration::weeks(1)),
+                    next + Duration::minutes(1)
+                ),
+                None,
+            ),
+            vec![V1NotificationEvent::WeeklyReset]
+        );
+        assert!(
+            reloaded
+                .observe_usage(
+                    &enabled(),
+                    id,
+                    &weekly_at(
+                        20.0,
+                        Some(next + Duration::weeks(1)),
+                        next + Duration::minutes(2)
+                    ),
+                    None,
+                )
+                .is_empty()
+        );
+    }
+
+    #[test]
+    fn expired_and_future_windows_do_not_consume_a_delayed_reset() {
+        let (_temp, paths) = state_path();
+        let mut engine = V1NotificationEngine::load(&paths);
+        let id = Uuid::new_v4();
+        let reset = DateTime::from_timestamp(1_752_000_000, 0).unwrap();
+        assert!(
+            engine
+                .observe_usage(&enabled(), id, &weekly(20.0, reset), None)
+                .is_empty()
+        );
+        assert!(
+            engine
+                .observe_usage(
+                    &enabled(),
+                    id,
+                    &weekly_at(
+                        20.0,
+                        Some(reset + Duration::weeks(2)),
+                        reset + Duration::minutes(1)
+                    ),
+                    None,
+                )
+                .is_empty()
+        );
+        assert!(
+            engine
+                .observe_usage(
+                    &enabled(),
+                    id,
+                    &weekly_at(20.0, Some(reset), reset + Duration::hours(1)),
+                    None,
+                )
+                .is_empty()
+        );
+        assert_eq!(
+            engine.observe_usage(
+                &enabled(),
+                id,
+                &weekly_at(
+                    20.0,
+                    Some(reset + Duration::weeks(1)),
+                    reset + Duration::hours(2)
+                ),
+                None,
+            ),
+            vec![V1NotificationEvent::WeeklyReset]
+        );
+    }
+
+    #[test]
+    fn weekly_cycles_remain_independent_between_profiles() {
+        let (_temp, paths) = state_path();
+        let mut engine = V1NotificationEngine::load(&paths);
+        let first = Uuid::new_v4();
+        let second = Uuid::new_v4();
+        let reset = DateTime::from_timestamp(1_752_000_000, 0).unwrap();
+        for id in [first, second] {
+            assert!(
+                engine
+                    .observe_usage(&enabled(), id, &weekly(20.0, reset), None)
+                    .is_empty()
+            );
+        }
+        for id in [first, second] {
+            assert_eq!(
+                engine.observe_usage(
+                    &enabled(),
+                    id,
+                    &weekly(20.0, reset + Duration::weeks(1)),
+                    None
+                ),
+                vec![V1NotificationEvent::WeeklyReset]
+            );
+        }
+    }
+
+    #[test]
+    fn legacy_state_without_cycle_anchor_recognizes_the_next_reset() {
+        let (_temp, paths) = state_path();
+        let mut engine = V1NotificationEngine::load(&paths);
+        let id = Uuid::new_v4();
+        let reset = DateTime::from_timestamp(1_752_000_000, 0).unwrap();
+        assert!(
+            engine
+                .observe_usage(&enabled(), id, &weekly(20.0, reset), None)
+                .is_empty()
+        );
+        let mut legacy: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(&paths.notification_state).unwrap()).unwrap();
+        legacy["profiles"][id.to_string()]
+            .as_object_mut()
+            .unwrap()
+            .remove("weeklyCycleObservedAt");
+        std::fs::write(
+            &paths.notification_state,
+            serde_json::to_vec(&legacy).unwrap(),
+        )
+        .unwrap();
+        let mut reloaded = V1NotificationEngine::load(&paths);
+        assert_eq!(
+            reloaded.observe_usage(
+                &enabled(),
+                id,
+                &weekly(20.0, reset + Duration::weeks(1)),
+                None
+            ),
+            vec![V1NotificationEvent::WeeklyReset]
         );
     }
 

@@ -425,6 +425,10 @@ impl TaskbarOverlay {
         if !self.windows[index].dragging {
             return Ok(());
         }
+        // Always release the reconciliation guard, including failed position
+        // reads/applies after a monitor or DPI change during the native drag.
+        self.windows[index].dragging = false;
+        self.windows[index].last_slot = None;
         let mut position = window
             .outer_position()
             .map_err(|_| "TASKBAR_STATUS_POSITION_UNAVAILABLE".to_string())?;
@@ -435,14 +439,12 @@ impl TaskbarOverlay {
         }) {
             let default_slot = compute_slot(&snapshot, self.logical_width);
             let slot = custom_slot(&snapshot, default_slot, position.x, position.y);
-            if slot.x != position.x || slot.y != position.y {
-                window
-                    .set_position(PhysicalPosition::new(slot.x, slot.y))
-                    .map_err(|_| "TASKBAR_STATUS_POSITION_UNAVAILABLE".to_string())?;
-                position = PhysicalPosition::new(slot.x, slot.y);
-            }
+            // DPI reconciliation is skipped while dragging. Apply the complete
+            // destination slot even when its position did not change.
+            window::position_and_show(window, slot)?;
+            self.windows[index].last_slot = Some(slot);
+            position = PhysicalPosition::new(slot.x, slot.y);
         }
-        self.windows[index].dragging = false;
         self.windows[index].custom_position = Some(position);
         geometry_store::save_entry(
             &window::geometry_key(&label),

@@ -14,7 +14,7 @@ export interface TaskbarStatusContentsProps {
   onPointerMove?: React.PointerEventHandler<HTMLButtonElement>;
   onPointerUp?: React.PointerEventHandler<HTMLButtonElement>;
   onPointerCancel?: React.PointerEventHandler<HTMLButtonElement>;
-  measurementRef?: React.Ref<HTMLDivElement>;
+  contentRef?: React.Ref<HTMLDivElement>;
 }
 
 export function TaskbarStatusContents({
@@ -26,7 +26,7 @@ export function TaskbarStatusContents({
   onPointerMove,
   onPointerUp,
   onPointerCancel,
-  measurementRef,
+  contentRef,
 }: TaskbarStatusContentsProps): JSX.Element {
   const visible = mode === "visible";
   const inertProps = visible ? {} : ({ inert: "" } as Record<string, string>);
@@ -48,7 +48,7 @@ export function TaskbarStatusContents({
   return (
     <div
       {...inertProps}
-      ref={visible ? undefined : measurementRef}
+      ref={contentRef}
       className={`taskbar-status taskbar-status--${mode}`}
       data-testid={`taskbar-status-${mode}`}
       data-trust={visible ? trustState : undefined}

@@ -50,6 +50,34 @@ Past evidence: `docs/verification/windows/` (screenshots, startup
 performance, proof matrices). New RC evidence for 1.0.0-rc.1 goes to
 `docs/release/v1-rc-report.md`.
 
+## v1.1.4 notification and taskbar fix: pre-release evidence
+
+- The v1.1.3 notification engine failed the new regression for fresh snapshots
+  with corrected reset times: it emitted `WeeklyReset` instead of a quota
+  warning. The corrected engine passes, including restart, missing timestamps,
+  backward corrections, separate profiles, and subsequent real weekly cycles.
+- Native Windows tests for both Rust crates and Clippy with `-D warnings`
+  passed. Frontend: 39 files / 299 tests passed. Production Tauri/NSIS build
+  completed with pnpm 10.18.1.
+- Pre-fix WebView2 at 114x26 CSS pixels / DPR 2 had intersecting quota/date
+  bounds and clipped text. The fresh Release build passed layout checks at
+  DPR 1, 1.5, and 2, plus 114x26 and 104x40 constrained viewports; all text
+  remained within the viewport without intersecting bounds.
+- CUA screenshots confirmed legible taskbar text on real 150% and 200% displays.
+  Foreground CUA dragging moved both primary and secondary overlays; a drag
+  across DPI regions restored the assigned taskbar's full 342x80 physical bounds.
+  A subsequent click opened the tray panel. Background CUA drags were ineffective;
+  window positions and captures, not the driver's `unverifiable` result, were used
+  to verify foreground actions.
+- Screenshot: `docs/images/windows-proof/taskbar-cross-dpi-fixed.png` uses the
+  synthetic weekly proof identity and quota. Native 100% display testing was not
+  performed; DPR 1 coverage above used WebView2 emulation.
+- Deployed the local Release binary over the installed executable after backing
+  up the previous binary. SHA-256 matched the build; normal startup persisted the
+  new weekly-cycle observation state. Account data and preferences were not changed;
+  window geometry was restored after the proof run. This local build retains the
+  1.1.3 version number and is not a new published release.
+
 ## v1.0.34 panel regression
 
 Date: 2026-09-10

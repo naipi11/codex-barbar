@@ -13,9 +13,7 @@ body,
   --quota-low: #ff453a;
   --quota-unknown: #9299aa;
   --surface-bg-alpha: 0.8;
-  display: inline-grid;
-  grid-auto-flow: column;
-  grid-template-columns: minmax(0, max-content);
+  display: inline-flex;
   height: 40px;
   gap: 0;
   box-sizing: border-box;
@@ -30,12 +28,17 @@ body,
 }
 
 .taskbar-status-host {
-  display: contents;
+  display: flex;
+  width: 100%;
+  height: 100%;
+  align-items: center;
+  justify-content: center;
 }
 
 .taskbar-status--visible {
-  width: 100%;
-  max-width: 100%;
+  flex: none;
+  width: max-content;
+  transform: scale(var(--taskbar-fit-scale, 1));
 }
 
 .taskbar-status--measurement {
@@ -43,7 +46,7 @@ body,
   left: -10000px;
   top: -10000px;
   width: max-content;
-  max-width: 318px;
+  max-width: none;
   visibility: hidden;
   pointer-events: none;
   contain: layout style;
@@ -63,15 +66,16 @@ body,
 }
 
 .taskbar-status__main {
-  display: inline-grid;
-  grid-template-columns: max-content max-content minmax(0, auto) max-content;
+  display: inline-flex;
   align-items: center;
   gap: 7px;
-  min-width: 0;
+  flex: none;
+  white-space: nowrap;
   cursor: grab;
   user-select: none;
   touch-action: none;
 }
+.taskbar-status__main > * { flex: none; }
 .taskbar-status__main:active { cursor: grabbing; }
 .taskbar-status__main[data-density="standard"] { gap: 10px; }
 .taskbar-status__main:hover { color: #fff; }
@@ -108,14 +112,8 @@ body,
 
 .taskbar-status__identity { color: #f7f8ff; font-weight: 700; }
 .taskbar-status__quota-track {
-  display: inline-grid;
-  grid-auto-flow: column;
-  grid-auto-columns: max-content;
-  min-width: 0;
-  max-width: none;
-  gap: 7px;
-  overflow: visible;
-  mask-image: none;
+  display: inline-flex;
+  white-space: nowrap;
 }
 .taskbar-status__metric { font-variant-numeric: tabular-nums; }
 .taskbar-status__metric[data-band="high"] { color: var(--quota-high); }
