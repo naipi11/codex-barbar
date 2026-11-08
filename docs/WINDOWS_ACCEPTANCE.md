@@ -51,6 +51,14 @@ Past evidence: `docs/verification/windows/` (screenshots, startup
 performance, proof matrices). New RC evidence for 1.0.0-rc.1 goes to
 `docs/release/v1-rc-report.md`.
 
+## v1.1.5 CI repair and release qualification (2026-11-08)
+
+- The source push of 34f8c827 succeeded; hosted PR check failed on Rust/Clippy 1.99 because async-trait 0.1.89 emitted redundant must-use attributes. The same failure was reproduced locally with 1.99.0, then fixed by upgrading async-trait to 0.1.92 without lint suppression.
+- With patched dependencies, Rust 1.99.0 strict Clippy passed for both manifests; shared tests passed (547 unit, 21 process contracts, 3 resources, plus 1 intentionally ignored manual resolver probe), and Tauri tests passed (267). Frontend Vitest 4.1.12 passed 299 tests and Vite 6.4.5 built successfully.
+- Full pnpm audit, including development dependencies, reported no known vulnerabilities. License, V1-boundary, release-workflow policy, and format checks passed. rustls 0.23.46/webpki 0.103.16 address the known Rust TLS alerts.
+- Release CI now audits production and development dependencies. Its mandatory dedicated-token Dependabot gate remains enabled; unreadable alerts or open high/critical findings still fail the release. Draft creation explicitly targets the validated GITHUB_SHA.
+- Published assets must come from the clean release workflow and include its five-file manifest/SBOM contract, not the earlier two-entry local ZIP. This local qualification does not itself assert that a GitHub release is published or that the hosted checks passed.
+
 ## v1.1.5 Codex compatibility: local evidence (2026-11-08)
 
 - Platform: native Windows 11 x64, OS 10.0.26200.0, Rust 1.97.1, Node 24.21.0, project pnpm 10.18.1. CI Node 20 parity remains a hosted check.

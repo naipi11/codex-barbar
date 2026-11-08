@@ -44,4 +44,14 @@ if ($gate.Contains('manual override')) {
     throw 'Dependabot gate must not contain a manual override path.'
 }
 
-Write-Host '[assert-release-workflow] OK - Dependabot release credential policy is enforced'
+# A draft created by workflow_dispatch must bind to the checkout that was
+# validated, not a default branch which may have advanced during the build.
+$draftMatch = [regex]::Match($workflow, '(?ms)^      - name: Create draft release\r?\n.*?(?=^      - name:|\z)')
+if (-not $draftMatch.Success -or -not $draftMatch.Value.Contains('--target $env:GITHUB_SHA')) {
+    throw 'Draft releases must target the exact validated GITHUB_SHA.'
+}
+if (-not $workflow.Contains('pnpm --dir apps/desktop-tauri audit --audit-level high')) {
+    throw 'Release dependency audit must include development dependencies.'
+}
+
+Write-Host '[assert-release-workflow] OK - credential, dependency, and release commit policies are enforced'

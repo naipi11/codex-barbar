@@ -75,7 +75,7 @@ try {
         Invoke-PnpmStep "Frontend build" @("run", "build")
     }
     if ($All) {
-        Invoke-PnpmStep "Production dependency audit" @("audit", "--prod", "--audit-level", "high")
+        Invoke-PnpmStep "Dependency audit (production and development)" @("audit", "--audit-level", "high")
         $auditLicenses = Join-Path $RepoRoot "scripts\audit-licenses.ps1"
         if (-not (Test-Path -LiteralPath $auditLicenses)) {
             throw "Missing license audit script: $auditLicenses"

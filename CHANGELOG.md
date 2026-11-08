@@ -1,12 +1,17 @@
 # Changelog
 
-## 1.1.5 - Unreleased
+## 1.1.5 - 2026-11-08
 
 ### Fixed
 - Align the App Server initialize capabilities and login completion handling with Codex CLI 0.167.0 while keeping experimental APIs disabled.
 - Parse nullable quota windows without false anomalies; never interpret billing credits or individual monetary limits as percentage quota. Isolate malformed additional buckets from valid Codex quota.
 - Bound executable version probes to five seconds and 4 KiB, reap their process trees, and reject relative PATH entries.
 - Apply the configured Codex executable to account refresh and diagnostics; preserve verified npm shim paths instead of persisting node.exe as Codex.
+
+### Security and CI
+- Update async-trait to 0.1.92 to fix macro-generated double-must-use failures on Rust/Clippy 1.99 without suppressing warnings.
+- Patch Vite to 6.4.5, Vitest/mocker to 4.1.12, source-map-js to 1.2.2, and rustls to 0.23.46 (webpki 0.103.16).
+- Audit development dependencies as well as production dependencies in CI, release checks, and the local CI mirror.
 
 ### Improved
 - Activate the existing release optimization profile at the Cargo workspace root, where Cargo actually applies it.

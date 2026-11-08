@@ -84,8 +84,8 @@ jobs:
         shell: pwsh
         run: .\scripts\assert-release-workflow.ps1
 
-      - name: Production dependency audit
-        run: pnpm --dir apps/desktop-tauri audit --prod --audit-level high
+      - name: Dependency audit (production and development)
+        run: pnpm --dir apps/desktop-tauri audit --audit-level high
 
       - name: License audit
         shell: pwsh

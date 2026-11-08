@@ -86,14 +86,15 @@ rotation shows activity: **Idle 1×**, **Thinking 2×**, **Fast 3×**.
 
 ## Codex compatibility
 
-The local **1.1.5** maintenance build targets **Codex CLI 0.167.0**, the latest
+The **1.1.5** maintenance release targets **Codex CLI 0.167.0**, the latest
 verified stable release as of 2026-11-08. Check `codex --version`; no account
 reset or global Codex configuration rewrite is required. If discovery fails,
 validate an absolute native `.exe` or verified npm `.cmd` path in
 **Settings → Advanced**. Future versions are not rejected by version number
 alone; the App Server handshake and usage read remain the compatibility check.
 See the [tested-version matrix](docs/TESTED_CODEX_VERSIONS.md) for evidence and
-limitations. Version 1.1.5 has not been published to GitHub Releases.
+limitations. Official installers and checksums are distributed through
+[GitHub Releases](https://github.com/naipi11/codex-barbar/releases).
 
 ## First Run
 

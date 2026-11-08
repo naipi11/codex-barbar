@@ -2,7 +2,7 @@
 
 ## 版本与范围
 
-- 维护版本：**1.1.5**；源码更新不等于正式发布，本次未创建版本标签或 GitHub Release。
+- 维护版本：**1.1.5**；以 [GitHub Releases](https://github.com/naipi11/codex-barbar/releases) 中公开发布的版本与资产为准，源码提交和草稿不等于正式发布。
 - 兼容目标：**Codex CLI 0.167.0**，这是 2026-11-08 核实的[官方最新稳定版](https://github.com/openai/codex/releases/tag/rust-v0.167.0)。
 - 从仓库 main 的 1.1.4 开始修改，保留托盘、悬浮球、任务栏、账户、主题和语言功能。
 - 不需要删除账户数据库或迁移全局 Codex 配置；本轮未替用户执行登录、登出或切换账户。
@@ -15,7 +15,8 @@
 4. **错误可见**：API-key 不再请求不支持的订阅额度；空额度/解析失败会发布错误并保留原缓存，不会静默维持刷新成功状态。
 5. **自定义路径生效**：每次会话读取最新设置；npm shim 保存为所选绝对路径，不再误保存 node.exe；验证失败保留旧设置。
 6. **响应与资源优化**：版本探测限 5 秒/4 KiB并回收进程树；设置/诊断探测移至工作线程；取消、超时、断连清理请求和后台任务；超长 stderr 有界并持续排空，避免堵塞。
-7. **发布优化生效**：原有 LTO、单 codegen unit、strip 配置移至 Cargo workspace 根，修复成员配置被忽略的问题。未新增项目依赖。
+7. **发布优化生效**：原有 LTO、单 codegen unit、strip 配置移至 Cargo workspace 根，修复成员配置被忽略的问题。未新增直接依赖。
+8. **CI 与安全补丁**：async-trait 升至 0.1.92 修复 Rust/Clippy 1.99 宏兼容错误；Vite 6.4.5、Vitest/mocker 4.1.12、source-map-js 1.2.2、rustls 0.23.46/webpki 0.103.16 修复已知依赖告警。CI、发布流程与本地镜像均审计生产和开发依赖，不关闭告警或降低检查标准。
 
 ## 验证证据
 
@@ -29,17 +30,13 @@
 
 **没有证明的范围**：真实托管账户的浏览器/设备码完整登录、各种企业代理与 keyring 组合、GCP/Bedrock 订阅额度、完整多屏/DPI/安装升级卸载矩阵。离线协议回归测试不等同于这些真实环境实测。
 
-## 本地构建产物
+## 发布产物
 
-安装包、便携版和校验值已在本地交付，二进制产物不提交到源码仓库，也尚未上传 GitHub Release。可按下方复现命令重新构建。
+正式发布流程从干净且确定的提交重新构建，校验后生成五件资产：Windows x64 安装包、包含许可证与使用说明的便携 ZIP、SHA-256 校验值、SPDX SBOM、绑定构建提交的 artifact manifest。完整产物通过 [GitHub Releases](https://github.com/naipi11/codex-barbar/releases) 分发，不提交到源码仓库。
 
-```text
-artifacts/1.1.5/codex-barbar_1.1.5_x64-setup.exe
-artifacts/1.1.5/codex-barbar_1.1.5_x64-portable.zip
-artifacts/1.1.5/SHA256SUMS.txt
-```
+此前本地测试包与正式发布包可能同为 1.1.5，但正式包包含后续 CI/安全依赖补丁，不应混用旧包的校验值。请以正式 Release 附带的校验文件和 manifest 为准。
 
-安装包未进行 Authenticode 签名，Windows 可能显示 SmartScreen 提示。SHA-256 用于校验文件完整性，不代表微软签名认证。用户已反馈安装成功；这不替代完整安装、升级、卸载矩阵验证。
+安装包未进行 Authenticode 签名，Windows 可能显示 SmartScreen 提示。SHA-256 用于校验完整性，不代表微软签名认证。用户已反馈此前本地包安装成功；这不替代完整安装、升级、卸载矩阵验证。
 
 ## 使用与升级
 
