@@ -1,0 +1,53 @@
+{
+  "codexVersion": "0.167.0",
+  "sourceTag": "rust-v0.167.0",
+  "capturedAt": "2026-11-08",
+  "scope": "Relevant official published schemas, fetched from the release tag; not generated from user configuration.",
+  "files": [
+    {
+      "path": "v1/InitializeParams.json",
+      "source": "https://raw.githubusercontent.com/openai/codex/rust-v0.167.0/codex-rs/app-server-protocol/schema/json/v1/InitializeParams.json",
+      "sha256": "c608ff6bdd94e661423dca9b44cd1dcea7eac610f74e1310284c61eab64280bc"
+    },
+    {
+      "path": "v2/GetAccountResponse.json",
+      "source": "https://raw.githubusercontent.com/openai/codex/rust-v0.167.0/codex-rs/app-server-protocol/schema/json/v2/GetAccountResponse.json",
+      "sha256": "1d44d4274ea35e1f866c4b0e3db64678fab108914c276353bdc3b1b0de286459"
+    },
+    {
+      "path": "v2/GetAccountRateLimitsResponse.json",
+      "source": "https://raw.githubusercontent.com/openai/codex/rust-v0.167.0/codex-rs/app-server-protocol/schema/json/v2/GetAccountRateLimitsResponse.json",
+      "sha256": "9c0def7f8ab2396122af939dffbf01b34b8d66082fe4129dd20917bfd4313fdc"
+    },
+    {
+      "path": "v2/AccountRateLimitsUpdatedNotification.json",
+      "source": "https://raw.githubusercontent.com/openai/codex/rust-v0.167.0/codex-rs/app-server-protocol/schema/json/v2/AccountRateLimitsUpdatedNotification.json",
+      "sha256": "fb62719b2edf989399a744e06e38b1828bf81bd10afaf6910d91c39b2e48d952"
+    },
+    {
+      "path": "v2/LoginAccountResponse.json",
+      "source": "https://raw.githubusercontent.com/openai/codex/rust-v0.167.0/codex-rs/app-server-protocol/schema/json/v2/LoginAccountResponse.json",
+      "sha256": "72e6d77f49bc5809c3af50f183e2a0862dd8f7836816d4796ff69bb13eae0e89"
+    },
+    {
+      "path": "v2/AccountLoginCompletedNotification.json",
+      "source": "https://raw.githubusercontent.com/openai/codex/rust-v0.167.0/codex-rs/app-server-protocol/schema/json/v2/AccountLoginCompletedNotification.json",
+      "sha256": "d81e8821fd5a4a9ad118dfc3506ea156d32dcb18da388b336501bbc6a5ccb4a6"
+    },
+    {
+      "path": "v1/InitializeResponse.json",
+      "source": "https://raw.githubusercontent.com/openai/codex/rust-v0.167.0/codex-rs/app-server-protocol/schema/json/v1/InitializeResponse.json",
+      "sha256": "62ad689c2cb6379913c1d72749cfd8de5089d35760214123518eb92eef11acc9"
+    },
+    {
+      "path": "v2/CancelLoginAccountResponse.json",
+      "source": "https://raw.githubusercontent.com/openai/codex/rust-v0.167.0/codex-rs/app-server-protocol/schema/json/v2/CancelLoginAccountResponse.json",
+      "sha256": "06bc17624df01600fdc399d3c0f222f875c010d2d952c1d1191cb84de9b59014"
+    },
+    {
+      "path": "RequestId.json",
+      "source": "https://raw.githubusercontent.com/openai/codex/rust-v0.167.0/codex-rs/app-server-protocol/schema/json/RequestId.json",
+      "sha256": "9c72d59a306d827113020c6d31a14c326d55210d9bd6954f825196a52009f1c7"
+    }
+  ]
+}

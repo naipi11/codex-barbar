@@ -5,7 +5,7 @@ recovery steps. None of these steps require an administrator account.
 
 | Error state | Meaning | What to do |
 |---|---|---|
-| Codex not found | No Codex CLI / App Server executable could be resolved | Install Codex, then use **Settings → Providers → Validate Codex executable** or restart codex-barbar |
+| Codex not found | No Codex CLI / App Server executable could be resolved | Install Codex, then use **Settings → Advanced → Validate Codex executable** or restart codex-barbar |
 | Unsupported Codex version | The resolved executable failed the fixed `--version` probe or the App Server wire contract | Check the diagnostic code, then update codex-barbar or Codex and retry; the tested matrix is evidence, not a hard-coded allowlist |
 | Not signed in | The current CLI has no signed-in account | Run `codex login` in a terminal, then refresh |
 | API key, no quota | The account authenticates with an API key, which exposes no quota data | Sign in with a ChatGPT/Codex account instead of an API key |
@@ -15,6 +15,14 @@ recovery steps. None of these steps require an administrator account.
 | Protocol mismatch | The App Server wire protocol did not match the frozen schema | Export diagnostics, then update codex-barbar or Codex and report the redacted error code |
 | Vault failure | DPAPI or vault read/write failed | Close codex-barbar and retry; if it persists, export a diagnostic and report the issue. Credentials are never written in plaintext |
 | Storage failure | Local settings/database storage failed | Check that `%LOCALAPPDATA%\codex-barbar` is writable and not full; export diagnostics before deleting anything |
+
+## After a Codex upgrade
+
+1. Run `codex --version` and compare with [the tested-version matrix](docs/TESTED_CODEX_VERSIONS.md). The current target is 0.167.0, not an automatic guarantee for future releases.
+2. Update codex-barbar and refresh. Preserve your existing account database and Codex configuration.
+3. If you use a custom installation, validate its absolute `.exe` or verified npm `.cmd` in **Settings → Advanced**. The saved override is applied on the next session; no restart is required. A hung version probe stops after five seconds.
+4. If Codex itself cannot start, check its configuration using the official [configuration documentation](https://learn.chatgpt.com/docs/config-file/config-basic). Do not disable approval/security controls just to make the tray app work.
+5. API-key, Bedrock and GCP authentication are not ChatGPT subscription quotas. Unsupported account types are reported rather than shown as zero quota or another account's data.
 
 ## Common questions
 
@@ -41,7 +49,7 @@ codex-barbar reads the Windows Codex installation and Windows-side sign-in
 state. Running an agent or project inside WSL does not share WSL's
 `~/.codex/auth.json`; it cannot supply the Windows account automatically.
 Sign in with the Windows Codex CLI (`codex login` in PowerShell), then use
-**Settings → Providers → Validate Codex executable** and refresh. If the app
+**Settings → Advanced → Validate Codex executable** and refresh. If the app
 was launched from the Start menu, validation also checks the standard
 per-user OpenAI Codex install location when the terminal `PATH` is not
 available.

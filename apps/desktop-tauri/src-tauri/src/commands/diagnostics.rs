@@ -13,19 +13,34 @@ pub struct DiagnosticsExportDto {
     pub path: String,
 }
 
-fn diagnostics_from_state(state: &AppState) -> Diagnostics {
+fn diagnostics_from_service(
+    service: Option<&codexbar::accounts::service::AccountProfileService>,
+    proof_mode: bool,
+) -> Result<Diagnostics, String> {
+    let codex_version = if proof_mode {
+        None
+    } else {
+        let settings = service
+            .map(|service| service.repositories().settings.load())
+            .transpose()
+            .map_err(|_| "SETTINGS_LOAD_FAILED".to_string())?
+            .unwrap_or_default();
+        let request =
+            crate::codex_factory::resolve_request(settings.codex_executable_override.as_deref());
+        super::bridge::detect_codex_compatibility(&request).version
+    };
     let mut diagnostics = Diagnostics {
-        codex_version: super::bridge::detect_codex_compatibility().version,
-        vault_status: if state.account_service.is_some() {
+        codex_version,
+        vault_status: if service.is_some() {
             "ok".to_string()
         } else {
             "unavailable".to_string()
         },
         ..Default::default()
     };
-    if let Some(service) = state.account_service.as_ref() {
+    if let Some(service) = service {
         let Ok(snapshot) = service.snapshot() else {
-            return diagnostics;
+            return Ok(diagnostics);
         };
         let identities = service.identity_records().unwrap_or_default();
         for profile in snapshot.profiles {
@@ -67,41 +82,91 @@ fn diagnostics_from_state(state: &AppState) -> Diagnostics {
             }
         }
     }
-    diagnostics
+    Ok(diagnostics)
+}
+
+async fn diagnostics_snapshot(
+    state: &Mutex<AppState>,
+) -> Result<(Diagnostics, Option<codexbar::app_paths::AppPaths>), String> {
+    let (service, proof_mode) = {
+        let guard = state
+            .lock()
+            .map_err(|_| "DIAGNOSTICS_STATE_UNAVAILABLE".to_string())?;
+        (guard.account_service.clone(), guard.proof_config.is_some())
+    };
+    // Probe outside both the UI thread and the AppState mutex.
+    tauri::async_runtime::spawn_blocking(move || {
+        let paths = crate::proof_harness::desktop_app_paths(proof_mode).map_err(str::to_string)?;
+        Ok((
+            diagnostics_from_service(service.as_deref(), proof_mode)?,
+            paths,
+        ))
+    })
+    .await
+    .map_err(|_| "DIAGNOSTICS_FAILED".to_string())?
 }
 
 #[tauri::command]
-pub fn get_diagnostics_summary(
+pub async fn get_diagnostics_summary(
     state: tauri::State<'_, Mutex<AppState>>,
 ) -> Result<DiagnosticsSummaryDto, String> {
-    let guard = state.lock().map_err(|error| error.to_string())?;
-    let diagnostics = diagnostics_from_state(&guard);
-    let logs = app_paths_log_dir();
-    Ok(diagnostics.summary(logs.as_deref()))
+    let (diagnostics, paths) = diagnostics_snapshot(&state).await?;
+    Ok(diagnostics.summary(paths.as_ref().map(|paths| paths.logs.as_path())))
 }
 
 #[tauri::command]
-pub fn export_diagnostics(
+pub async fn export_diagnostics(
     state: tauri::State<'_, Mutex<AppState>>,
 ) -> Result<DiagnosticsExportDto, String> {
-    let guard = state.lock().map_err(|error| error.to_string())?;
-    let diagnostics = diagnostics_from_state(&guard);
-    let path = diagnostics.export().map_err(|error| error.to_string())?;
+    let (diagnostics, paths) = diagnostics_snapshot(&state).await?;
+    let path = export_to_app_paths(&diagnostics, paths.as_ref())?;
     Ok(DiagnosticsExportDto {
         path: path.to_string_lossy().into_owned(),
     })
 }
 
-/// Resolve the canonical log directory for summary log tails.
-fn app_paths_log_dir() -> Option<std::path::PathBuf> {
-    codexbar::app_paths::AppPaths::discover()
-        .ok()
-        .map(|paths| paths.logs)
+fn export_to_app_paths(
+    diagnostics: &Diagnostics,
+    paths: Option<&codexbar::app_paths::AppPaths>,
+) -> Result<std::path::PathBuf, String> {
+    let Some(paths) = paths else {
+        return diagnostics.export();
+    };
+    // Respect the same proof data root as the repositories. Keep the final
+    // secret scan required by the shared exporter before atomic publication.
+    diagnostics.export_to(&paths.root.join("diagnostics"), |path| {
+        let content = std::fs::read_to_string(path).map_err(|error| error.to_string())?;
+        if codexbar::core::SecretRedactor::redact(&content) != content {
+            return Err("final scan found unredacted secret material".to_string());
+        }
+        Ok(())
+    })
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn proof_diagnostics_does_not_probe_codex() {
+        let diagnostics = diagnostics_from_service(None, true).unwrap();
+        assert!(diagnostics.codex_version.is_none());
+        assert_eq!(diagnostics.vault_status, "unavailable");
+    }
+
+    #[test]
+    fn diagnostics_export_stays_below_supplied_app_paths() {
+        let base =
+            std::env::temp_dir().join(format!("codexbar-proof-export-{}", uuid::Uuid::new_v4()));
+        let paths = codexbar::app_paths::AppPaths::from_local_app_data(&base);
+        let export = export_to_app_paths(&Diagnostics::default(), Some(&paths)).unwrap();
+        assert_eq!(
+            export.parent(),
+            Some(paths.root.join("diagnostics").as_path())
+        );
+        assert!(export.is_file());
+        std::fs::remove_dir_all(base).unwrap();
+    }
 
     #[test]
     fn export_dto_carries_only_a_path() {

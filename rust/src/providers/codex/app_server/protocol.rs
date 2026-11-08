@@ -5,15 +5,13 @@ use serde_json::Value;
 
 use crate::core::{AppError, AppErrorKind, RecoveryAction};
 
-/// Frozen V1 initialize parameters. `experimentalApi` is deliberately false
-/// and is serialized as part of the typed handshake rather than assembled by
-/// a caller.
+/// Initialize parameters from the official rust-v0.167.0 V1 schema.
+/// Capability flags belong inside `capabilities`, never at the top level.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct InitializeParams {
     pub client_info: InitializeClientInfo,
     pub capabilities: InitializeCapabilities,
-    pub experimental_api: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -24,7 +22,41 @@ pub struct InitializeClientInfo {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize)]
-pub struct InitializeCapabilities {}
+#[serde(rename_all = "camelCase")]
+pub struct InitializeCapabilities {
+    pub experimental_api: bool,
+    pub explicit_gateway_oauth: bool,
+}
+
+/// Required fields shared by the official 0.146.0 and 0.167.0 responses.
+/// Keep unknown fields forward compatible and never log the returned home path.
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct InitializeResponse {
+    pub user_agent: String,
+    pub codex_home: String,
+    pub platform_family: String,
+    pub platform_os: String,
+}
+
+impl InitializeResponse {
+    pub fn validate(value: Value) -> Result<(), AppError> {
+        let response: Self = serde_json::from_value(value)
+            .map_err(|_| protocol_error("APP_SERVER_INITIALIZE_RESPONSE_INVALID"))?;
+        if [
+            &response.user_agent,
+            &response.codex_home,
+            &response.platform_family,
+            &response.platform_os,
+        ]
+        .iter()
+        .any(|value| value.trim().is_empty())
+        {
+            return Err(protocol_error("APP_SERVER_INITIALIZE_RESPONSE_INVALID"));
+        }
+        Ok(())
+    }
+}
 
 impl InitializeParams {
     pub fn v1() -> Self {
@@ -33,16 +65,23 @@ impl InitializeParams {
                 name: "codex-barbar".to_string(),
                 version: env!("CARGO_PKG_VERSION").to_string(),
             },
-            capabilities: InitializeCapabilities::default(),
-            experimental_api: false,
+            capabilities: InitializeCapabilities {
+                experimental_api: false,
+                // Usage reads must not silently launch gateway OAuth in a browser.
+                explicit_gateway_oauth: true,
+            },
         }
     }
 }
 
-/// Numeric correlation identifier used by the app-server JSON-RPC envelope.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
-#[serde(transparent)]
-pub struct RpcId(pub u64);
+/// Official RequestId: an int64 or a string. Preserve its type when replying
+/// to a server request; the string `"7"` must never correlate with integer 7.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum RpcId {
+    Number(i64),
+    String(String),
+}
 
 /// Error body returned for a correlated RPC response.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -86,10 +125,7 @@ fn protocol_error(code: &'static str) -> AppError {
 }
 
 fn parse_id(value: &Value) -> Result<RpcId, AppError> {
-    value
-        .as_u64()
-        .map(RpcId)
-        .ok_or_else(|| protocol_error("APP_SERVER_INVALID_RPC_ID"))
+    serde_json::from_value(value.clone()).map_err(|_| protocol_error("APP_SERVER_INVALID_RPC_ID"))
 }
 
 /// Parse one JSON object into a tolerant incoming message classification.
@@ -154,7 +190,27 @@ struct RequestEnvelope<'a> {
 #[derive(Serialize)]
 struct NotificationEnvelope<'a> {
     method: &'a str,
+    #[serde(skip_serializing_if = "Value::is_null")]
     params: Value,
+}
+
+#[derive(Serialize)]
+struct ErrorEnvelope {
+    id: RpcId,
+    error: RpcErrorBody,
+}
+
+/// Reject unsolicited server requests without performing approvals, tools, or
+/// credential refresh. This client implements only the account-read surface.
+pub fn encode_method_not_found(id: RpcId) -> Result<Vec<u8>, AppError> {
+    encode_frame(&ErrorEnvelope {
+        id,
+        error: RpcErrorBody {
+            code: -32601,
+            message: "Method not supported by this client".to_string(),
+            data: None,
+        },
+    })
 }
 
 /// Encode one request frame, including its trailing LF.
@@ -182,11 +238,68 @@ mod tests {
     use super::*;
 
     #[test]
+    fn initialize_capabilities_match_official_schema() {
+        let value = serde_json::to_value(InitializeParams::v1()).unwrap();
+        assert_eq!(value["capabilities"]["experimentalApi"], false);
+        assert_eq!(value["capabilities"]["explicitGatewayOauth"], true);
+        assert!(value.get("experimentalApi").is_none());
+    }
+
+    #[test]
+    fn initialize_response_requires_official_fields_but_accepts_extensions() {
+        let valid = serde_json::json!({
+            "userAgent": "codex/0.167.0", "codexHome": "C:/fixture/codex",
+            "platformFamily": "windows", "platformOs": "windows", "future": true
+        });
+        assert!(InitializeResponse::validate(valid.clone()).is_ok());
+        for field in ["userAgent", "codexHome", "platformFamily", "platformOs"] {
+            let mut missing = valid.clone();
+            missing.as_object_mut().unwrap().remove(field);
+            assert!(InitializeResponse::validate(missing).is_err());
+            let mut invalid = valid.clone();
+            invalid[field] = Value::Null;
+            assert!(InitializeResponse::validate(invalid).is_err());
+        }
+    }
+
+    #[test]
+    fn request_ids_preserve_strings_and_signed_integers() {
+        for id in [
+            serde_json::json!("7"),
+            serde_json::json!(-7),
+            serde_json::json!(7),
+        ] {
+            let message = parse_incoming_value(serde_json::json!({
+                "id": id, "method": "server/unsupported"
+            }))
+            .unwrap();
+            let IncomingMessage::ServerRequest { id: parsed, .. } = message else {
+                panic!("expected server request");
+            };
+            let reply: Value =
+                serde_json::from_slice(&encode_method_not_found(parsed).unwrap()).unwrap();
+            assert_eq!(reply["id"], id);
+            assert_eq!(reply["error"]["code"], -32601);
+        }
+        assert_ne!(RpcId::String("7".to_string()), RpcId::Number(7));
+        for id in [
+            Value::Null,
+            serde_json::json!(1.5),
+            serde_json::json!(u64::MAX),
+        ] {
+            assert!(parse_incoming_value(serde_json::json!({"id": id, "result": {}})).is_err());
+        }
+    }
+
+    #[test]
     fn response_ignores_unknown_fields_but_requires_id() {
         let incoming = parse_incoming(br#"{"id":7,"result":{},"futureField":true}"#).unwrap();
         assert!(matches!(
             incoming,
-            IncomingMessage::Response { id: RpcId(7), .. }
+            IncomingMessage::Response {
+                id: RpcId::Number(7),
+                ..
+            }
         ));
         assert_eq!(
             parse_incoming(br#"{"result":{}}"#)
@@ -201,7 +314,13 @@ mod tests {
         let error =
             parse_incoming(br#"{"id":3,"error":{"code":-1,"message":"nope"},"futureField":true}"#)
                 .unwrap();
-        assert!(matches!(error, IncomingMessage::Error { id: RpcId(3), .. }));
+        assert!(matches!(
+            error,
+            IncomingMessage::Error {
+                id: RpcId::Number(3),
+                ..
+            }
+        ));
 
         let notification = parse_incoming(br#"{"method":"initialized","params":{}}"#).unwrap();
         assert!(matches!(
@@ -212,23 +331,23 @@ mod tests {
         let request = parse_incoming(br#"{"id":9,"method":"server/ping","params":{}}"#).unwrap();
         assert!(matches!(
             request,
-            IncomingMessage::ServerRequest { id: RpcId(9), method, .. } if method == "server/ping"
+            IncomingMessage::ServerRequest { id: RpcId::Number(9), method, .. } if method == "server/ping"
         ));
     }
 
     #[test]
-    fn rejects_unknown_shape_and_non_numeric_id() {
+    fn rejects_unknown_shape_and_invalid_id() {
         let error = parse_incoming(br#"{"foo":true}"#).unwrap_err();
         assert_eq!(error.diagnostic_code, "APP_SERVER_REQUIRED_FIELD_MISSING");
 
-        let error = parse_incoming(br#"{"id":"7","result":{}}"#).unwrap_err();
+        let error = parse_incoming(br#"{"id":true,"result":{}}"#).unwrap_err();
         assert_eq!(error.diagnostic_code, "APP_SERVER_INVALID_RPC_ID");
     }
 
     #[test]
     fn encodes_request_with_fixed_method_and_params() {
         let encoded = encode_request(
-            RpcId(4),
+            RpcId::Number(4),
             "account/read",
             serde_json::json!({"refreshToken": false}),
         )
@@ -242,9 +361,8 @@ mod tests {
 
     #[test]
     fn encodes_notification_without_id() {
-        let encoded = encode_notification("initialized", serde_json::json!({})).unwrap();
+        let encoded = encode_notification("initialized", Value::Null).unwrap();
         let value: serde_json::Value = serde_json::from_slice(&encoded).unwrap();
-        assert!(value.get("id").is_none());
-        assert_eq!(value["method"], "initialized");
+        assert_eq!(value, serde_json::json!({"method": "initialized"}));
     }
 }

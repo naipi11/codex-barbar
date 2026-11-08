@@ -84,6 +84,17 @@ rotation shows activity: **Idle 1×**, **Thinking 2×**, **Fast 3×**.
 - Windows 11 x64 (23H2 or newer)
 - A working [Codex](https://developers.openai.com/codex/) installation signed in with `codex login`
 
+## Codex compatibility
+
+The local **1.1.5** maintenance build targets **Codex CLI 0.167.0**, the latest
+verified stable release as of 2026-11-08. Check `codex --version`; no account
+reset or global Codex configuration rewrite is required. If discovery fails,
+validate an absolute native `.exe` or verified npm `.cmd` path in
+**Settings → Advanced**. Future versions are not rejected by version number
+alone; the App Server handshake and usage read remain the compatibility check.
+See the [tested-version matrix](docs/TESTED_CODEX_VERSIONS.md) for evidence and
+limitations. Version 1.1.5 has not been published to GitHub Releases.
+
 ## First Run
 
 Your data is stored under `%LOCALAPPDATA%\codex-barbar`. To remove all

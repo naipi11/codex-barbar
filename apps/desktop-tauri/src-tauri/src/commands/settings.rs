@@ -1,9 +1,8 @@
 //! V1 settings commands: snapshot, patch, and safe Codex path validation.
 
-use std::path::PathBuf;
 use std::sync::Mutex;
 
-use codexbar::providers::codex::app_server::{CodexCommandResolver, CodexInstallation};
+use codexbar::providers::codex::app_server::{ResolvedCodexCommand, probe_version};
 use codexbar::storage::SettingsPatch;
 use tauri::Emitter;
 
@@ -130,8 +129,11 @@ pub async fn update_settings(
     let (patch, requested_surfaces) = prepare_settings_update(patch)?;
     let taskbar_presentation_changed = patch.taskbar_tray.is_some();
     if let Some(enabled) = patch.start_at_login {
-        codexbar::platform::windows::autostart::set_enabled(enabled)
-            .map_err(|_| "AUTOSTART_UPDATE_FAILED".to_string())?;
+        crate::proof_harness::apply_autostart_setting(
+            crate::proof_harness::is_proof_mode(&app),
+            enabled,
+        )
+        .map_err(|_| "AUTOSTART_UPDATE_FAILED".to_string())?;
     }
     let repository = settings_repository(&state)?;
     let mut settings = if patch == SettingsPatch::default() {
@@ -208,60 +210,49 @@ fn map_notification_test_error(error: String) -> String {
 }
 
 #[tauri::command]
-pub fn validate_codex_executable(
+pub async fn validate_codex_executable(
     app: tauri::AppHandle,
     state: tauri::State<'_, Mutex<AppState>>,
     path: String,
 ) -> Result<CodexCompatibilityDto, String> {
-    let command = match CodexCommandResolver::new().resolve_override(&PathBuf::from(path)) {
-        Ok(command) => command,
-        Err(error) => {
-            return Ok(CodexCompatibilityDto {
-                status: if error.kind == codexbar::core::AppErrorKind::CodexNotFound {
-                    "notFound"
-                } else {
-                    "unsupported"
-                },
-                installation: None,
-                executable_path: None,
-                version: None,
-                capabilities: Default::default(),
-            });
-        }
-    };
-
-    let Some(version) = codexbar::providers::codex::app_server::discovery::probe_version(&command)
-    else {
-        return Ok(CodexCompatibilityDto {
-            status: "unsupported",
-            installation: None,
-            executable_path: None,
-            version: None,
-            capabilities: Default::default(),
-        });
-    };
-
-    let normalized = command.launch_program().to_string_lossy().into_owned();
     let repository = settings_repository(&state)?;
+    let (compatibility, settings) = tauri::async_runtime::spawn_blocking(move || {
+        validate_and_save_codex_executable(&repository, &path, probe_version)
+    })
+    .await
+    .map_err(|_| "CODEX_VALIDATION_FAILED".to_string())??;
+    if let Some(settings) = settings {
+        let dto = AppSettingsDto::from_settings(&settings);
+        let _ = app.emit(crate::events::SETTINGS_CHANGED, &dto);
+    }
+    Ok(compatibility)
+}
+
+fn validate_and_save_codex_executable(
+    repository: &codexbar::storage::SettingsRepository,
+    path: &str,
+    probe: impl FnOnce(&ResolvedCodexCommand) -> Option<String>,
+) -> Result<
+    (
+        CodexCompatibilityDto,
+        Option<codexbar::storage::AppSettings>,
+    ),
+    String,
+> {
+    let request = crate::codex_factory::resolve_request(Some(path));
+    let compatibility = super::bridge::detect_codex_compatibility_with_probe(&request, probe);
+    if compatibility.status != "compatible" {
+        return Ok((compatibility, None));
+    }
+    // Resolution has verified this absolute path. Persist the user-selected
+    // shim for npm installs, never the resolved node.exe launch program.
     let settings = repository
         .update(SettingsPatch {
-            codex_executable_override: Some(Some(normalized.clone())),
+            codex_executable_override: Some(Some(path.to_string())),
             ..SettingsPatch::default()
         })
         .map_err(|_| "SETTINGS_SAVE_FAILED".to_string())?;
-    let dto = AppSettingsDto::from_settings(&settings);
-    let _ = app.emit(crate::events::SETTINGS_CHANGED, &dto);
-
-    Ok(CodexCompatibilityDto {
-        status: "compatible",
-        installation: match command.installation() {
-            CodexInstallation::VerifiedNpmLayout => Some("verifiedNpmLayout"),
-            CodexInstallation::NativeExe | CodexInstallation::StoreAlias => Some("nativeExe"),
-        },
-        executable_path: Some(normalized),
-        version: Some(version),
-        capabilities: Default::default(),
-    })
+    Ok((compatibility, Some(settings)))
 }
 
 #[cfg(test)]
@@ -285,6 +276,106 @@ mod tests {
         std::fs::create_dir_all(&dir).unwrap();
         let database = Arc::new(AppDatabase::open(&dir.join("settings.db")).unwrap());
         (SettingsRepository::new(database), dir)
+    }
+
+    #[test]
+    fn validating_npm_override_preserves_shim_and_never_executes_it() {
+        let (repository, dir) = shell_settings_fixture();
+        let shim = dir.join("codex.cmd");
+        let node = dir.join("node.exe");
+        let entry = dir.join(r"node_modules\@openai\codex\bin\codex.js");
+        std::fs::create_dir_all(entry.parent().unwrap()).unwrap();
+        std::fs::write(
+            &shim,
+            include_str!(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/../../../rust/src/providers/codex/app_server/fixtures/npm-codex.cmd"
+            )),
+        )
+        .unwrap();
+        // Deliberately non-executable files: the deterministic probe below is
+        // the only test seam, so no local CLI or credentials can be touched.
+        std::fs::write(&node, b"not executable").unwrap();
+        std::fs::write(&entry, b"// fixture only").unwrap();
+        let shim_text = shim.to_string_lossy().into_owned();
+        let (compatibility, saved) =
+            validate_and_save_codex_executable(&repository, &shim_text, |command| {
+                assert_eq!(
+                    command.installation(),
+                    codexbar::providers::codex::app_server::CodexInstallation::VerifiedNpmLayout
+                );
+                assert_eq!(command.program(), node.canonicalize().unwrap());
+                assert_eq!(
+                    command.args_prefix(),
+                    &[entry.canonicalize().unwrap().into_os_string()]
+                );
+                Some("codex-cli 0.167.0".to_string())
+            })
+            .unwrap();
+        assert_eq!(compatibility.status, "compatible");
+        assert_eq!(
+            compatibility.executable_path.as_deref(),
+            Some(shim_text.as_str())
+        );
+        assert_eq!(
+            saved.unwrap().codex_executable_override.as_deref(),
+            Some(shim_text.as_str())
+        );
+        assert_eq!(
+            repository
+                .load()
+                .unwrap()
+                .codex_executable_override
+                .as_deref(),
+            Some(shim_text.as_str())
+        );
+        let request = crate::codex_factory::resolve_request(Some(&shim_text));
+        assert_eq!(
+            codexbar::providers::codex::app_server::CodexCommandResolver::new()
+                .resolve(&request)
+                .unwrap()
+                .installation(),
+            codexbar::providers::codex::app_server::CodexInstallation::VerifiedNpmLayout
+        );
+        drop(repository);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn failed_override_validation_keeps_previous_setting() {
+        let (repository, dir) = shell_settings_fixture();
+        let previous = dir.join("previous.exe").to_string_lossy().into_owned();
+        repository
+            .update(SettingsPatch {
+                codex_executable_override: Some(Some(previous.clone())),
+                ..SettingsPatch::default()
+            })
+            .unwrap();
+        let candidate = dir.join("candidate.exe");
+        std::fs::write(&candidate, b"fixture only").unwrap();
+        let (compatibility, saved) =
+            validate_and_save_codex_executable(&repository, &candidate.to_string_lossy(), |_| None)
+                .unwrap();
+        assert_eq!(compatibility.status, "unsupported");
+        assert!(saved.is_none());
+        assert_eq!(
+            repository.load().unwrap().codex_executable_override,
+            Some(previous.clone())
+        );
+
+        let (compatibility, saved) =
+            validate_and_save_codex_executable(&repository, "relative.exe", |_| {
+                panic!("invalid path must never be probed")
+            })
+            .unwrap();
+        assert_eq!(compatibility.status, "notFound");
+        assert!(saved.is_none());
+        assert_eq!(
+            repository.load().unwrap().codex_executable_override,
+            Some(previous)
+        );
+        drop(repository);
+        std::fs::remove_dir_all(dir).unwrap();
     }
 
     fn menu_patch() -> SettingsPatch {

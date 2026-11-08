@@ -9,6 +9,7 @@
 
 use std::ffi::{OsStr, OsString};
 use std::path::{Path, PathBuf};
+use std::time::{Duration, Instant};
 
 use crate::core::{AppError, AppErrorKind, RecoveryAction};
 
@@ -104,7 +105,7 @@ impl CodexCommandResolver {
         Self
     }
 
-    /// Resolve in precedence order: absolute override, then non-empty PATH
+    /// Resolve in precedence order: absolute override, then absolute PATH
     /// entries in declared order, then the known native install roots.
     pub fn resolve(&self, request: &ResolveRequest) -> Result<ResolvedCodexCommand, AppError> {
         if let Some(override_path) = &request.override_path {
@@ -166,7 +167,16 @@ impl CodexCommandResolver {
                 )
             }),
             Some("cmd") => {
-                crate::providers::codex::app_server::npm::resolve_npm_shim(override_path)
+                crate::providers::codex::app_server::npm::resolve_npm_shim(override_path).or_else(
+                    |error| {
+                        // Match PATH discovery: never execute a custom wrapper,
+                        // but allow a fully verified, signed native package
+                        // beside it (including the current standalone layout).
+                        override_path.parent().map_or(Err(error), |prefix| {
+                            super::npm::resolve_official_native_from_prefix(prefix)
+                        })
+                    },
+                )
             }
             _ => Err(AppError::new(
                 AppErrorKind::CodexNotFound,
@@ -177,8 +187,8 @@ impl CodexCommandResolver {
         }
     }
 
-    /// Search an explicit PATH snapshot. Empty segments are skipped outright;
-    /// the current directory is never implied.
+    /// Search absolute PATH entries only. Empty, relative and drive-relative
+    /// segments must never make the launch directory an executable source.
     fn resolve_in_path(
         &self,
         path: &OsString,
@@ -186,7 +196,7 @@ impl CodexCommandResolver {
     ) -> Result<Option<ResolvedCodexCommand>, AppError> {
         let exts = pathext_extensions(pathext);
         for segment in std::env::split_paths(path) {
-            if segment.as_os_str().is_empty() {
+            if !segment.is_absolute() {
                 continue;
             }
             for ext in &exts {
@@ -224,7 +234,7 @@ impl CodexCommandResolver {
     ) -> Result<Option<ResolvedCodexCommand>, AppError> {
         let exts = pathext_extensions(pathext);
         for segment in std::env::split_paths(path) {
-            if segment.as_os_str().is_empty() {
+            if !segment.is_absolute() {
                 continue;
             }
             for ext in &exts {
@@ -367,12 +377,22 @@ pub(crate) fn verify_native_exe(path: &Path) -> Result<Option<ResolvedCodexComma
 }
 
 /// Direct fixed-argument `--version` probe; no shell is involved.
+/// A broken executable must not hang Settings or allocate unbounded output.
 pub fn probe_version(cmd: &ResolvedCodexCommand) -> Option<String> {
+    probe_version_with_timeout(cmd, Duration::from_secs(5))
+}
+
+fn probe_version_with_timeout(cmd: &ResolvedCodexCommand, timeout: Duration) -> Option<String> {
+    use std::io::Read;
+    use std::sync::mpsc;
+
+    const MAX_VERSION_BYTES: u64 = 4096;
     let mut command = std::process::Command::new(launch_path(cmd.program()));
     command
         .args(cmd.launch_args_prefix())
         .arg("--version")
         .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::null());
     #[cfg(windows)]
     {
@@ -380,13 +400,71 @@ pub fn probe_version(cmd: &ResolvedCodexCommand) -> Option<String> {
         const CREATE_NO_WINDOW_FLAG: u32 = 0x08000000;
         command.creation_flags(CREATE_NO_WINDOW_FLAG);
     }
-    let output = command.output().ok()?;
-    if !output.status.success() {
+    let deadline = Instant::now() + timeout;
+    let mut child = command.spawn().ok()?;
+    // npm launches a native child. Close the complete tree on timeout, not
+    // just node.exe, which could otherwise keep the stdout pipe open.
+    #[cfg(windows)]
+    let job = match super::job::JobHandle::new_kill_on_close().and_then(|job| {
+        job.assign_process(child.id())?;
+        Ok(job)
+    }) {
+        Ok(job) => job,
+        Err(_) => {
+            let _ = child.kill();
+            let _ = child.wait();
+            return None;
+        }
+    };
+    let stdout = child.stdout.take()?;
+    let (sender, receiver) = mpsc::sync_channel(1);
+    std::thread::spawn(move || {
+        let mut bytes = Vec::new();
+        let result = stdout.take(MAX_VERSION_BYTES + 1).read_to_end(&mut bytes);
+        let _ = sender.send(result.ok().map(|_| bytes));
+    });
+    let result = (|| {
+        loop {
+            if let Some(status) = child.try_wait().ok()? {
+                if !status.success() {
+                    return None;
+                }
+                let remaining = deadline.checked_duration_since(Instant::now())?;
+                let bytes = receiver.recv_timeout(remaining).ok()??;
+                if bytes.len() > MAX_VERSION_BYTES as usize {
+                    return None;
+                }
+                return parse_version_output(&bytes);
+            }
+            if Instant::now() >= deadline {
+                return None;
+            }
+            std::thread::sleep(Duration::from_millis(10));
+        }
+    })();
+    #[cfg(windows)]
+    drop(job);
+    // Always reap, including timeout, read failure and malformed output.
+    let _ = child.kill();
+    let _ = child.wait();
+    result
+}
+
+fn parse_version_output(bytes: &[u8]) -> Option<String> {
+    let text = std::str::from_utf8(bytes).ok()?.trim();
+    let version = text.strip_prefix("codex-cli ")?.trim();
+    if version.is_empty() || version.chars().any(char::is_whitespace) {
         return None;
     }
-    let text = String::from_utf8_lossy(&output.stdout);
-    let version = text.split_whitespace().last()?.trim().to_string();
-    (!version.is_empty()).then_some(version)
+    let core = version.split(['-', '+']).next()?;
+    let parts = core.split('.').collect::<Vec<_>>();
+    if parts.len() != 3 || parts.iter().any(|part| part.parse::<u64>().is_err()) {
+        return None;
+    }
+    version
+        .chars()
+        .all(|ch| ch.is_ascii_alphanumeric() || matches!(ch, '.' | '-' | '+'))
+        .then(|| version.to_owned())
 }
 
 /// `std::fs::canonicalize` uses the Win32 extended-length prefix on Windows.
@@ -511,6 +589,92 @@ mod tests {
     }
 
     #[test]
+    fn relative_path_entry_never_selects_launch_directory() {
+        let fixture = tempfile::tempdir_in(std::env::current_dir().unwrap()).unwrap();
+        fs::write(fixture.path().join("codex.exe"), b"MZ").unwrap();
+        let relative = fixture.path().file_name().unwrap().to_os_string();
+        assert!(
+            CodexCommandResolver::new()
+                .resolve_in_path(&relative, None)
+                .unwrap()
+                .is_none()
+        );
+    }
+
+    #[test]
+    fn version_output_requires_a_codex_version_not_arbitrary_text() {
+        for version in ["0.146.0", "0.167.0", "0.168.0-alpha.1"] {
+            assert_eq!(
+                parse_version_output(format!("codex-cli {version}\r\n").as_bytes()),
+                Some(version.to_owned())
+            );
+        }
+        for text in [
+            "",
+            "not Codex",
+            "node 24.0.0",
+            "codex-cli 0.167",
+            "codex-cli 0.167.0\nextra",
+            "codex-cli 0.167.0/path",
+        ] {
+            assert_eq!(parse_version_output(text.as_bytes()), None);
+        }
+    }
+
+    #[cfg(windows)]
+    fn version_fixture(script: &str) -> (tempfile::TempDir, ResolvedCodexCommand) {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("version.ps1");
+        fs::write(&path, script).unwrap();
+        let powershell = PathBuf::from(std::env::var_os("SystemRoot").unwrap())
+            .join("System32/WindowsPowerShell/v1.0/powershell.exe");
+        let command = ResolvedCodexCommand::from_parts(
+            powershell,
+            vec![
+                "-NoProfile".into(),
+                "-NonInteractive".into(),
+                "-ExecutionPolicy".into(),
+                "Bypass".into(),
+                "-File".into(),
+                path.into_os_string(),
+            ],
+            CodexInstallation::NativeExe,
+        );
+        (directory, command)
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn version_probe_handles_success_failure_and_oversized_output() {
+        for (script, expected) in [
+            (
+                "[Console]::Out.WriteLine('codex-cli 0.167.0')",
+                Some("0.167.0".to_owned()),
+            ),
+            (
+                "[Console]::Out.WriteLine('codex-cli 0.167.0'); exit 1",
+                None,
+            ),
+            ("[Console]::Out.Write('x' * 8192)", None),
+        ] {
+            let (_directory, command) = version_fixture(script);
+            assert_eq!(probe_version(&command), expected);
+        }
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn version_probe_times_out_instead_of_hanging_settings() {
+        let (_directory, command) = version_fixture("Start-Sleep -Seconds 30");
+        let start = Instant::now();
+        assert_eq!(
+            probe_version_with_timeout(&command, Duration::from_millis(200)),
+            None
+        );
+        assert!(start.elapsed() < Duration::from_secs(5));
+    }
+
+    #[test]
     fn relative_override_is_rejected() {
         let fixture = ResolverFixture::with_native_exes();
         let error = fixture
@@ -568,44 +732,6 @@ mod tests {
         assert_eq!(exts, vec!["com", "exe", "cmd"]);
         let default = pathext_extensions(None);
         assert_eq!(default, vec!["exe"]);
-    }
-
-    #[cfg(not(test))]
-    fn resolve_in_path_with_native_verifier(
-        &self,
-        path: &OsString,
-        pathext: Option<&OsString>,
-        _: &dyn Fn(&Path) -> bool,
-    ) -> Result<Option<ResolvedCodexCommand>, AppError> {
-        let exts = pathext_extensions(pathext);
-        for segment in std::env::split_paths(path) {
-            if segment.as_os_str().is_empty() {
-                continue;
-            }
-            for ext in &exts {
-                let candidate = segment.join(format!("codex.{ext}"));
-                match ext.as_str() {
-                    "exe" => {
-                        if let Some(cmd) = verify_native_exe(&candidate)? {
-                            return Ok(Some(cmd));
-                        }
-                    }
-                    "cmd" => {
-                        if let Ok(cmd) =
-                            crate::providers::codex::app_server::npm::resolve_npm_shim(&candidate)
-                        {
-                            return Ok(Some(cmd));
-                        }
-                        if let Ok(cmd) = crate::providers::codex::app_server::npm::resolve_official_native_from_prefix(&segment)
-                        {
-                            return Ok(Some(cmd));
-                        }
-                    }
-                    _ => {}
-                }
-            }
-        }
-        Ok(None)
     }
 
     #[test]

@@ -6,8 +6,10 @@
 //! Rust so a WebView never receives arbitrary process or navigation power.
 
 use std::path::{Path, PathBuf};
+use std::sync::{Arc, Mutex};
 
 use async_trait::async_trait;
+use serde::Deserialize;
 use serde_json::{Value, json};
 use tokio::sync::broadcast;
 
@@ -52,28 +54,44 @@ pub trait AppServerFactory: Send + Sync {
 
 /// Local factory that resolves a tested Codex command and opens one supervised
 /// stdio session per profile.
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct LocalAppServerFactory {
-    request: ResolveRequest,
+    request_source: Arc<dyn Fn() -> Result<ResolveRequest, AppError> + Send + Sync>,
+}
+
+impl std::fmt::Debug for LocalAppServerFactory {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("LocalAppServerFactory")
+            .finish_non_exhaustive()
+    }
 }
 
 impl LocalAppServerFactory {
     pub fn new() -> Self {
-        Self {
-            request: ResolveRequest {
-                override_path: None,
-                path: std::env::var_os("PATH"),
-                pathext: std::env::var_os("PATHEXT"),
-            },
-        }
+        Self::with_resolve_request(ResolveRequest {
+            override_path: None,
+            path: std::env::var_os("PATH"),
+            pathext: std::env::var_os("PATHEXT"),
+        })
     }
 
     pub fn with_resolve_request(request: ResolveRequest) -> Self {
-        Self { request }
+        Self::with_request_source(move || Ok(request.clone()))
+    }
+
+    /// Resolve from current persisted settings on each open. A settings error
+    /// must propagate rather than silently selecting another CLI/account.
+    pub fn with_request_source(
+        source: impl Fn() -> Result<ResolveRequest, AppError> + Send + Sync + 'static,
+    ) -> Self {
+        Self {
+            request_source: Arc::new(source),
+        }
     }
 
     fn resolve(&self) -> Result<super::discovery::ResolvedCodexCommand, AppError> {
-        CodexCommandResolver::new().resolve(&self.request)
+        let request = (self.request_source)()?;
+        CodexCommandResolver::new().resolve(&request)
     }
 
     fn runtime_root() -> Result<PathBuf, AppError> {
@@ -153,6 +171,7 @@ impl CurrentCliSession {
 pub struct ManagedSession {
     client: CodexAppServerClient,
     login_events: broadcast::Receiver<AppServerNotification>,
+    cancelled_login_id: Mutex<Option<String>>,
 }
 
 impl ManagedSession {
@@ -163,6 +182,7 @@ impl ManagedSession {
         Self {
             client,
             login_events,
+            cancelled_login_id: Mutex::new(None),
         }
     }
 
@@ -196,19 +216,32 @@ impl ManagedSession {
 
     pub async fn next_login_event(&mut self) -> Result<LoginEvent, AppError> {
         loop {
-            let notification = self
-                .login_events
-                .recv()
-                .await
-                .map_err(|error| match error {
-                    broadcast::error::RecvError::Lagged(_) => {
-                        session_protocol_error("APP_SERVER_LOGIN_EVENT_LAGGED")
-                    }
-                    broadcast::error::RecvError::Closed => {
-                        session_offline_error("APP_SERVER_LOGIN_EVENT_STREAM_CLOSED")
-                    }
-                })?;
+            let notification = tokio::select! {
+                biased;
+                result = self.login_events.recv() => result,
+                error = self.client.disconnected() => return Err(error),
+            }
+            .map_err(|error| match error {
+                broadcast::error::RecvError::Lagged(_) => {
+                    session_protocol_error("APP_SERVER_LOGIN_EVENT_LAGGED")
+                }
+                broadcast::error::RecvError::Closed => {
+                    session_offline_error("APP_SERVER_LOGIN_EVENT_STREAM_CLOSED")
+                }
+            })?;
             if let Some(event) = parse_login_event(notification)? {
+                if let LoginEvent::Failed { login_id, .. } = &event {
+                    let mut cancelled = self
+                        .cancelled_login_id
+                        .lock()
+                        .expect("login cancellation lock");
+                    if cancelled.as_deref() == Some(login_id.as_str()) {
+                        *cancelled = None;
+                        return Ok(LoginEvent::Cancelled {
+                            login_id: login_id.clone(),
+                        });
+                    }
+                }
                 return Ok(event);
             }
         }
@@ -225,10 +258,16 @@ impl ManagedSession {
                 json!({ "loginId": login_id.trim() }),
             )
             .await?;
-        if value.is_object() || value.is_null() {
-            Ok(())
-        } else {
-            Err(session_protocol_error("APP_SERVER_LOGIN_CANCEL_INVALID"))
+        match value.get("status").and_then(Value::as_str) {
+            Some("canceled") => {
+                *self
+                    .cancelled_login_id
+                    .lock()
+                    .expect("login cancellation lock") = Some(login_id.trim().to_string());
+                Ok(())
+            }
+            Some("notFound") => Ok(()),
+            _ => Err(session_protocol_error("APP_SERVER_LOGIN_CANCEL_INVALID")),
         }
     }
 
@@ -237,77 +276,82 @@ impl ManagedSession {
     }
 }
 
+// Only the official rust-v0.167.0 response variants for the two supported
+// interactive flows are accepted. Unknown extra fields remain forward compatible.
+#[derive(Deserialize)]
+#[serde(tag = "type")]
+enum LoginResponse {
+    #[serde(rename = "chatgpt", rename_all = "camelCase")]
+    Browser { login_id: String, auth_url: String },
+    #[serde(rename = "chatgptDeviceCode", rename_all = "camelCase")]
+    Device {
+        login_id: String,
+        verification_url: String,
+        user_code: String,
+    },
+}
+
 fn parse_login_challenge(value: Value, flow: LoginFlow) -> Result<LoginChallenge, AppError> {
-    let root = value
-        .as_object()
-        .ok_or_else(|| session_protocol_error("APP_SERVER_LOGIN_CHALLENGE_INVALID"))?;
-    let payload = root.get("login").and_then(Value::as_object).unwrap_or(root);
-
-    let login_id = string_field(payload, &["loginId", "login_id", "id"])
-        .filter(|value| !value.trim().is_empty())
-        .ok_or_else(|| session_protocol_error("APP_SERVER_LOGIN_ID_MISSING"))?;
-    let authorization_url = string_field(
-        payload,
-        &["authorizationUrl", "authorization_url", "authUrl", "url"],
-    )
-    .map(|url| validate_login_url(&url, false))
-    .transpose()?;
-    let verification_url = string_field(
-        payload,
-        &[
-            "verificationUrl",
-            "verification_url",
-            "deviceUrl",
-            "device_url",
-        ],
-    )
-    .map(|url| validate_login_url(&url, matches!(flow, LoginFlow::DeviceCode)))
-    .transpose()?;
-    let user_code = string_field(payload, &["userCode", "user_code", "code"]);
-
-    if matches!(flow, LoginFlow::Browser) && authorization_url.is_none() {
-        return Err(session_protocol_error("APP_SERVER_LOGIN_AUTH_URL_MISSING"));
+    let response: LoginResponse = serde_json::from_value(value)
+        .map_err(|_| session_protocol_error("APP_SERVER_LOGIN_CHALLENGE_INVALID"))?;
+    let challenge = match (response, flow) {
+        (LoginResponse::Browser { login_id, auth_url }, LoginFlow::Browser) => LoginChallenge {
+            login_id,
+            authorization_url: Some(validate_login_url(&auth_url, false)?),
+            verification_url: None,
+            user_code: None,
+        },
+        (
+            LoginResponse::Device {
+                login_id,
+                verification_url,
+                user_code,
+            },
+            LoginFlow::DeviceCode,
+        ) => {
+            if user_code.trim().is_empty() {
+                return Err(session_protocol_error("APP_SERVER_LOGIN_CHALLENGE_INVALID"));
+            }
+            LoginChallenge {
+                login_id,
+                authorization_url: None,
+                verification_url: Some(validate_login_url(&verification_url, true)?),
+                user_code: Some(user_code),
+            }
+        }
+        _ => return Err(session_protocol_error("APP_SERVER_LOGIN_CHALLENGE_INVALID")),
+    };
+    if challenge.login_id.trim().is_empty() {
+        return Err(session_protocol_error("APP_SERVER_LOGIN_ID_MISSING"));
     }
-    if matches!(flow, LoginFlow::DeviceCode)
-        && verification_url.is_none()
-        && authorization_url
-            .as_deref()
-            .and_then(|url| reqwest::Url::parse(url).ok())
-            .is_none_or(|url| url.path() != "/codex/device")
-    {
-        return Err(login_url_unsupported_error());
-    }
+    Ok(challenge)
+}
 
-    Ok(LoginChallenge {
-        login_id,
-        authorization_url,
-        verification_url,
-        user_code,
-    })
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct LoginCompletedNotification {
+    login_id: Option<String>,
+    success: bool,
 }
 
 fn parse_login_event(notification: AppServerNotification) -> Result<Option<LoginEvent>, AppError> {
-    if !matches!(
-        notification.method.as_str(),
-        "account/login/completed"
-            | "account/login/cancelled"
-            | "account/login/canceled"
-            | "account/login/failed"
-    ) {
+    if notification.method != "account/login/completed" {
         return Ok(None);
     }
-    let params = notification
-        .params
-        .as_object()
-        .ok_or_else(|| session_protocol_error("APP_SERVER_LOGIN_EVENT_INVALID"))?;
-    let login_id = string_field(params, &["loginId", "login_id", "id"])
-        .ok_or_else(|| session_protocol_error("APP_SERVER_LOGIN_EVENT_ID_MISSING"))?;
-    match notification.method.as_str() {
-        "account/login/completed" => Ok(Some(LoginEvent::Completed { login_id })),
-        "account/login/cancelled" | "account/login/canceled" => {
-            Ok(Some(LoginEvent::Cancelled { login_id }))
-        }
-        "account/login/failed" => Ok(Some(LoginEvent::Failed {
+    let params: LoginCompletedNotification = serde_json::from_value(notification.params)
+        .map_err(|_| session_protocol_error("APP_SERVER_LOGIN_EVENT_INVALID"))?;
+    // The official notification allows no loginId for non-interactive account
+    // updates. Such an event cannot complete this session's interactive login.
+    let Some(login_id) = params.login_id else {
+        return Ok(None);
+    };
+    if login_id.trim().is_empty() {
+        return Err(session_protocol_error("APP_SERVER_LOGIN_EVENT_ID_MISSING"));
+    }
+    if params.success {
+        Ok(Some(LoginEvent::Completed { login_id }))
+    } else {
+        Ok(Some(LoginEvent::Failed {
             login_id,
             error: AppError::new(
                 AppErrorKind::AuthExpired,
@@ -315,8 +359,7 @@ fn parse_login_event(notification: AppServerNotification) -> Result<Option<Login
                 RecoveryAction::Reauthenticate,
                 "APP_SERVER_LOGIN_FAILED",
             ),
-        })),
-        _ => Ok(None),
+        }))
     }
 }
 
@@ -334,15 +377,6 @@ fn validate_login_url(raw: &str, require_device_path: bool) -> Result<String, Ap
         return Err(login_url_unsupported_error());
     }
     Ok(raw.to_string())
-}
-
-fn string_field(object: &serde_json::Map<String, Value>, names: &[&str]) -> Option<String> {
-    names.iter().find_map(|name| {
-        object
-            .get(*name)
-            .and_then(Value::as_str)
-            .map(ToOwned::to_owned)
-    })
 }
 
 fn map_model_error(mut error: AppError) -> AppError {
@@ -390,6 +424,106 @@ fn session_offline_error(code: &'static str) -> AppError {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn request_source_is_evaluated_for_each_resolve_and_errors_never_fall_back() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        let calls = Arc::new(AtomicUsize::new(0));
+        let source_calls = Arc::clone(&calls);
+        let factory = LocalAppServerFactory::with_request_source(move || {
+            source_calls.fetch_add(1, Ordering::SeqCst);
+            Err(session_protocol_error("FIXTURE_SETTINGS_UNAVAILABLE"))
+        });
+        for _ in 0..2 {
+            assert_eq!(
+                factory.resolve().unwrap_err().diagnostic_code,
+                "FIXTURE_SETTINGS_UNAVAILABLE"
+            );
+        }
+        assert_eq!(calls.load(Ordering::SeqCst), 2);
+    }
+
+    #[test]
+    fn official_login_challenges_require_matching_type_and_device_code() {
+        let browser = json!({
+            "type": "chatgpt", "loginId": "browser-1",
+            "authUrl": "https://auth.openai.com/authorize?fixture=1", "future": true
+        });
+        assert!(parse_login_challenge(browser.clone(), LoginFlow::Browser).is_ok());
+        assert!(parse_login_challenge(browser, LoginFlow::DeviceCode).is_err());
+        let mut device = json!({
+            "type": "chatgptDeviceCode", "loginId": "device-1",
+            "verificationUrl": "https://auth.openai.com/codex/device", "userCode": "ABCD"
+        });
+        assert!(parse_login_challenge(device.clone(), LoginFlow::DeviceCode).is_ok());
+        device.as_object_mut().unwrap().remove("userCode");
+        assert!(parse_login_challenge(device, LoginFlow::DeviceCode).is_err());
+        assert!(
+            parse_login_challenge(
+                json!({
+                    "loginId": "invented", "authorizationUrl": "https://auth.openai.com/authorize"
+                }),
+                LoginFlow::Browser
+            )
+            .is_err()
+        );
+    }
+
+    #[test]
+    fn official_completed_notification_reports_failure_without_leaking_server_error() {
+        let event = parse_login_event(AppServerNotification {
+            method: "account/login/completed".to_string(),
+            params: json!({"loginId": "login-1", "success": false, "error": "fixture-secret"}),
+        })
+        .unwrap()
+        .unwrap();
+        let LoginEvent::Failed { login_id, error } = event else {
+            panic!("expected failed login")
+        };
+        assert_eq!(login_id, "login-1");
+        assert_eq!(error.diagnostic_code, "APP_SERVER_LOGIN_FAILED");
+        assert!(
+            !serde_json::to_string(&error)
+                .unwrap()
+                .contains("fixture-secret")
+        );
+        let success = parse_login_event(AppServerNotification {
+            method: "account/login/completed".to_string(),
+            params: json!({"loginId": "login-1", "success": true, "error": null}),
+        })
+        .unwrap()
+        .unwrap();
+        assert!(matches!(success, LoginEvent::Completed { .. }));
+    }
+
+    #[test]
+    fn login_completion_requires_success_and_ignores_uncorrelated_null_ids() {
+        for params in [
+            json!({"loginId": null, "success": true}),
+            json!({"success": false}),
+        ] {
+            assert!(
+                parse_login_event(AppServerNotification {
+                    method: "account/login/completed".to_string(),
+                    params,
+                })
+                .unwrap()
+                .is_none()
+            );
+        }
+        for params in [
+            json!({"loginId": "one"}),
+            json!({"loginId": "one", "success": "false"}),
+        ] {
+            assert!(
+                parse_login_event(AppServerNotification {
+                    method: "account/login/completed".to_string(),
+                    params,
+                })
+                .is_err()
+            );
+        }
+    }
 
     #[test]
     fn browser_and_device_login_types_are_fixed() {

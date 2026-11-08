@@ -4,8 +4,12 @@
 //! [`ProofScenario`] names below. Proof mode suppresses blur-dismiss so
 //! windows stay visible for automated screenshot capture, and serves only
 //! synthetic, credential-free UI data. It does not resolve Codex for proof
-//! payloads, but normal local repository and recovery startup still occurs.
+//! payloads. Repository/recovery startup can be isolated with an absolute
+//! `CODEXBAR_PROOF_DATA_DIR` base (data lives in its `codex-barbar` child).
+//! Proof mode never reconciles or changes the Windows autostart registration.
 
+use std::ffi::OsStr;
+use std::path::Path;
 use std::sync::Mutex;
 
 use serde::Serialize;
@@ -21,6 +25,50 @@ use codexbar::core::{
     RecoveryAction, RefreshStatus, UsageSource, UsageWindow,
 };
 use uuid::Uuid;
+
+/// Only active proof scenarios can redirect desktop data. A malformed proof
+/// directory fails closed rather than silently opening the user's real data.
+pub(crate) fn desktop_app_paths(
+    proof_mode: bool,
+) -> Result<Option<codexbar::app_paths::AppPaths>, &'static str> {
+    let raw = std::env::var_os("CODEXBAR_PROOF_DATA_DIR");
+    Ok(proof_data_paths(proof_mode, raw.as_deref())?
+        .or_else(|| codexbar::app_paths::AppPaths::discover().ok()))
+}
+
+fn proof_data_paths(
+    proof_mode: bool,
+    raw: Option<&OsStr>,
+) -> Result<Option<codexbar::app_paths::AppPaths>, &'static str> {
+    if !proof_mode {
+        return Ok(None);
+    }
+    let Some(raw) = raw else {
+        return Ok(None);
+    };
+    let base = Path::new(raw);
+    if !base.is_absolute() {
+        return Err("CODEXBAR_PROOF_DATA_DIR_MUST_BE_ABSOLUTE");
+    }
+    Ok(Some(codexbar::app_paths::AppPaths::from_local_app_data(
+        base,
+    )))
+}
+
+pub(crate) fn apply_autostart_setting(proof_mode: bool, enabled: bool) -> Result<(), String> {
+    apply_autostart_with(proof_mode, enabled, |enabled| {
+        codexbar::platform::windows::autostart::set_enabled(enabled)
+            .map_err(|error| error.to_string())
+    })
+}
+
+fn apply_autostart_with<E>(
+    proof_mode: bool,
+    enabled: bool,
+    apply: impl FnOnce(bool) -> Result<(), E>,
+) -> Result<(), E> {
+    if proof_mode { Ok(()) } else { apply(enabled) }
+}
 
 /// Deterministic visual state for a taskbar-status or float-ball proof
 /// scenario.
@@ -689,6 +737,69 @@ pub fn synthetic_bootstrap(scenario: ProofScenario) -> crate::commands::Bootstra
 mod tests {
     use super::*;
     use std::sync::LazyLock;
+
+    #[test]
+    fn proof_data_override_is_ignored_outside_proof_mode() {
+        assert!(
+            proof_data_paths(false, Some(OsStr::new("relative")))
+                .unwrap()
+                .is_none()
+        );
+        assert!(
+            proof_data_paths(false, Some(std::env::temp_dir().as_os_str()))
+                .unwrap()
+                .is_none()
+        );
+        assert!(proof_data_paths(true, None).unwrap().is_none());
+    }
+
+    #[test]
+    fn proof_data_override_requires_absolute_path_without_real_data_fallback() {
+        for path in ["", "relative", r"C:relative"] {
+            assert_eq!(
+                proof_data_paths(true, Some(OsStr::new(path))),
+                Err("CODEXBAR_PROOF_DATA_DIR_MUST_BE_ABSOLUTE")
+            );
+        }
+        let base = std::env::temp_dir().join("codexbar-isolated-proof");
+        let paths = proof_data_paths(true, Some(base.as_os_str()))
+            .unwrap()
+            .unwrap();
+        assert_eq!(paths.root, base.join("codex-barbar"));
+        for path in [
+            &paths.database,
+            &paths.vault,
+            &paths.runtime,
+            &paths.logs,
+            &paths.identity_cache,
+            &paths.avatars,
+            &paths.notification_state,
+            &paths.cache,
+        ] {
+            assert!(path.starts_with(&paths.root));
+        }
+    }
+
+    #[test]
+    fn proof_autostart_never_calls_registry_updater() {
+        for enabled in [false, true] {
+            apply_autostart_with::<String>(true, enabled, |_| {
+                panic!("proof must not touch Windows autostart")
+            })
+            .unwrap();
+        }
+        let mut applied = None;
+        apply_autostart_with::<String>(false, true, |enabled| {
+            applied = Some(enabled);
+            Ok(())
+        })
+        .unwrap();
+        assert_eq!(applied, Some(true));
+        assert_eq!(
+            apply_autostart_with(false, false, |_| Err("registry failure")),
+            Err("registry failure")
+        );
+    }
 
     static ENV_LOCK: LazyLock<Mutex<()>> = LazyLock::new(|| Mutex::new(()));
 

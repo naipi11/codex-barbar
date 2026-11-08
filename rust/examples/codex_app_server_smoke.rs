@@ -59,7 +59,9 @@ fn main() -> Result<(), String> {
         .enable_all()
         .build()
         .map_err(|error| error.to_string())?;
-    runtime.block_on(run_probe())
+    runtime.block_on(run_probe(
+        args.iter().any(|arg| arg == "--allow-signed-out"),
+    ))
 }
 
 fn generate_schema(out_dir: &Path) -> Result<(), String> {
@@ -89,7 +91,9 @@ fn generate_schema(out_dir: &Path) -> Result<(), String> {
     Ok(())
 }
 
-async fn run_probe() -> Result<(), String> {
+// --allow-signed-out checks transport compatibility in an isolated CODEX_HOME.
+// It never counts as authenticated quota acceptance.
+async fn run_probe(allow_signed_out: bool) -> Result<(), String> {
     let request = ResolveRequest {
         override_path: None,
         path: std::env::var_os("PATH"),
@@ -113,30 +117,46 @@ async fn run_probe() -> Result<(), String> {
         .open_current_cli()
         .await
         .map_err(|error| format!("open failed: {}", error.diagnostic_code))?;
-    let account = session
-        .account_read(false)
-        .await
-        .map_err(|error| format!("account failed: {}", error.diagnostic_code))?;
-    let rates = session
-        .rate_limits_read()
-        .await
-        .map_err(|error| format!("rates failed: {}", error.diagnostic_code))?;
-    let _ = session.shutdown().await;
-
+    let read_result = async {
+        match session.account_read(false).await {
+            Ok(account) if account.auth_mode == codexbar::core::AuthMode::ApiKey => {
+                Ok(("apiKey", "notApplicable"))
+            }
+            Ok(_) => {
+                let rates = session.rate_limits_read().await?;
+                let available = rates.primary.is_some()
+                    || rates.secondary.is_some()
+                    || !rates.additional_windows.is_empty();
+                if !available {
+                    return Err(codexbar::core::AppError::new(
+                        codexbar::core::AppErrorKind::ProtocolMismatch,
+                        "errors.appServerModelMismatch",
+                        codexbar::core::RecoveryAction::Retry,
+                        "APP_SERVER_NO_RATE_LIMITS",
+                    ));
+                }
+                Ok(("signedIn", "available"))
+            }
+            Err(error)
+                if allow_signed_out && error.kind == codexbar::core::AppErrorKind::NotSignedIn =>
+            {
+                Ok(("signedOut", "notChecked"))
+            }
+            Err(error) => Err(error),
+        }
+    }
+    .await;
+    // Close on every read outcome, not only a successful account/quota pair.
+    let shutdown = session.shutdown().await;
+    let (account_state, rate_limits_method) =
+        read_result.map_err(|error| format!("read failed: {}", error.diagnostic_code))?;
+    shutdown.map_err(|error| format!("shutdown failed: {}", error.diagnostic_code))?;
     let summary = SmokeSummary::from_probe(SmokeProbe {
         version,
         installation,
         initialized: true,
-        account_state: if account.auth_mode == codexbar::core::AuthMode::ChatGpt {
-            "signedIn"
-        } else {
-            "apiKey"
-        },
-        rate_limits_method: if rates.primary.is_some() || !rates.additional_windows.is_empty() {
-            "available"
-        } else {
-            "unavailable"
-        },
+        account_state,
+        rate_limits_method,
         error_kind: None,
     });
     println!(
@@ -168,6 +188,6 @@ mod tests {
         assert!(!json.contains('@'));
         assert!(!json.contains("Users\\"));
         assert!(!json.to_ascii_lowercase().contains("token"));
-        assert_eq!(summary.experimental_api, false);
+        assert!(!summary.experimental_api);
     }
 }

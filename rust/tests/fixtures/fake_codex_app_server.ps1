@@ -14,7 +14,13 @@ param(
         'rpc-timeout',
         'crash',
         'refuse-exit',
-        'login-failed'
+        'login-failed',
+        'login-crash',
+        'invalid-initialize',
+        'server-request',
+        'stderr-flood',
+        'api-key-no-quota',
+        'empty-rate-limits'
     )]
     [string] $Mode,
 
@@ -53,7 +59,11 @@ function ErrorResponse([object] $Id, [int] $Code) {
 }
 
 function AccountResult() {
+    if ($Mode -eq 'api-key-no-quota') {
+        return @{ account = @{ type = 'apiKey' }; requiresOpenaiAuth = $true }
+    }
     return @{
+        requiresOpenaiAuth = $true
         account = @{
             type = 'chatgpt'
             email = 'fixture@example.invalid'
@@ -63,6 +73,9 @@ function AccountResult() {
 }
 
 function RateLimitsResult() {
+    if ($Mode -eq 'empty-rate-limits') {
+        return @{ rateLimits = @{ primary = $null; secondary = $null; credits = $null; planType = 'plus' }; rateLimitsByLimitId = $null }
+    }
     return @{
         rateLimitsByLimitId = @{
             codex = @{
@@ -135,20 +148,42 @@ while ($true) {
             ErrorResponse $id (-32602)
             continue
         }
-        if ($request.params.experimentalApi -ne $false) {
+        if ($null -ne $request.params.experimentalApi -or
+            $request.params.capabilities.experimentalApi -ne $false -or
+            $request.params.capabilities.explicitGatewayOauth -ne $true) {
             ErrorResponse $id (-32602)
             continue
         }
+        if ($Mode -eq 'invalid-initialize') {
+            Response $id @{}
+            continue
+        }
         Response $id @{
-            serverInfo = @{
-                name = 'fake-codex'
-                version = '0.0.0-test'
-            }
+            userAgent = 'codex/0.167.0-fixture'
+            codexHome = 'C:\fixture\codex'
+            platformFamily = 'windows'
+            platformOs = 'windows'
         }
         continue
     }
 
     if ($method -eq 'account/read') {
+        if ($Mode -eq 'stderr-flood') {
+            [Console]::Error.Write(('x' * 2097152) + "`n")
+            for ($i = 0; $i -lt 1100; $i++) { [Console]::Error.WriteLine('fixture stderr') }
+            [Console]::Error.WriteLine(('x' * 65536))
+            [Console]::Error.Flush()
+        }
+        if ($Mode -eq 'server-request') {
+            Write-Frame @{ id = 'server-string-id'; method = 'item/commandExecution/requestApproval'; params = @{} }
+            $reply = [Console]::In.ReadLine() | ConvertFrom-Json
+            if ($reply.id -ne 'server-string-id' -or $reply.error.code -ne -32601 -or $null -ne $reply.result) {
+                ErrorResponse $id (-32603)
+            } else {
+                Response $id (AccountResult)
+            }
+            continue
+        }
         if (-not $initializedNotificationSeen) {
             ErrorResponse $id (-32001)
             continue
@@ -198,6 +233,10 @@ while ($true) {
     }
 
     if ($method -eq 'account/rateLimits/read') {
+        if ($Mode -eq 'api-key-no-quota') {
+            ErrorResponse $id (-32603)
+            continue
+        }
         if (-not $initializedNotificationSeen) {
             ErrorResponse $id (-32001)
             continue
@@ -250,14 +289,17 @@ while ($true) {
         $loginType = [string]$request.params.type
         if ($loginType -eq 'chatgpt') {
             Response $id @{
+                type = 'chatgpt'
                 loginId = 'login-browser'
-                authorizationUrl = 'https://auth.openai.com/authorize?client=codex-barbar'
+                authUrl = 'https://auth.openai.com/authorize?client=codex-barbar'
             }
+            if ($Mode -eq 'login-crash') { exit 19 }
             if ($Mode -eq 'login-failed') {
                 Write-Frame @{
-                    method = 'account/login/failed'
+                    method = 'account/login/completed'
                     params = @{
                         loginId = 'login-browser'
+                        success = $false
                         error = 'fixture secret text'
                     }
                 }
@@ -266,6 +308,8 @@ while ($true) {
                     method = 'account/login/completed'
                     params = @{
                         loginId = 'login-browser'
+                        success = $true
+                        error = $null
                     }
                 }
             }
@@ -273,6 +317,7 @@ while ($true) {
         }
         if ($loginType -eq 'chatgptDeviceCode') {
             Response $id @{
+                type = 'chatgptDeviceCode'
                 loginId = 'login-device'
                 verificationUrl = 'https://auth.openai.com/codex/device'
                 userCode = 'ABCD-EFGH'
@@ -286,12 +331,14 @@ while ($true) {
     if ($method -eq 'account/login/cancel') {
         $cancelId = [string]$request.params.loginId
         Response $id @{
-            cancelled = $true
+            status = 'canceled'
         }
         Write-Frame @{
-            method = 'account/login/cancelled'
+            method = 'account/login/completed'
             params = @{
                 loginId = $cancelId
+                success = $false
+                error = 'Login was not completed'
             }
         }
         continue

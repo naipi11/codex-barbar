@@ -74,6 +74,12 @@ pub enum FakeServerMode {
     Crash,
     RefuseExit,
     LoginFailed,
+    LoginCrash,
+    InvalidInitialize,
+    ServerRequest,
+    StderrFlood,
+    ApiKeyNoQuota,
+    EmptyRateLimits,
 }
 
 impl FakeServerMode {
@@ -92,6 +98,12 @@ impl FakeServerMode {
             Self::Crash => "crash",
             Self::RefuseExit => "refuse-exit",
             Self::LoginFailed => "login-failed",
+            Self::LoginCrash => "login-crash",
+            Self::InvalidInitialize => "invalid-initialize",
+            Self::ServerRequest => "server-request",
+            Self::StderrFlood => "stderr-flood",
+            Self::ApiKeyNoQuota => "api-key-no-quota",
+            Self::EmptyRateLimits => "empty-rate-limits",
         }
     }
 }
@@ -481,16 +493,18 @@ impl SupervisedAppServerProcess {
         let _ = self.child.stdin.take();
         let _ = self.child.stdout.take();
         let _ = self.child.stderr.take();
-        match tokio::time::timeout(grace, self.child.wait()).await {
-            Ok(_) => {}
-            Err(_) => {
-                let _ = self.child.start_kill();
-                let _ = self.child.wait().await;
-            }
-        }
-        // `job` is dropped here, terminating any surviving tree members.
+        let exited = matches!(
+            tokio::time::timeout(grace, self.child.wait()).await,
+            Ok(Ok(_))
+        );
+        // Kill the whole tree before reaping the root. A stubborn child must
+        // not keep the Job alive through an unbounded wait after the deadline.
         #[cfg(windows)]
         drop(self.job);
+        if !exited {
+            let _ = self.child.start_kill();
+            let _ = tokio::time::timeout(Duration::from_secs(1), self.child.wait()).await;
+        }
     }
 }
 

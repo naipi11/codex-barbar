@@ -1,0 +1,39 @@
+{
+  "date": "2026-11-08",
+  "productVersion": "1.1.5 (local unpublished)",
+  "os": "Windows 11 x64 / 10.0.26200.0",
+  "source": "rust/examples/codex_app_server_smoke.rs",
+  "scenarios": [
+    {
+      "name": "isolated empty CODEX_HOME, auth override environment removed",
+      "exitCode": 0,
+      "summary": {
+        "codexVersion": "0.167.0",
+        "installation": "nativeExe",
+        "initialized": true,
+        "accountState": "signedOut",
+        "rateLimitsMethod": "notChecked",
+        "experimentalApi": false,
+        "errorKind": null
+      }
+    },
+    {
+      "name": "Current CLI read-only account and quota",
+      "exitCode": 0,
+      "summary": {
+        "codexVersion": "0.167.0",
+        "installation": "nativeExe",
+        "initialized": true,
+        "accountState": "signedIn",
+        "rateLimitsMethod": "available",
+        "experimentalApi": false,
+        "errorKind": null
+      }
+    }
+  ],
+  "limitations": [
+    "No real managed login or logout was invoked.",
+    "No account identifiers, email, tokens, precise quota or raw RPC payloads retained.",
+    "Not a full installer, multi-monitor, proxy or keyring acceptance matrix."
+  ]
+}

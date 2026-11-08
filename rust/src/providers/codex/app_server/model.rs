@@ -43,6 +43,12 @@ impl AccountIdentity {
     }
 
     pub fn from_value(value: Value) -> Result<Self, AppError> {
+        if !value.is_object() {
+            return Err(model_error(
+                AppErrorKind::ProtocolMismatch,
+                "APP_SERVER_INVALID_ACCOUNT",
+            ));
+        }
         let account_value = if value.get("account").is_some() {
             value.get("account").expect("checked above")
         } else if value.get("type").is_some() {
@@ -53,12 +59,21 @@ impl AccountIdentity {
                 "APP_SERVER_ACCOUNT_MISSING",
             ));
         };
-        let account = account_value
-            .as_object()
-            .ok_or_else(|| model_error(AppErrorKind::NotSignedIn, "APP_SERVER_ACCOUNT_MISSING"))?;
+        if account_value.is_null() {
+            return Err(model_error(
+                AppErrorKind::NotSignedIn,
+                "APP_SERVER_ACCOUNT_MISSING",
+            ));
+        }
+        let account = account_value.as_object().ok_or_else(|| {
+            model_error(AppErrorKind::ProtocolMismatch, "APP_SERVER_INVALID_ACCOUNT")
+        })?;
         let account_type =
             string_field(account, &["type", "authType", "authMode"]).ok_or_else(|| {
-                model_error(AppErrorKind::NotSignedIn, "APP_SERVER_ACCOUNT_TYPE_MISSING")
+                model_error(
+                    AppErrorKind::ProtocolMismatch,
+                    "APP_SERVER_ACCOUNT_TYPE_MISSING",
+                )
             })?;
         let normalized = account_type
             .chars()
@@ -135,49 +150,64 @@ impl ParsedRateLimits {
             )
         })?;
         let (reset_credits, credit_anomaly) = parse_reset_credits(root);
+        let raw_by_id = root
+            .get("rateLimitsByLimitId")
+            .filter(|value| !value.is_null());
+        let by_id = raw_by_id.and_then(Value::as_object);
+        let codex = by_id.and_then(|buckets| get_case_insensitive(buckets, "codex"));
+        let mut anomaly = credit_anomaly || raw_by_id.is_some() && by_id.is_none();
 
-        if let Some(by_id) = root.get("rateLimitsByLimitId").and_then(Value::as_object)
-            && let Some(codex) = get_case_insensitive(by_id, "codex")
-        {
-            let mut parsed = parse_bucket("codex", codex)?;
-            parsed.reset_credits = reset_credits;
-            parsed.protocol_anomaly |= credit_anomaly;
+        // account/rateLimits/read is a full snapshot, not a sparse notification.
+        // A valid named Codex bucket wins even when its optional windows are null.
+        let mut parsed = if let Some(codex) = codex.filter(|bucket| bucket.is_object()) {
+            parse_bucket("codex", codex)?
+        } else {
+            anomaly |= codex.is_some();
+            let fallback = root.get("rateLimits").or_else(|| {
+                // Keep the existing direct-bucket compatibility path.
+                (root.contains_key("primary")
+                    || root.contains_key("secondary")
+                    || root.contains_key("usedPercent")
+                    || root.contains_key("used_percent"))
+                .then_some(&value)
+            });
+            let fallback = fallback.ok_or_else(|| {
+                model_error(
+                    AppErrorKind::ProtocolMismatch,
+                    "APP_SERVER_RATE_LIMITS_MISSING",
+                )
+            })?;
+            // The official legacy view can select a non-Codex bucket when no
+            // Codex bucket exists. Do not rename it or pick an arbitrary map key.
+            let limit_id = fallback
+                .as_object()
+                .and_then(|bucket| string_field(bucket, &["limitId", "limit_id"]))
+                .unwrap_or_else(|| "codex".to_string());
+            parse_bucket(&limit_id, fallback)?
+        };
+        parsed.reset_credits = reset_credits;
+        parsed.protocol_anomaly |= anomaly;
+
+        if let Some(by_id) = by_id {
             for (limit_id, bucket) in by_id {
-                if !limit_id.eq_ignore_ascii_case("codex") {
-                    let extra = parse_bucket_windows(limit_id, bucket)?;
-                    parsed.additional_windows.extend(extra.windows);
-                    parsed.protocol_anomaly |= extra.protocol_anomaly;
+                if parsed
+                    .selected_limit_id
+                    .as_deref()
+                    .is_some_and(|selected| limit_id.eq_ignore_ascii_case(selected))
+                {
+                    continue;
+                }
+                match parse_bucket_windows(limit_id, bucket) {
+                    Ok(extra) => {
+                        parsed.additional_windows.extend(extra.windows);
+                        parsed.protocol_anomaly |= extra.protocol_anomaly;
+                    }
+                    // An unrelated malformed bucket must not discard usable quota.
+                    Err(_) => parsed.protocol_anomaly = true,
                 }
             }
-            parsed.selected_limit_id = Some("codex".to_string());
-            return Ok(parsed);
         }
-
-        if let Some(legacy) = root.get("rateLimits") {
-            let mut parsed = parse_bucket("codex", legacy)?;
-            parsed.reset_credits = reset_credits;
-            parsed.protocol_anomaly |= credit_anomaly;
-            parsed.selected_limit_id = Some("codex".to_string());
-            return Ok(parsed);
-        }
-
-        // Some compatibility builds return the selected bucket directly.
-        if root.contains_key("primary")
-            || root.contains_key("secondary")
-            || root.contains_key("usedPercent")
-            || root.contains_key("used_percent")
-        {
-            let mut parsed = parse_bucket("codex", &value)?;
-            parsed.reset_credits = reset_credits;
-            parsed.protocol_anomaly |= credit_anomaly;
-            parsed.selected_limit_id = Some("codex".to_string());
-            return Ok(parsed);
-        }
-
-        Err(model_error(
-            AppErrorKind::ProtocolMismatch,
-            "APP_SERVER_RATE_LIMITS_MISSING",
-        ))
+        Ok(parsed)
     }
 }
 
@@ -196,7 +226,7 @@ pub fn parse_profile_usage(
     }
     if rates.primary.is_none() && rates.secondary.is_none() && rates.additional_windows.is_empty() {
         return Err(model_error(
-            AppErrorKind::NotSignedIn,
+            AppErrorKind::ProtocolMismatch,
             "APP_SERVER_NO_RATE_LIMITS",
         ));
     }
@@ -214,12 +244,15 @@ pub fn parse_profile_usage(
 }
 
 fn model_error(kind: AppErrorKind, diagnostic_code: &'static str) -> AppError {
-    AppError::new(
-        kind,
-        "errors.appServerModelMismatch",
-        RecoveryAction::InstallTestedCodex,
-        diagnostic_code,
-    )
+    let (message_key, recovery) = match kind {
+        AppErrorKind::NotSignedIn => ("errors.notSignedIn", RecoveryAction::SignInWithCli),
+        AppErrorKind::ApiKeyNoQuota => ("errors.apiKeyNoQuota", RecoveryAction::None),
+        _ => (
+            "errors.appServerModelMismatch",
+            RecoveryAction::InstallTestedCodex,
+        ),
+    };
+    AppError::new(kind, message_key, recovery, diagnostic_code)
 }
 
 fn string_field(object: &Map<String, Value>, names: &[&str]) -> Option<String> {
@@ -273,8 +306,9 @@ fn parse_bucket(limit_id: &str, value: &Value) -> Result<ParsedRateLimits, AppEr
 /// Parse only the redacted reset-credit count from the root object.
 ///
 /// Returns `(summary, anomaly)`. A missing or explicit `null` field yields
-/// `(None, false)`; a non-negative integral `availableCount` yields a count;
-/// strings, negatives, fractions, or unrelated shapes yield `(None, true)`.
+/// `(None, false)`; a non-negative integral `availableCount` yields a count.
+/// Legacy numeric strings are accepted; missing counts, negatives, fractions,
+/// and unrelated shapes yield `(None, true)`. Detail rows are never exposed.
 fn parse_reset_credits(root: &Map<String, Value>) -> (Option<ResetCreditsSummary>, bool) {
     let Some(credits) = root.get("rateLimitResetCredits") else {
         return (None, false);
@@ -286,7 +320,7 @@ fn parse_reset_credits(root: &Map<String, Value>) -> (Option<ResetCreditsSummary
         return (None, true);
     };
     let Some(available) = credits.get("availableCount") else {
-        return (None, false);
+        return (None, true);
     };
     match available {
         Value::Number(number) => {
@@ -326,7 +360,7 @@ fn parse_bucket_windows(limit_id: &str, value: &Value) -> Result<BucketWindows, 
     let mut protocol_anomaly = false;
 
     for name in ["primary", "secondary"] {
-        if let Some(window_value) = object.get(name) {
+        if let Some(window_value) = object.get(name).filter(|value| !value.is_null()) {
             match parse_window(&format!("{limit_id}:{name}"), None, window_value) {
                 Ok((Some(window), anomaly)) => {
                     windows.push(window);
@@ -341,11 +375,22 @@ fn parse_bucket_windows(limit_id: &str, value: &Value) -> Result<BucketWindows, 
     for (name, window_value) in object {
         if matches!(
             name.as_str(),
-            "primary" | "secondary" | "limitId" | "limit_id" | "futureField" | "updatedAt"
+            "primary"
+                | "secondary"
+                | "limitId"
+                | "limit_id"
+                | "credits"
+                | "individualLimit"
+                | "futureField"
+                | "updatedAt"
         ) {
             continue;
         }
-        if !window_value.is_object() {
+        // Future percentage windows are useful, but arbitrary nested metadata
+        // is not quota. In particular, a monetary `used` amount is not a percent.
+        if !window_value.as_object().is_some_and(|window| {
+            first_value(window, &["usedPercent", "used_percent", "percentUsed"]).is_some()
+        }) {
             continue;
         }
         match parse_window(
@@ -374,6 +419,16 @@ fn parse_bucket_windows(limit_id: &str, value: &Value) -> Result<BucketWindows, 
             }
             Ok((None, anomaly)) => protocol_anomaly |= anomaly,
             Err(_) => protocol_anomaly = true,
+        }
+    }
+
+    // The official reached reason belongs to the snapshot, not each window.
+    // Preserve it without inferring recovery from percentages or reset times.
+    if let Some(reached_type) = string_field(object, &["rateLimitReachedType"]) {
+        for window in &mut windows {
+            if window.reached_type.is_none() {
+                window.reached_type = Some(reached_type.clone());
+            }
         }
     }
 
@@ -406,19 +461,21 @@ fn parse_window(
             "window_duration_minutes",
             "durationMinutes",
         ],
-    );
+    )
+    .filter(|value| !value.is_null());
     let duration = raw_duration.and_then(parse_u64);
-    let mut anomaly = used_value.is_none() || raw_duration.is_some() && duration.is_none();
-    let resets_at = match first_value(object, &["resetsAt", "resets_at"]) {
-        Some(value) => match parse_unix_timestamp(value) {
-            Some(timestamp) => Some(timestamp),
-            None => {
-                anomaly = true;
-                None
-            }
-        },
-        None => None,
-    };
+    let mut anomaly = raw_duration.is_some() && duration.is_none();
+    let resets_at =
+        match first_value(object, &["resetsAt", "resets_at"]).filter(|value| !value.is_null()) {
+            Some(value) => match parse_unix_timestamp(value) {
+                Some(timestamp) => Some(timestamp),
+                None => {
+                    anomaly = true;
+                    None
+                }
+            },
+            None => None,
+        };
     let explicit_wire_label = string_field(object, &["label", "windowLabel"]);
     let label = explicit_wire_label.or_else(|| {
         explicit_label
@@ -568,6 +625,15 @@ mod tests {
             }
             "rate-limits-reset-credits-malformed.json" => {
                 include_str!("fixtures/rate-limits-reset-credits-malformed.json")
+            }
+            "0.167.0/account-chatgpt.json" => {
+                include_str!("fixtures/0.167.0/account-chatgpt.json")
+            }
+            "0.167.0/rate-limits-multi-bucket.json" => {
+                include_str!("fixtures/0.167.0/rate-limits-multi-bucket.json")
+            }
+            "0.167.0/rate-limits-nullable.json" => {
+                include_str!("fixtures/0.167.0/rate-limits-nullable.json")
             }
             _ => panic!("unknown fixture {name}"),
         };
@@ -811,6 +877,343 @@ mod tests {
         assert_eq!(primary.used_percent, 0.0);
         assert_eq!(primary.remaining_percent, 100.0);
         assert!(parsed.protocol_anomaly);
+    }
+
+    #[test]
+    fn official_0167_account_allows_null_email_without_inventing_identity() {
+        let account = AccountIdentity::from_value(fixture("0.167.0/account-chatgpt.json")).unwrap();
+        assert_eq!(account.auth_mode, AuthMode::ChatGpt);
+        assert_eq!(account.status(), AccountStatus::SignedIn);
+        assert_eq!(account.email, None);
+        assert_eq!(account.display_name, None);
+        assert_eq!(account.username, None);
+        assert_eq!(account.avatar_candidate, None);
+        assert_eq!(
+            account.plan_type.as_deref(),
+            Some("self_serve_business_usage_based")
+        );
+    }
+
+    #[test]
+    fn official_0167_non_chatgpt_accounts_never_become_chatgpt_quota() {
+        for account_type in ["amazonBedrock", "gcp", "futureAccount"] {
+            let error = AccountIdentity::from_value(serde_json::json!({
+                "account": {"type": account_type},
+                "requiresOpenaiAuth": false
+            }))
+            .unwrap_err();
+            assert_eq!(error.kind, AppErrorKind::ProtocolMismatch);
+            assert_eq!(error.diagnostic_code, "APP_SERVER_UNKNOWN_ACCOUNT_TYPE");
+        }
+    }
+
+    #[test]
+    fn null_or_omitted_account_maps_to_sign_in_recovery() {
+        for value in [
+            serde_json::json!({"account": null, "requiresOpenaiAuth": true}),
+            serde_json::json!({"requiresOpenaiAuth": true}),
+        ] {
+            let error = AccountIdentity::from_value(value).unwrap_err();
+            assert_eq!(error.kind, AppErrorKind::NotSignedIn);
+            assert_eq!(error.recovery, RecoveryAction::SignInWithCli);
+            assert_eq!(error.message_key, "errors.notSignedIn");
+        }
+    }
+
+    #[test]
+    fn malformed_account_is_not_misreported_as_signed_out() {
+        for value in [
+            serde_json::json!(null),
+            serde_json::json!([]),
+            serde_json::json!({"account": false}),
+            serde_json::json!({"account": {}}),
+            serde_json::json!({"account": {"type": null}}),
+        ] {
+            let error = AccountIdentity::from_value(value).unwrap_err();
+            assert_eq!(error.kind, AppErrorKind::ProtocolMismatch);
+        }
+    }
+
+    #[test]
+    fn official_0167_metadata_is_not_quota_and_reset_details_are_redacted() {
+        let rates =
+            ParsedRateLimits::from_value(fixture("0.167.0/rate-limits-multi-bucket.json")).unwrap();
+        assert!(!rates.protocol_anomaly);
+        assert_eq!(rates.primary.as_ref().unwrap().used_percent, 37.0);
+        assert_eq!(rates.secondary.as_ref().unwrap().used_percent, 22.0);
+        assert_eq!(rates.additional_windows.len(), 1);
+        assert_eq!(rates.additional_windows[0].limit_id, "codex-spark:primary");
+        assert_eq!(rates.additional_windows[0].used_percent, 9.0);
+        // The detail list can be truncated: never derive the count from its length.
+        assert_eq!(rates.reset_credits.as_ref().unwrap().available_count, 4);
+        let account = AccountIdentity::from_value(fixture("0.167.0/account-chatgpt.json")).unwrap();
+        let snapshot = parse_profile_usage(id(), account, rates, fixed_time()).unwrap();
+        let serialized = serde_json::to_string(&snapshot).unwrap();
+        for forbidden in [
+            "fixture-only-reset-credit",
+            "Fixture credit title",
+            "Fixture credit description",
+            "fixture-only-account",
+            "Fixture-only banner",
+            "individualLimit",
+        ] {
+            assert!(!serialized.contains(forbidden), "leaked {forbidden}");
+        }
+    }
+
+    #[test]
+    fn official_0167_nullable_windows_and_metadata_are_not_anomalies() {
+        let rates =
+            ParsedRateLimits::from_value(fixture("0.167.0/rate-limits-nullable.json")).unwrap();
+        assert!(!rates.protocol_anomaly);
+        assert!(rates.primary.is_none());
+        let secondary = rates.secondary.unwrap();
+        assert_eq!(secondary.used_percent, 0.0);
+        assert_eq!(secondary.remaining_percent, 100.0);
+        assert_eq!(secondary.window_duration_minutes, None);
+        assert_eq!(secondary.resets_at, None);
+        assert!(rates.reset_credits.is_none());
+        assert!(rates.additional_windows.is_empty());
+    }
+
+    #[test]
+    fn malformed_additional_bucket_does_not_discard_main_or_other_quota() {
+        for malformed in [
+            serde_json::json!(null),
+            serde_json::json!(false),
+            serde_json::json!("bad bucket"),
+            serde_json::json!([]),
+            serde_json::json!({"primary": {"usedPercent": "NaN"}}),
+        ] {
+            let mut value = fixture("0.167.0/rate-limits-multi-bucket.json");
+            value["rateLimitsByLimitId"]["broken"] = malformed;
+            let rates = ParsedRateLimits::from_value(value).unwrap();
+            assert_eq!(rates.primary.unwrap().used_percent, 37.0);
+            assert_eq!(rates.secondary.unwrap().used_percent, 22.0);
+            assert_eq!(rates.additional_windows.len(), 1);
+            assert!(rates.protocol_anomaly);
+        }
+    }
+
+    #[test]
+    fn malformed_named_codex_bucket_falls_back_to_legacy_with_anomaly() {
+        for malformed in [serde_json::json!(null), serde_json::json!([])] {
+            let mut value = fixture("0.167.0/rate-limits-multi-bucket.json");
+            value["rateLimitsByLimitId"]["codex"] = malformed;
+            let rates = ParsedRateLimits::from_value(value).unwrap();
+            assert_eq!(rates.primary.unwrap().used_percent, 37.0);
+            assert_eq!(rates.additional_windows.len(), 1);
+            assert!(rates.protocol_anomaly);
+        }
+    }
+
+    #[test]
+    fn unavailable_bucket_map_uses_legacy_without_discarding_shape_anomalies() {
+        for (map, anomaly) in [
+            (serde_json::json!(null), false),
+            (serde_json::json!({}), false),
+            (serde_json::json!(true), true),
+            (serde_json::json!([]), true),
+        ] {
+            let mut value = fixture("0.167.0/rate-limits-multi-bucket.json");
+            value["rateLimitsByLimitId"] = map;
+            let rates = ParsedRateLimits::from_value(value).unwrap();
+            assert_eq!(rates.primary.unwrap().used_percent, 37.0);
+            assert!(rates.additional_windows.is_empty());
+            assert_eq!(rates.protocol_anomaly, anomaly);
+        }
+    }
+
+    #[test]
+    fn legacy_view_retains_real_bucket_identity_and_other_windows() {
+        let value = serde_json::json!({
+            "rateLimits": {"limitId": "codex-spark", "primary": {"usedPercent": 9}},
+            "rateLimitsByLimitId": {
+                "codex-spark": {"primary": {"usedPercent": 9}},
+                "other": {"primary": {"usedPercent": 11}}
+            }
+        });
+        let rates = ParsedRateLimits::from_value(value).unwrap();
+        assert_eq!(rates.selected_limit_id.as_deref(), Some("codex-spark"));
+        assert_eq!(rates.primary.unwrap().limit_id, "codex-spark:primary");
+        assert_eq!(rates.additional_windows.len(), 1);
+        assert_eq!(rates.additional_windows[0].limit_id, "other:primary");
+        assert!(!rates.protocol_anomaly);
+    }
+
+    #[test]
+    fn named_codex_view_is_authoritative_even_when_windows_are_null() {
+        let value = serde_json::json!({
+            "rateLimits": {"primary": {"usedPercent": 99}},
+            "rateLimitsByLimitId": {"CoDeX": {"primary": null, "secondary": null}}
+        });
+        let rates = ParsedRateLimits::from_value(value).unwrap();
+        assert_eq!(rates.selected_limit_id.as_deref(), Some("codex"));
+        assert!(rates.primary.is_none());
+        assert!(rates.secondary.is_none());
+        assert!(rates.additional_windows.is_empty());
+        assert!(!rates.protocol_anomaly);
+    }
+
+    #[test]
+    fn future_percentage_windows_survive_but_metadata_objects_are_ignored() {
+        let value = serde_json::json!({
+            "rateLimits": {
+                "primary": {"usedPercent": 20},
+                "futureWindow": {"usedPercent": 10, "windowDurationMins": 60},
+                "futureMetadata": {"used": "50.00", "other": "opaque"},
+                "otherMetadata": {"nested": true}
+            }
+        });
+        let rates = ParsedRateLimits::from_value(value).unwrap();
+        assert_eq!(rates.additional_windows.len(), 1);
+        assert_eq!(rates.additional_windows[0].limit_id, "codex:futureWindow");
+        assert_eq!(rates.additional_windows[0].used_percent, 10.0);
+        assert!(!rates.protocol_anomaly);
+    }
+
+    #[test]
+    fn official_bucket_reached_type_is_preserved_without_inferring_recovery() {
+        let rates = ParsedRateLimits::from_value(serde_json::json!({
+            "rateLimits": {
+                "rateLimitReachedType": "workspace_member_credits_depleted",
+                "primary": {"usedPercent": 0, "resetsAt": 1},
+                "secondary": {"usedPercent": 15}
+            },
+            "ordinaryUsageAllowed": false
+        }))
+        .unwrap();
+        for window in [rates.primary.unwrap(), rates.secondary.unwrap()] {
+            assert_eq!(
+                window.reached_type.as_deref(),
+                Some("workspace_member_credits_depleted")
+            );
+        }
+        assert!(!rates.protocol_anomaly);
+    }
+
+    #[test]
+    fn present_reset_summary_requires_valid_count_but_not_detail_rows() {
+        for summary in [
+            serde_json::json!({}),
+            serde_json::json!({"credits": []}),
+            serde_json::json!({"availableCount": null}),
+            serde_json::json!({"availableCount": "not a count"}),
+        ] {
+            let rates = ParsedRateLimits::from_value(serde_json::json!({
+                "rateLimits": {"primary": {"usedPercent": 1}},
+                "rateLimitResetCredits": summary
+            }))
+            .unwrap();
+            assert!(rates.reset_credits.is_none());
+            assert!(rates.protocol_anomaly);
+        }
+        for details in [serde_json::json!(null), serde_json::json!([])] {
+            let rates = ParsedRateLimits::from_value(serde_json::json!({
+                "rateLimits": {"primary": {"usedPercent": 1}},
+                "rateLimitResetCredits": {"availableCount": 3, "credits": details}
+            }))
+            .unwrap();
+            assert_eq!(rates.reset_credits.unwrap().available_count, 3);
+            assert!(!rates.protocol_anomaly);
+        }
+    }
+
+    #[test]
+    fn api_key_no_quota_does_not_recommend_reinstalling_codex() {
+        let account = AccountIdentity::from_value(fixture("account-api-key.json")).unwrap();
+        let rates =
+            ParsedRateLimits::from_value(fixture("0.167.0/rate-limits-multi-bucket.json")).unwrap();
+        let error = parse_profile_usage(id(), account, rates, fixed_time()).unwrap_err();
+        assert_eq!(error.kind, AppErrorKind::ApiKeyNoQuota);
+        assert_eq!(error.recovery, RecoveryAction::None);
+        assert_eq!(error.message_key, "errors.apiKeyNoQuota");
+    }
+
+    #[test]
+    fn signed_in_without_windows_is_not_reported_as_signed_out() {
+        let account = AccountIdentity::from_value(fixture("0.167.0/account-chatgpt.json")).unwrap();
+        let rates = ParsedRateLimits::from_value(serde_json::json!({
+            "rateLimits": {"primary": null, "secondary": null,
+                "credits": {"hasCredits": true, "unlimited": true, "balance": null}},
+            "rateLimitResetCredits": {"availableCount": 2}
+        }))
+        .unwrap();
+        assert!(!rates.protocol_anomaly);
+        let error = parse_profile_usage(id(), account, rates, fixed_time()).unwrap_err();
+        assert_eq!(error.kind, AppErrorKind::ProtocolMismatch);
+        assert_eq!(error.diagnostic_code, "APP_SERVER_NO_RATE_LIMITS");
+    }
+
+    #[test]
+    fn missing_or_invalid_rate_envelopes_never_select_an_arbitrary_bucket() {
+        for value in [
+            serde_json::json!(null),
+            serde_json::json!([]),
+            serde_json::json!({}),
+            serde_json::json!({"rateLimits": null}),
+            serde_json::json!({"rateLimitsByLimitId": {"codex": null}}),
+            serde_json::json!({"rateLimitsByLimitId": {"other": {"primary": {"usedPercent": 5}}}}),
+        ] {
+            let error = ParsedRateLimits::from_value(value).unwrap_err();
+            assert_eq!(error.kind, AppErrorKind::ProtocolMismatch);
+        }
+    }
+
+    #[test]
+    fn valid_named_bucket_does_not_depend_on_legacy_view() {
+        let mut value = fixture("0.167.0/rate-limits-multi-bucket.json");
+        value["rateLimits"] = serde_json::json!(null);
+        let rates = ParsedRateLimits::from_value(value).unwrap();
+        assert_eq!(rates.primary.unwrap().used_percent, 37.0);
+        assert_eq!(rates.additional_windows.len(), 1);
+        assert!(!rates.protocol_anomaly);
+    }
+
+    #[test]
+    fn malformed_optional_window_metadata_keeps_percent_and_marks_anomaly() {
+        for (duration, reset) in [
+            (serde_json::json!(-1), serde_json::json!("bad timestamp")),
+            (
+                serde_json::json!(1.5),
+                serde_json::json!(9223372036854775807_i64),
+            ),
+            (serde_json::json!(true), serde_json::json!(false)),
+        ] {
+            let rates = ParsedRateLimits::from_value(serde_json::json!({
+                "rateLimits": {"primary": {
+                    "usedPercent": 20, "windowDurationMins": duration, "resetsAt": reset
+                }}
+            }))
+            .unwrap();
+            let window = rates.primary.unwrap();
+            assert_eq!(window.used_percent, 20.0);
+            assert!(window.window_duration_minutes.is_none());
+            assert!(window.resets_at.is_none());
+            assert!(rates.protocol_anomaly);
+        }
+    }
+
+    #[test]
+    fn legacy_direct_bucket_and_numeric_strings_remain_supported() {
+        let rates = ParsedRateLimits::from_value(serde_json::json!({
+            "limitId": "codex",
+            "used_percent": "12.5",
+            "windowDurationMins": "300",
+            "resetsAt": "1794000000",
+            "rateLimitResetCredits": {"availableCount": "3"}
+        }))
+        .unwrap();
+        let primary = rates.primary.unwrap();
+        assert_eq!(primary.used_percent, 12.5);
+        assert_eq!(primary.window_duration_minutes, Some(300));
+        assert_eq!(primary.resets_at.unwrap().timestamp(), 1_794_000_000);
+        assert_eq!(rates.reset_credits.unwrap().available_count, 3);
+        assert!(!rates.protocol_anomaly);
+    }
+
+    fn fixed_time() -> DateTime<Utc> {
+        DateTime::from_timestamp(1_793_900_000, 0).unwrap()
     }
 
     #[test]

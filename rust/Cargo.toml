@@ -1,6 +1,6 @@
 [package]
 name = "codexbar"
-version = "1.1.4"
+version = "1.1.5"
 edition = "2024"
 authors = ["CodexBar Contributors"]
 description = "Shared Codex usage services for codex-barbar"
@@ -90,10 +90,3 @@ winreg = "0.55"
 tokio-test = "0.4"
 tempfile = "3"
 mockito = "1.4"
-
-[profile.release]
-opt-level = 3
-lto = true
-codegen-units = 1
-strip = true
-panic = "abort"

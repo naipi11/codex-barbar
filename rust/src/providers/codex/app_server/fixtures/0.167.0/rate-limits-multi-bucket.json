@@ -1,0 +1,97 @@
+{
+  "rateLimits": {
+    "limitId": "codex",
+    "limitName": "Codex",
+    "primary": {
+      "usedPercent": 37,
+      "windowDurationMins": 300,
+      "resetsAt": 1794000000
+    },
+    "secondary": {
+      "usedPercent": 22,
+      "windowDurationMins": 10080,
+      "resetsAt": 1794500000
+    },
+    "credits": {
+      "hasCredits": true,
+      "unlimited": false,
+      "balance": "12.50"
+    },
+    "planType": "pro",
+    "rateLimitReachedType": null,
+    "individualLimit": {
+      "limit": "100.00",
+      "remainingPercent": 75,
+      "resetsAt": 1794500000,
+      "used": "25.00"
+    },
+    "normalModelSlug": null,
+    "spendControlReached": false
+  },
+  "rateLimitsByLimitId": {
+    "codex-spark": {
+      "limitId": "codex-spark",
+      "limitName": "Codex Spark",
+      "primary": {
+        "usedPercent": 9,
+        "windowDurationMins": 300,
+        "resetsAt": 1794000000
+      },
+      "secondary": null,
+      "credits": null,
+      "planType": "pro",
+      "rateLimitReachedType": null,
+      "individualLimit": null,
+      "normalModelSlug": "gpt-5-codex",
+      "spendControlReached": null
+    },
+    "codex": {
+      "limitId": "codex",
+      "limitName": "Codex",
+      "primary": {
+        "usedPercent": 37,
+        "windowDurationMins": 300,
+        "resetsAt": 1794000000
+      },
+      "secondary": {
+        "usedPercent": 22,
+        "windowDurationMins": 10080,
+        "resetsAt": 1794500000
+      },
+      "credits": {
+        "hasCredits": true,
+        "unlimited": false,
+        "balance": "12.50"
+      },
+      "planType": "pro",
+      "rateLimitReachedType": null,
+      "individualLimit": {
+        "limit": "100.00",
+        "remainingPercent": 75,
+        "resetsAt": 1794500000,
+        "used": "25.00"
+      },
+      "normalModelSlug": null,
+      "spendControlReached": false
+    }
+  },
+  "rateLimitResetCredits": {
+    "availableCount": 4,
+    "credits": [
+      {
+        "id": "fixture-only-reset-credit",
+        "grantedAt": 1793900000,
+        "expiresAt": null,
+        "title": "Fixture credit title",
+        "description": "Fixture credit description",
+        "resetType": "codexRateLimits",
+        "status": "available"
+      }
+    ]
+  },
+  "accountId": "fixture-only-account",
+  "ordinaryUsageAllowed": false,
+  "rateLimitUpsell": {
+    "title": "Fixture-only banner"
+  }
+}

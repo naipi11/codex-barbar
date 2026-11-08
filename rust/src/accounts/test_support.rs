@@ -41,7 +41,7 @@ pub fn managed_id() -> ProfileId {
 
 /// Fake factory that records which capabilities were exercised. Sessions are
 /// backed by the deterministic PowerShell fake App Server fixture.
-#[derive(Debug, Default)]
+#[derive(Default)]
 pub struct FakeAppServerFactory {
     open_current_cli_calls: AtomicUsize,
     open_managed_calls: AtomicUsize,
@@ -49,6 +49,8 @@ pub struct FakeAppServerFactory {
     next_mode: std::sync::Mutex<Option<FakeServerMode>>,
     next_current_mode: std::sync::Mutex<Option<FakeServerMode>>,
     fail_current_open: AtomicBool,
+    track_clients: AtomicBool,
+    clients: std::sync::Mutex<Vec<CodexAppServerClient>>,
 }
 
 impl FakeAppServerFactory {
@@ -78,6 +80,33 @@ impl FakeAppServerFactory {
 
     pub fn fail_next_current_protocol(&self) {
         *self.next_current_mode.lock().unwrap() = Some(FakeServerMode::InvalidJson);
+    }
+
+    pub fn set_next_current_mode(&self, mode: FakeServerMode) {
+        self.track_clients.store(true, Ordering::Relaxed);
+        *self.next_current_mode.lock().unwrap() = Some(mode);
+    }
+
+    pub fn set_next_managed_mode(&self, mode: FakeServerMode) {
+        self.track_clients.store(true, Ordering::Relaxed);
+        *self.next_mode.lock().unwrap() = Some(mode);
+    }
+
+    pub async fn assert_clients_shutdown(&self) {
+        let clients = self.clients.lock().unwrap().clone();
+        assert!(!clients.is_empty(), "expected a connected fake session");
+        for client in clients {
+            // Holding this clone prevents last-owner drop from masking a
+            // missing explicit shutdown in the service under test.
+            let error = tokio::time::timeout(
+                Duration::from_secs(1),
+                client.request("account/read", serde_json::json!({"refreshToken": false})),
+            )
+            .await
+            .expect("closed client should fail immediately")
+            .expect_err("refresh must shut down its session");
+            assert_eq!(error.kind, crate::core::AppErrorKind::OfflineOrTimeout);
+        }
     }
 
     fn take_mode(&self) -> FakeServerMode {
@@ -111,6 +140,9 @@ impl AppServerFactory for FakeAppServerFactory {
         let client = CodexAppServerClient::connect(spec)
             .await
             .map_err(fake_session_error)?;
+        if self.track_clients.load(Ordering::Relaxed) {
+            self.clients.lock().unwrap().push(client.clone());
+        }
         Ok(CurrentCliSession::from_client(client))
     }
 
@@ -121,6 +153,9 @@ impl AppServerFactory for FakeAppServerFactory {
         let client = CodexAppServerClient::connect(spec)
             .await
             .map_err(fake_session_error)?;
+        if self.track_clients.load(Ordering::Relaxed) {
+            self.clients.lock().unwrap().push(client.clone());
+        }
         Ok(ManagedSession::from_client(client))
     }
 }

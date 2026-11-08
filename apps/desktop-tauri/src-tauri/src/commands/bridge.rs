@@ -19,7 +19,7 @@ use codexbar::core::{
     AppError, AppErrorKind, AuthMode, Freshness, ProfileUsageState, RefreshStatus, UsageWindow,
 };
 use codexbar::providers::codex::app_server::{
-    CodexCommandResolver, CodexInstallation, ResolveRequest, probe_version,
+    CodexCommandResolver, CodexInstallation, ResolveRequest, ResolvedCodexCommand, probe_version,
 };
 use codexbar::storage::{
     AppSettings, DisplayMode, LanguagePreference, MenuPreferences, MenuPreferencesPatch,
@@ -32,22 +32,31 @@ use crate::state::AppState;
 
 // Keep executable discovery identical to the refresh factory, while exposing
 // only the redacted compatibility facts needed by the UI.
-pub(crate) fn detect_codex_compatibility() -> CodexCompatibilityDto {
-    let request = ResolveRequest {
-        override_path: None,
-        path: std::env::var_os("PATH"),
-        pathext: std::env::var_os("PATHEXT"),
-    };
-    let Ok(command) = CodexCommandResolver::new().resolve(&request) else {
-        return CodexCompatibilityDto {
-            status: "notFound",
-            ..CodexCompatibilityDto::default()
-        };
+pub(crate) fn detect_codex_compatibility(request: &ResolveRequest) -> CodexCompatibilityDto {
+    detect_codex_compatibility_with_probe(request, probe_version)
+}
+
+pub(crate) fn detect_codex_compatibility_with_probe(
+    request: &ResolveRequest,
+    probe: impl FnOnce(&ResolvedCodexCommand) -> Option<String>,
+) -> CodexCompatibilityDto {
+    let command = match CodexCommandResolver::new().resolve(request) {
+        Ok(command) => command,
+        Err(error) => {
+            return CodexCompatibilityDto {
+                status: if error.kind == AppErrorKind::CodexNotFound {
+                    "notFound"
+                } else {
+                    "unsupported"
+                },
+                ..CodexCompatibilityDto::default()
+            };
+        }
     };
     let version = command
         .version()
         .map(ToOwned::to_owned)
-        .or_else(|| probe_version(&command));
+        .or_else(|| probe(&command));
     CodexCompatibilityDto {
         status: if version.is_some() {
             "compatible"
@@ -58,7 +67,16 @@ pub(crate) fn detect_codex_compatibility() -> CodexCompatibilityDto {
             CodexInstallation::VerifiedNpmLayout => "verifiedNpmLayout",
             CodexInstallation::NativeExe | CodexInstallation::StoreAlias => "nativeExe",
         }),
-        executable_path: Some(command.launch_program().to_string_lossy().into_owned()),
+        // A verified npm shim launches node.exe internally, but the configured
+        // Codex path must remain the shim, not its general-purpose interpreter.
+        executable_path: Some(
+            request
+                .override_path
+                .clone()
+                .unwrap_or_else(|| command.launch_program())
+                .to_string_lossy()
+                .into_owned(),
+        ),
         version,
         capabilities: Default::default(),
     }
@@ -911,7 +929,7 @@ pub(crate) fn bootstrap_from_state(
         profiles: Vec::new(),
         selected_profile_id: String::new(),
         usage_by_profile: BTreeMap::new(),
-        codex: detect_codex_compatibility(),
+        codex: CodexCompatibilityDto::default(),
     };
 
     let Some(service) = state.account_service.as_ref() else {
@@ -953,11 +971,14 @@ pub async fn get_bootstrap_state(
     state: tauri::State<'_, Mutex<AppState>>,
     status_surfaces: tauri::State<'_, Mutex<crate::status_surfaces::StatusSurfaceState>>,
 ) -> Result<BootstrapDto, String> {
-    let mut bootstrap = {
+    let (mut bootstrap, proof_mode) = {
         let guard = state
             .lock()
             .map_err(|_| "BOOTSTRAP_STATE_UNAVAILABLE".to_string())?;
-        bootstrap_from_state(&guard, StatusSurfaceFeedbackDto::default())?
+        (
+            bootstrap_from_state(&guard, StatusSurfaceFeedbackDto::default())?,
+            guard.proof_config.is_some(),
+        )
     };
     let feedback = {
         let guard = status_surfaces
@@ -966,6 +987,17 @@ pub async fn get_bootstrap_state(
         crate::status_surfaces::controller::feedback_snapshot(&guard)
     };
     bootstrap.status_surface_feedback = feedback;
+    if !proof_mode {
+        let request = crate::codex_factory::resolve_request(
+            bootstrap.settings.codex_executable_override.as_deref(),
+        );
+        // Discovery can run a bounded --version probe. Never hold AppState
+        // or block a WebView/runtime worker while waiting for that process.
+        bootstrap.codex =
+            tauri::async_runtime::spawn_blocking(move || detect_codex_compatibility(&request))
+                .await
+                .map_err(|_| "CODEX_VALIDATION_FAILED".to_string())?;
+    }
     Ok(bootstrap)
 }
 

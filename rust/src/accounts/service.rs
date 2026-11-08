@@ -21,9 +21,11 @@ use crate::accounts::presentation::presentation_identity;
 use crate::accounts::recovery::AccountRecovery;
 use crate::accounts::runtime_home::RuntimeHomeManager;
 use crate::accounts::vault::CredentialVault;
-use crate::core::{AppError, AppErrorKind, ProfileId, RefreshDisposition, RefreshTrigger};
+use crate::core::{
+    AppError, AppErrorKind, AuthMode, ProfileId, RefreshDisposition, RefreshTrigger,
+};
 use crate::providers::codex::app_server::AppServerFactory;
-use crate::providers::codex::app_server::{AccountIdentity, parse_profile_usage};
+use crate::providers::codex::app_server::{AccountIdentity, ParsedRateLimits, parse_profile_usage};
 use crate::storage::AccountRepositories;
 
 use crate::accounts::model::ProfileLifecycle;
@@ -320,18 +322,31 @@ impl AccountProfileService {
         } else {
             self.publish_profiles_changed();
         }
-        let rates = match session.rate_limits_read().await {
-            Ok(rates) => rates,
+        // API-key accounts expose no ChatGPT quota. Do not make a rate-limit
+        // RPC that the official server rejects before the model can classify it.
+        let rates = if account.auth_mode == AuthMode::ApiKey {
+            ParsedRateLimits::empty()
+        } else {
+            match session.rate_limits_read().await {
+                Ok(rates) => rates,
+                Err(error) => {
+                    let _ = session.shutdown().await;
+                    self.record_refresh_error(profile_id, &error).await;
+                    return Ok(false);
+                }
+            }
+        };
+        if let Err(error) = session.shutdown().await {
+            self.record_refresh_error(profile_id, &error).await;
+            return Ok(false);
+        }
+        let snapshot = match parse_profile_usage(profile_id, account, rates, Utc::now()) {
+            Ok(snapshot) => snapshot,
             Err(error) => {
-                let _ = session.shutdown().await;
                 self.record_refresh_error(profile_id, &error).await;
                 return Ok(false);
             }
         };
-        let shutdown = session.shutdown().await;
-        shutdown.map_err(AccountServiceError::from)?;
-        let snapshot = parse_profile_usage(profile_id, account, rates, Utc::now())
-            .map_err(AccountServiceError::from)?;
         self.repositories
             .usage
             .save_success(&snapshot)
@@ -390,9 +405,10 @@ impl AccountProfileService {
                     "RUNTIME_RESTORE_FAILED",
                 ))
             })?;
-        runtime
-            .set_state(RuntimeState::Active)
-            .map_err(|_| AccountServiceError::Busy)?;
+        if runtime.set_state(RuntimeState::Active).is_err() {
+            let _ = runtime.cleanup();
+            return Err(AccountServiceError::Busy);
+        }
 
         let session = match self
             .app_server_factory
@@ -419,27 +435,45 @@ impl AccountProfileService {
         } else {
             self.publish_profiles_changed();
         }
-        let rates = match session.rate_limits_read().await {
-            Ok(rates) => rates,
-            Err(error) => {
-                let _ = session.shutdown().await;
-                let _ = runtime.cleanup();
-                return Err(AccountServiceError::App(error));
+        let rates = if account.auth_mode == AuthMode::ApiKey {
+            ParsedRateLimits::empty()
+        } else {
+            match session.rate_limits_read().await {
+                Ok(rates) => rates,
+                Err(error) => {
+                    let _ = session.shutdown().await;
+                    let _ = runtime.cleanup();
+                    return Err(AccountServiceError::App(error));
+                }
             }
         };
-        let shutdown = session.shutdown().await;
-        shutdown.map_err(AccountServiceError::from)?;
+        if let Err(error) = session.shutdown().await {
+            let _ = runtime.cleanup();
+            return Err(AccountServiceError::App(error));
+        }
 
         let email = account.email.clone();
         let plan_type = account.plan_type.clone();
         let auth_mode = account.auth_mode;
-        let snapshot = parse_profile_usage(profile_id, account, rates, Utc::now())
-            .map_err(AccountServiceError::from)?;
+        let snapshot = match parse_profile_usage(profile_id, account, rates, Utc::now()) {
+            Ok(snapshot) => snapshot,
+            Err(error) => {
+                let _ = runtime.cleanup();
+                return Err(AccountServiceError::App(error));
+            }
+        };
 
         // Collect possibly refreshed credentials and reseal as generation+1.
-        let mut collected =
-            crate::accounts::credential_bundle::collect_bundle(runtime.codex_home(), profile_id)
-                .map_err(|_| AccountServiceError::Busy)?;
+        let mut collected = match crate::accounts::credential_bundle::collect_bundle(
+            runtime.codex_home(),
+            profile_id,
+        ) {
+            Ok(collected) => collected,
+            Err(_) => {
+                let _ = runtime.cleanup();
+                return Err(AccountServiceError::Busy);
+            }
+        };
         collected.private_metadata = crate::accounts::vault::envelope::PrivateProfileMetadata {
             email,
             plan_type,
@@ -982,10 +1016,18 @@ fn enrich_identity_from_auth_file(account: AccountIdentity, codex_home: &Path) -
     enrich_identity_from_auth(account, &raw)
 }
 
+#[cfg(not(test))]
 fn current_cli_codex_home() -> Option<PathBuf> {
     std::env::var_os("CODEX_HOME")
         .map(PathBuf::from)
         .or_else(|| dirs::home_dir().map(|home| home.join(".codex")))
+}
+
+// Unit tests use synthetic App Server identities and must never enrich them
+// from the developer's real CODEX_HOME or home-directory credentials.
+#[cfg(test)]
+fn current_cli_codex_home() -> Option<PathBuf> {
+    None
 }
 
 fn storage_error(error: crate::storage::StorageError) -> AccountServiceError {
@@ -1073,6 +1115,229 @@ mod tests {
             terminal_refresh_results(&mut events, fixture.current_cli_id),
             vec![false]
         );
+    }
+
+    fn assert_refresh_error_events(
+        events: &mut tokio::sync::broadcast::Receiver<AccountServiceEvent>,
+        profile_id: crate::core::ProfileId,
+        expected: crate::core::AppErrorKind,
+    ) {
+        let mut usage_errors = Vec::new();
+        let mut completed = Vec::new();
+        while let Ok(event) = events.try_recv() {
+            match event {
+                AccountServiceEvent::UsageStateChanged(state) if state.profile_id == profile_id => {
+                    usage_errors.push(state.current_error.unwrap().kind);
+                }
+                AccountServiceEvent::RefreshCompleted {
+                    profile_id: id,
+                    success,
+                } if id == profile_id => completed.push(success),
+                _ => {}
+            }
+        }
+        assert_eq!(usage_errors, vec![expected]);
+        assert_eq!(completed, vec![false]);
+    }
+
+    #[tokio::test]
+    async fn current_cli_api_key_records_no_quota_without_rate_rpc() {
+        let fixture = fixture();
+        fixture.factory.set_next_current_mode(
+            crate::providers::codex::app_server::FakeServerMode::ApiKeyNoQuota,
+        );
+        let mut events = fixture.service.subscribe();
+        fixture
+            .service
+            .request_refresh(fixture.current_cli_id, RefreshTrigger::Manual)
+            .await
+            .unwrap();
+        let state = fixture
+            .service
+            .repositories()
+            .usage
+            .load_state(fixture.current_cli_id)
+            .unwrap();
+        let error = state.current_error.unwrap();
+        assert_eq!(error.kind, crate::core::AppErrorKind::ApiKeyNoQuota);
+        assert_eq!(error.recovery, crate::core::RecoveryAction::None);
+        assert!(state.snapshot.is_none());
+        assert_refresh_error_events(
+            &mut events,
+            fixture.current_cli_id,
+            crate::core::AppErrorKind::ApiKeyNoQuota,
+        );
+        fixture.factory.assert_clients_shutdown().await;
+        assert_eq!(fixture.factory.open_managed_calls(), 0);
+    }
+
+    #[tokio::test]
+    async fn current_cli_empty_quota_preserves_cache_and_publishes_model_error() {
+        let fixture = fixture();
+        fixture
+            .service
+            .request_refresh(fixture.current_cli_id, RefreshTrigger::Manual)
+            .await
+            .unwrap();
+        let before = fixture
+            .service
+            .repositories()
+            .usage
+            .load_state(fixture.current_cli_id)
+            .unwrap()
+            .snapshot;
+        assert!(before.is_some());
+        fixture.factory.set_next_current_mode(
+            crate::providers::codex::app_server::FakeServerMode::EmptyRateLimits,
+        );
+        let mut events = fixture.service.subscribe();
+        fixture
+            .service
+            .request_refresh(fixture.current_cli_id, RefreshTrigger::Manual)
+            .await
+            .unwrap();
+        let state = fixture
+            .service
+            .repositories()
+            .usage
+            .load_state(fixture.current_cli_id)
+            .unwrap();
+        assert_eq!(state.snapshot, before);
+        let error = state.current_error.unwrap();
+        assert_eq!(error.kind, crate::core::AppErrorKind::ProtocolMismatch);
+        assert_eq!(error.diagnostic_code, "APP_SERVER_NO_RATE_LIMITS");
+        assert_refresh_error_events(
+            &mut events,
+            fixture.current_cli_id,
+            crate::core::AppErrorKind::ProtocolMismatch,
+        );
+        fixture.factory.assert_clients_shutdown().await;
+    }
+
+    #[tokio::test]
+    async fn managed_api_key_no_quota_closes_session_and_cleans_runtime() {
+        let fixture = fixture();
+        let before = fixture
+            .vault
+            .inspect(managed_id())
+            .unwrap()
+            .unwrap()
+            .generation;
+        fixture.factory.set_next_managed_mode(
+            crate::providers::codex::app_server::FakeServerMode::ApiKeyNoQuota,
+        );
+        let mut events = fixture.service.subscribe();
+        fixture
+            .service
+            .request_refresh(managed_id(), RefreshTrigger::Manual)
+            .await
+            .unwrap();
+        let state = fixture
+            .service
+            .repositories()
+            .usage
+            .load_state(managed_id())
+            .unwrap();
+        assert_eq!(
+            state.current_error.unwrap().kind,
+            crate::core::AppErrorKind::ApiKeyNoQuota
+        );
+        assert_eq!(
+            fixture
+                .vault
+                .inspect(managed_id())
+                .unwrap()
+                .unwrap()
+                .generation,
+            before
+        );
+        assert!(
+            fixture
+                .runtime
+                .scan_recovery_candidates()
+                .unwrap()
+                .is_empty()
+        );
+        assert_refresh_error_events(
+            &mut events,
+            managed_id(),
+            crate::core::AppErrorKind::ApiKeyNoQuota,
+        );
+        fixture.factory.assert_clients_shutdown().await;
+    }
+
+    #[tokio::test]
+    async fn managed_empty_quota_cleans_runtime_without_resealing_credentials() {
+        let fixture = fixture();
+        let before = fixture
+            .vault
+            .inspect(managed_id())
+            .unwrap()
+            .unwrap()
+            .generation;
+        fixture.factory.set_next_managed_mode(
+            crate::providers::codex::app_server::FakeServerMode::EmptyRateLimits,
+        );
+        let mut events = fixture.service.subscribe();
+        fixture
+            .service
+            .request_refresh(managed_id(), RefreshTrigger::Manual)
+            .await
+            .unwrap();
+        let state = fixture
+            .service
+            .repositories()
+            .usage
+            .load_state(managed_id())
+            .unwrap();
+        let error = state.current_error.unwrap();
+        assert_eq!(error.kind, crate::core::AppErrorKind::ProtocolMismatch);
+        assert_eq!(error.diagnostic_code, "APP_SERVER_NO_RATE_LIMITS");
+        assert_eq!(
+            fixture
+                .vault
+                .inspect(managed_id())
+                .unwrap()
+                .unwrap()
+                .generation,
+            before
+        );
+        assert!(
+            fixture
+                .runtime
+                .scan_recovery_candidates()
+                .unwrap()
+                .is_empty()
+        );
+        assert_refresh_error_events(
+            &mut events,
+            managed_id(),
+            crate::core::AppErrorKind::ProtocolMismatch,
+        );
+        fixture.factory.assert_clients_shutdown().await;
+        // A failed read must also release the managed refresh actor.
+        fixture
+            .service
+            .request_refresh(managed_id(), RefreshTrigger::Manual)
+            .await
+            .unwrap();
+        assert_eq!(
+            fixture
+                .vault
+                .inspect(managed_id())
+                .unwrap()
+                .unwrap()
+                .generation,
+            before + 1
+        );
+        assert!(
+            fixture
+                .runtime
+                .scan_recovery_candidates()
+                .unwrap()
+                .is_empty()
+        );
+        fixture.factory.assert_clients_shutdown().await;
     }
 
     #[tokio::test]

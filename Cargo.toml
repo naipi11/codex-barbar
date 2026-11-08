@@ -5,3 +5,11 @@ members = [
 ]
 default-members = ["apps/desktop-tauri/src-tauri"]
 resolver = "3"
+
+# Workspace profiles must live at the root; member profiles are ignored.
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+strip = true
+panic = "abort"

@@ -373,7 +373,7 @@ fn resolve_node(prefix: &Path) -> Result<PathBuf, AppError> {
     // Fall back to the ambient PATH through the fail-closed resolver.
     if let Some(path) = std::env::var_os("PATH") {
         for segment in std::env::split_paths(&path) {
-            if segment.as_os_str().is_empty() {
+            if !segment.is_absolute() {
                 continue;
             }
             let candidate = segment.join("node.exe");

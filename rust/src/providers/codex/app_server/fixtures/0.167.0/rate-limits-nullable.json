@@ -1,0 +1,23 @@
+{
+  "rateLimits": {
+    "limitId": null,
+    "limitName": null,
+    "primary": null,
+    "secondary": {
+      "usedPercent": 0,
+      "windowDurationMins": null,
+      "resetsAt": null
+    },
+    "credits": null,
+    "planType": null,
+    "rateLimitReachedType": null,
+    "individualLimit": null,
+    "normalModelSlug": null,
+    "spendControlReached": null
+  },
+  "rateLimitsByLimitId": null,
+  "rateLimitResetCredits": null,
+  "accountId": null,
+  "ordinaryUsageAllowed": null,
+  "rateLimitUpsell": null
+}

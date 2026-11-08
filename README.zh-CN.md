@@ -82,6 +82,16 @@ _展示图由当前 React/CSS 真实组件渲染；其中的账号名、日期�
 - Windows 11 x64（23H2 或更新版本）
 - 已安装并登录的 [Codex](https://developers.openai.com/codex/)（`codex login`）
 
+## Codex 版本兼容
+
+本地维护版 **1.1.5** 的升级目标是 **Codex CLI 0.167.0**（2026-11-08 核实的官方最新稳定版）。
+请先运行 `codex --version`；无需删除账号数据或重写 Codex 全局配置。
+若自动发现失败，可在**设置 → 高级**校验并保存 Codex 的绝对路径（原生 `.exe` 或已验证的 npm `.cmd`）。
+未知的未来版本不会仅因版本号被拒绝，实际兼容性以 App Server 握手和额度读取为准。
+
+验证范围与尚未覆盖的场景见 [兼容矩阵](docs/TESTED_CODEX_VERSIONS.md) 和
+[本次升级说明](docs/UPGRADE_1.1.5.zh-CN.md)。1.1.5 尚未发布到 GitHub Releases。
+
 ## 首次使用
 
 数据保存在 `%LOCALAPPDATA%\codex-barbar`。如需彻底清除账号与缓存，关闭应用后删除该目录，

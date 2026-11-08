@@ -37,7 +37,8 @@ Record evidence for:
 Use Cua Drivers (background computer-use) on a fresh local build:
 
 ```powershell
-$env:CODEXBAR_PROOF_MODE = 'settings:menu'   # or 'trayPanel:ready'
+$env:CODEXBAR_PROOF_MODE = 'settings:advanced'   # or 'trayPanel:ready'
+$env:CODEXBAR_PROOF_DATA_DIR = Join-Path ([IO.Path]::GetTempPath()) ('codexbar-proof-' + [guid]::NewGuid().ToString('N'))
 .\target\release\codex-barbar.exe
 ```
 
@@ -49,6 +50,20 @@ off to the old process). Attach screenshots or a short proof note to PRs.
 Past evidence: `docs/verification/windows/` (screenshots, startup
 performance, proof matrices). New RC evidence for 1.0.0-rc.1 goes to
 `docs/release/v1-rc-report.md`.
+
+## v1.1.5 Codex compatibility: local evidence (2026-11-08)
+
+- Platform: native Windows 11 x64, OS 10.0.26200.0, Rust 1.97.1, Node 24.21.0, project pnpm 10.18.1. CI Node 20 parity remains a hosted check.
+- Final shared backend: **547 unit tests passed, 1 explicit real-machine resolver test ignored**; **21 process-contract tests** and **3 resource tests passed**.
+- Final Tauri crate: **267 tests passed**. Frontend: **39 files / 299 tests passed**, production Web build passed.
+- `cargo fmt --all --check` and Clippy for both manifests with `--all-targets -- -D warnings` passed. V1 boundary and release-workflow guards, production dependency audit and license audit passed.
+- Real installed Codex 0.167.0: native executable discovery, initialize, account/read and account/rateLimits/read succeeded for the signed-in Current CLI. Empty isolated CODEX_HOME correctly reported signedOut after a successful handshake. See [redacted smoke evidence](verification/windows/codex-0.167.0-smoke.json).
+- Proof data can be isolated using an absolute CODEXBAR_PROOF_DATA_DIR; proof does not change the Windows autostart registration. Logs still use the default log directory. Do not invoke managed login or manual account refresh while collecting synthetic UI evidence.
+- Optimized Tauri Release / NSIS build completed. Packaged portable ZIP passed CRC checking and its executable SHA-256 matched the release build; Windows file version is 1.1.5. The local installer is unsigned (Authenticode NotSigned).
+- CUA Driver 0.22.0 exercised the freshly built Release app with isolated proof data: Advanced path input → Validate and Save displayed detected Codex 0.167.0; a read-only check of the isolated SQLite database confirmed the override was saved. Navigation to About displayed version 1.1.5. [Native screenshot](images/windows-proof/codex-barbar-1.1.5-about.png).
+- General showed theme=System with a dark settings surface while the float-ball window existed. Toggling Start at login changed its UIA checked state from true to false, while both canonical and legacy autostart registry values remained unchanged. CUA actions initially reported unverifiable; success is based on subsequent snapshots/pixels and database/registry assertions, not only command exit codes.
+- The proof process and task-started CUA daemon were stopped; the original installed tray process was restored. The agent did not replace the installed binary. The user subsequently reported that installing the delivered 1.1.5 build succeeded; this is user-reported installation evidence, not a full upgrade/uninstall matrix.
+- Not a complete installer-upgrade/uninstall, multi-monitor/DPI, enterprise proxy, keyring, or real managed-login acceptance run. GitHub release publishing and installed-binary replacement are outside this local update.
 
 ## v1.1.4 notification and taskbar fix: pre-release evidence
 

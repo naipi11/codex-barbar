@@ -45,6 +45,58 @@ async fn initialize_precedes_initialized_notification_and_requests_correlate() {
 }
 
 #[tokio::test]
+async fn initialize_rejects_results_missing_official_response_fields() {
+    let error = fixture_connect_error(FakeServerMode::InvalidInitialize).await;
+    assert_eq!(
+        error.diagnostic_code,
+        "APP_SERVER_INITIALIZE_RESPONSE_INVALID"
+    );
+}
+
+#[tokio::test]
+async fn string_id_server_request_is_rejected_without_granting_approval() {
+    let client = fixture_client(FakeServerMode::ServerRequest).await;
+    let value = tokio::time::timeout(
+        Duration::from_secs(5),
+        client.request("account/read", json!({"refreshToken": false})),
+    )
+    .await
+    .expect("server request must receive a rejection")
+    .unwrap();
+    assert_eq!(value["account"]["type"], "chatgpt");
+    assert_eq!(client.metrics().protocol_errors, 1);
+    client.shutdown().await.unwrap();
+}
+
+#[tokio::test]
+async fn verbose_stderr_cannot_close_or_block_account_reads() {
+    let client = fixture_client(FakeServerMode::StderrFlood).await;
+    let value = tokio::time::timeout(
+        Duration::from_secs(5),
+        client.request("account/read", json!({"refreshToken": false})),
+    )
+    .await
+    .expect("stderr must remain drained")
+    .unwrap();
+    assert_eq!(value["account"]["type"], "chatgpt");
+    client.shutdown().await.unwrap();
+}
+
+#[tokio::test]
+async fn login_wait_is_woken_when_the_server_exits() {
+    let client = fixture_client(FakeServerMode::LoginCrash).await;
+    let mut session = ManagedSession::from_client(client);
+    let challenge = session.start_login(LoginFlow::Browser).await.unwrap();
+    assert_eq!(challenge.login_id, "login-browser");
+    let error = tokio::time::timeout(Duration::from_secs(3), session.next_login_event())
+        .await
+        .expect("login must observe EOF")
+        .unwrap_err();
+    assert_eq!(error.diagnostic_code, "APP_SERVER_EOF");
+    session.shutdown().await.unwrap();
+}
+
+#[tokio::test]
 async fn interleaved_unknown_notification_does_not_steal_response() {
     let client = fixture_client(FakeServerMode::Interleaved).await;
     let mut notifications = client.subscribe_notifications();
@@ -182,11 +234,10 @@ async fn refused_exit_is_killed_by_bounded_shutdown() {
 
 #[test]
 fn initialize_params_keep_experimental_api_disabled() {
-    let params = InitializeParams::v1();
-    assert_eq!(
-        serde_json::to_value(params).unwrap()["experimentalApi"],
-        false
-    );
+    let params = serde_json::to_value(InitializeParams::v1()).unwrap();
+    assert_eq!(params["capabilities"]["experimentalApi"], false);
+    assert_eq!(params["capabilities"]["explicitGatewayOauth"], true);
+    assert!(params.get("experimentalApi").is_none());
 }
 
 #[test]

@@ -2,6 +2,7 @@
 
 mod app_coordinator;
 mod auto_refresh;
+mod codex_factory;
 mod commands;
 mod events;
 mod float_ball;
@@ -70,7 +71,8 @@ fn main() {
     initial_state.proof_config = proof_config;
     let coordinator = Arc::clone(&initial_state.coordinator);
     coordinator.record(app_coordinator::StartupMilestone::Logging);
-    let app_paths = codexbar::app_paths::AppPaths::discover().ok();
+    let app_paths =
+        proof_harness::desktop_app_paths(is_proof_mode).expect("invalid CODEXBAR_PROOF_DATA_DIR");
     let avatar_store = Arc::new(avatar_store_from_app_paths(app_paths.as_ref()));
 
     // Phase-2 account bootstrap: open the canonical SQLite database, recover
@@ -110,8 +112,9 @@ fn main() {
                 .map(|paths| paths.identity_cache.clone())
                 .unwrap_or_else(|| std::path::PathBuf::from("codex-barbar-identity-profiles.json")),
         ));
-        let factory: Arc<dyn codexbar::providers::codex::app_server::AppServerFactory> =
-            Arc::new(codexbar::providers::codex::app_server::LocalAppServerFactory::default());
+        let factory: Arc<dyn codexbar::providers::codex::app_server::AppServerFactory> = Arc::new(
+            codex_factory::settings_backed_factory(repositories.settings.clone()),
+        );
         let service = codexbar::accounts::service::AccountProfileService::new(
             repositories,
             Arc::clone(&vault),
@@ -130,7 +133,7 @@ fn main() {
         initial_state.account_service = Some(service);
     }
 
-    let notification_paths = codexbar::app_paths::AppPaths::discover().unwrap_or_else(|_| {
+    let notification_paths = app_paths.clone().unwrap_or_else(|| {
         codexbar::app_paths::AppPaths::from_local_app_data(&std::env::temp_dir())
     });
     let notification_controller = notification_controller::NotificationController::new(
@@ -372,7 +375,7 @@ fn main() {
             });
             if let Some(settings) = loaded_settings.as_ref()
                 && let Err(error) =
-                    codexbar::platform::windows::autostart::set_enabled(settings.start_at_login)
+                    proof_harness::apply_autostart_setting(is_proof_mode, settings.start_at_login)
             {
                 tracing::warn!(
                     code = "AUTOSTART_STARTUP_RECONCILE_FAILED",

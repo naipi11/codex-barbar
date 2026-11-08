@@ -86,7 +86,11 @@ impl Provider for CodexProvider {
 
         let read_result = match tokio::time::timeout(Duration::from_secs(30), async {
             let account = session.account_read(false).await?;
-            let rate_limits = session.rate_limits_read().await?;
+            let rate_limits = if account.auth_mode == crate::core::AuthMode::ApiKey {
+                app_server::ParsedRateLimits::empty()
+            } else {
+                session.rate_limits_read().await?
+            };
             Ok::<_, AppError>((account, rate_limits))
         })
         .await
@@ -271,6 +275,38 @@ mod tests {
             let client = CodexAppServerClient::connect(spec).await?;
             Ok(ManagedSession::from_client(client))
         }
+    }
+
+    #[tokio::test]
+    async fn codex_provider_reports_api_key_no_quota_without_rate_rpc() {
+        let factory = Arc::new(crate::accounts::test_support::FakeAppServerFactory::default());
+        factory.set_next_current_mode(FakeServerMode::ApiKeyNoQuota);
+        let provider = CodexProvider::with_app_server(factory.clone());
+        let error = provider
+            .fetch_usage(&FetchContext::default())
+            .await
+            .unwrap_err();
+        assert!(
+            matches!(error, ProviderError::Other(message) if message.contains("API-key accounts do not expose ChatGPT quota"))
+        );
+        assert_eq!(factory.open_current_cli_calls(), 1);
+        assert_eq!(factory.open_managed_calls(), 0);
+        factory.assert_clients_shutdown().await;
+    }
+
+    #[tokio::test]
+    async fn codex_provider_empty_quota_is_parse_error_and_closes_session() {
+        let factory = Arc::new(crate::accounts::test_support::FakeAppServerFactory::default());
+        factory.set_next_current_mode(FakeServerMode::EmptyRateLimits);
+        let provider = CodexProvider::with_app_server(factory.clone());
+        let error = provider
+            .fetch_usage(&FetchContext::default())
+            .await
+            .unwrap_err();
+        assert!(
+            matches!(error, ProviderError::Parse(message) if message.contains("APP_SERVER_NO_RATE_LIMITS"))
+        );
+        factory.assert_clients_shutdown().await;
     }
 
     #[tokio::test]

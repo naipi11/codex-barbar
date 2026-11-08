@@ -1,5 +1,19 @@
 # Changelog
 
+## 1.1.5 - Unreleased
+
+### Fixed
+- Align the App Server initialize capabilities and login completion handling with Codex CLI 0.167.0 while keeping experimental APIs disabled.
+- Parse nullable quota windows without false anomalies; never interpret billing credits or individual monetary limits as percentage quota. Isolate malformed additional buckets from valid Codex quota.
+- Bound executable version probes to five seconds and 4 KiB, reap their process trees, and reject relative PATH entries.
+- Apply the configured Codex executable to account refresh and diagnostics; preserve verified npm shim paths instead of persisting node.exe as Codex.
+
+### Improved
+- Activate the existing release optimization profile at the Cargo workspace root, where Cargo actually applies it.
+- Add official version-pinned protocol schemas and deterministic compatibility regressions; retain the 0.146.0 fixtures.
+- Make read-only smoke checks close sessions on failure and distinguish authenticated quota checks from signed-out transport checks.
+- Allow isolated Windows proof data without changing the installed app's login-startup registration.
+
 ## 1.1.4 - 2026-09-24
 
 ### Fixed
