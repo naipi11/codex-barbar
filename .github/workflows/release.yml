@@ -16,6 +16,11 @@ on:
     tags:
       - 'v*'
 
+# Serialize manual and tag-triggered publication of the same version.
+concurrency:
+  group: release-${{ inputs.version && format('v{0}', inputs.version) || github.ref_name }}
+  cancel-in-progress: false
+
 permissions:
   contents: write
   security-events: read
@@ -165,13 +170,59 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           $version = "${{ steps.version.outputs.version }}"
-          $notes = Join-Path $env:RUNNER_TEMP "release-notes.md"
-          "codex-barbar $version (unsigned build)" | Set-Content -Encoding utf8 $notes
-          $assets = @(
-            "artifacts/release/codex-barbar_${version}_x64-setup.exe",
-            "artifacts/release/codex-barbar_${version}_x64-portable.zip",
-            "artifacts/release/SHA256SUMS.txt",
-            "artifacts/release/codex-barbar_${version}_sbom.spdx.json",
-            "artifacts/release/artifact-manifest.json"
-          )
-          gh release create "v$version" --target $env:GITHUB_SHA --draft --title "codex-barbar $version" --notes-file $notes @assets
+          $OutputEncoding = [Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false)
+          # BEGIN release-idempotency-policy
+          function Get-ReleaseDraftAction {
+            param([object[]]$Releases, [string]$Tag, [string]$Commit, [string]$TagCommit)
+            if ($Commit -cnotmatch '^[0-9a-f]{40}$') {
+              throw 'A full validated commit SHA is required.'
+            }
+            $matching = @($Releases | Where-Object { $_.tag_name -ceq $Tag })
+            if ($matching.Count -gt 1) {
+              throw "Multiple releases already use $Tag; inspect them without overwriting assets."
+            }
+            if ($TagCommit -and $TagCommit -cne $Commit) {
+              throw "Tag $Tag points to a different commit; published versions are immutable."
+            }
+            if ($matching.Count -eq 0) { return 'create' }
+            if ($matching[0].draft) {
+              if ($matching[0].target_commitish -cne $Commit) {
+                throw "Draft $Tag is not bound to this exact validated commit."
+              }
+            } elseif (-not $TagCommit) {
+              throw "Published release $Tag has no verifiable tag commit."
+            }
+            return 'skip'
+          }
+          # END release-idempotency-policy
+
+          $tag = "v$version"
+          # Project only policy fields: do not parse or log arbitrary release bodies.
+          $releasesJson = gh api "/repos/$env:GITHUB_REPOSITORY/releases?per_page=100" --paginate --jq '.[] | {tag_name, draft, target_commitish}'
+          if ($LASTEXITCODE -ne 0) { throw 'Cannot inspect existing releases.' }
+          $releases = @($releasesJson | ForEach-Object { $_ | ConvertFrom-Json })
+          $refsJson = gh api "/repos/$env:GITHUB_REPOSITORY/git/matching-refs/tags/$tag"
+          if ($LASTEXITCODE -ne 0) { throw 'Cannot inspect existing tag references.' }
+          $tagRefs = @($refsJson | ConvertFrom-Json | Where-Object { $_.ref -ceq "refs/tags/$tag" })
+          $tagCommit = ''
+          if ($tagRefs.Count -gt 0) {
+            $tagCommit = gh api "/repos/$env:GITHUB_REPOSITORY/commits/$tag" --jq .sha
+            if ($LASTEXITCODE -ne 0) { throw 'Cannot resolve the existing tag commit.' }
+            $tagCommit = ([string]$tagCommit).Trim()
+          }
+          $action = Get-ReleaseDraftAction -Releases $releases -Tag $tag -Commit $env:GITHUB_SHA -TagCommit $tagCommit
+          if ($action -eq 'skip') {
+            Write-Host "Release $tag already exists for this commit; leaving its state, notes, and assets unchanged."
+          } else {
+            $notes = Join-Path $env:RUNNER_TEMP "release-notes.md"
+            "codex-barbar $version (unsigned build)" | Set-Content -Encoding utf8 $notes
+            $assets = @(
+              "artifacts/release/codex-barbar_${version}_x64-setup.exe",
+              "artifacts/release/codex-barbar_${version}_x64-portable.zip",
+              "artifacts/release/SHA256SUMS.txt",
+              "artifacts/release/codex-barbar_${version}_sbom.spdx.json",
+              "artifacts/release/artifact-manifest.json"
+            )
+            gh release create $tag --target $env:GITHUB_SHA --draft --title "codex-barbar $version" --notes-file $notes @assets
+            if ($LASTEXITCODE -ne 0) { throw 'Draft creation failed; existing releases were not modified.' }
+          }
